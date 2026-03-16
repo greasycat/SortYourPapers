@@ -6,6 +6,7 @@ Use LLMs to sort papers.
 - Ignores files larger than a configurable limit (default `8MB`)
 - Extracts text from first `N` pages (default `5`)
 - Extracts file-keyword pairs in LLM batches (default `50` files per batch)
+- Supports taxonomy synthesis in either one global pass or `batch-merge` mode (`3` papers per batch by default, followed by one final merge request). `batch-merge` is the default.
 - Uses an LLM to:
   - extract keywords per paper
   - synthesize folder taxonomy
@@ -64,20 +65,32 @@ Manual text extraction for debugging:
 ```bash
 cargo run -- extract-text \
   --page-cutoff 2 \
-  --extractor lopdf \
+  --pdf-extract-workers 4 \
+  --extractor pdf-oxide \
   --debug \
   ./papers/sample.pdf
 ```
 
+Compare `batch-merge` and `global` taxonomy timing on the same corpus:
+```bash
+cargo run --bin compare_taxonomy_modes -- \
+  --input ./papers \
+  --taxonomy-batch-size 3 \
+  --debug
+```
+
 ## Core Flags
 - `init [-f|--force]` create default XDG config file  
-- `extract-text [--page-cutoff <u8>] [--extractor <auto|lopdf|pdftotext>] [--debug] <PDF...>` extract text directly  
+- `extract-text [--page-cutoff <u8>] [--extractor <auto|pdf-oxide|pdftotext>] [--debug] <PDF...>` extract text directly  
 - `-i, --input <PATH>` default `.`  
 - `-o, --output <PATH>` default `./sorted`  
 - `-r, --recursive` default `false`  
 - `-s, --max-file-size-mb <u64>` default `8`  
 - `-p, --page-cutoff <u8>` default `5`  
+- `--pdf-extract-workers <usize>` default `4`
 - `-d, --category-depth <u8>` default `2`  
+- `--taxonomy-mode <global|batch-merge>` default `batch-merge`
+- `--taxonomy-batch-size <usize>` default `3` (papers per partial taxonomy batch in `batch-merge` mode)
 - `-M, --placement-mode <existing-only|allow-new>` default `existing-only`  
 - `-R, --rebuild` default `false`  
 - `-n, --dry-run` default `true`  
@@ -95,7 +108,10 @@ cargo run -- extract-text \
 - `SYP_RECURSIVE`
 - `SYP_MAX_FILE_SIZE_MB`
 - `SYP_PAGE_CUTOFF`
+- `SYP_PDF_EXTRACT_WORKERS`
 - `SYP_CATEGORY_DEPTH`
+- `SYP_TAXONOMY_MODE`
+- `SYP_TAXONOMY_BATCH_SIZE`
 - `SYP_PLACEMENT_MODE`
 - `SYP_REBUILD`
 - `SYP_DRY_RUN`
