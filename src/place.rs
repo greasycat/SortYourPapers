@@ -283,6 +283,7 @@ mod tests {
             file_id: "f1".to_string(),
             path: PathBuf::from("/tmp/p1.pdf"),
             extracted_text: "x".to_string(),
+            llm_ready_text: "x".to_string(),
             pages_read: 1,
         }];
         let placements = vec![PlacementDecision {

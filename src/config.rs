@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::{
     error::{AppError, Result},
-    models::{AppConfig, LlmProvider, PlacementMode},
+    models::{AppConfig, LlmProvider, PlacementMode, TaxonomyMode},
     pdf_extract::ExtractorMode,
 };
 
@@ -17,7 +17,9 @@ const DEFAULT_INPUT: &str = ".";
 const DEFAULT_OUTPUT: &str = "./sorted";
 const DEFAULT_MAX_FILE_SIZE_MB: u64 = 8;
 const DEFAULT_PAGE_CUTOFF: u8 = 1;
+const DEFAULT_PDF_EXTRACT_WORKERS: usize = 4;
 const DEFAULT_CATEGORY_DEPTH: u8 = 2;
+const DEFAULT_TAXONOMY_BATCH_SIZE: usize = 3;
 const DEFAULT_RECURSIVE: bool = false;
 const DEFAULT_REBUILD: bool = false;
 const DEFAULT_DRY_RUN: bool = true;
@@ -58,11 +60,14 @@ pub struct ExtractTextArgs {
     #[arg(short = 'e', long, value_enum, default_value_t = ExtractorMode::Auto)]
     pub extractor: ExtractorMode,
 
+    #[arg(long, default_value_t = DEFAULT_PDF_EXTRACT_WORKERS)]
+    pub pdf_extract_workers: usize,
+
     #[arg(long, action = ArgAction::SetTrue)]
     pub debug: bool,
 }
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Clone)]
 pub struct CliArgs {
     #[arg(short = 'i', long)]
     pub input: Option<PathBuf>,
@@ -79,8 +84,17 @@ pub struct CliArgs {
     #[arg(short = 'p', long)]
     pub page_cutoff: Option<u8>,
 
+    #[arg(long)]
+    pub pdf_extract_workers: Option<usize>,
+
     #[arg(short = 'd', long)]
     pub category_depth: Option<u8>,
+
+    #[arg(long)]
+    pub taxonomy_mode: Option<TaxonomyMode>,
+
+    #[arg(long)]
+    pub taxonomy_batch_size: Option<usize>,
 
     #[arg(short = 'M', long)]
     pub placement_mode: Option<PlacementMode>,
@@ -120,7 +134,10 @@ struct FileConfig {
     recursive: Option<bool>,
     max_file_size_mb: Option<u64>,
     page_cutoff: Option<u8>,
+    pdf_extract_workers: Option<usize>,
     category_depth: Option<u8>,
+    taxonomy_mode: Option<TaxonomyMode>,
+    taxonomy_batch_size: Option<usize>,
     placement_mode: Option<PlacementMode>,
     rebuild: Option<bool>,
     dry_run: Option<bool>,
@@ -138,7 +155,10 @@ struct EnvConfig {
     recursive: Option<bool>,
     max_file_size_mb: Option<u64>,
     page_cutoff: Option<u8>,
+    pdf_extract_workers: Option<usize>,
     category_depth: Option<u8>,
+    taxonomy_mode: Option<TaxonomyMode>,
+    taxonomy_batch_size: Option<usize>,
     placement_mode: Option<PlacementMode>,
     rebuild: Option<bool>,
     dry_run: Option<bool>,
@@ -157,7 +177,10 @@ impl EnvConfig {
             recursive: parse_env_bool("SYP_RECURSIVE")?,
             max_file_size_mb: parse_env_u64("SYP_MAX_FILE_SIZE_MB")?,
             page_cutoff: parse_env_u8("SYP_PAGE_CUTOFF")?,
+            pdf_extract_workers: parse_env_usize("SYP_PDF_EXTRACT_WORKERS")?,
             category_depth: parse_env_u8("SYP_CATEGORY_DEPTH")?,
+            taxonomy_mode: parse_env_taxonomy_mode("SYP_TAXONOMY_MODE")?,
+            taxonomy_batch_size: parse_env_usize("SYP_TAXONOMY_BATCH_SIZE")?,
             placement_mode: parse_env_placement_mode("SYP_PLACEMENT_MODE")?,
             rebuild: parse_env_bool("SYP_REBUILD")?,
             dry_run: parse_env_bool("SYP_DRY_RUN")?,
@@ -211,11 +234,29 @@ fn resolve_from_sources(
         .or(file_cfg.page_cutoff)
         .unwrap_or(DEFAULT_PAGE_CUTOFF);
 
+    let pdf_extract_workers = cli
+        .pdf_extract_workers
+        .or(env_cfg.pdf_extract_workers)
+        .or(file_cfg.pdf_extract_workers)
+        .unwrap_or(DEFAULT_PDF_EXTRACT_WORKERS);
+
     let category_depth = cli
         .category_depth
         .or(env_cfg.category_depth)
         .or(file_cfg.category_depth)
         .unwrap_or(DEFAULT_CATEGORY_DEPTH);
+
+    let taxonomy_mode = cli
+        .taxonomy_mode
+        .or(env_cfg.taxonomy_mode)
+        .or(file_cfg.taxonomy_mode)
+        .unwrap_or_default();
+
+    let taxonomy_batch_size = cli
+        .taxonomy_batch_size
+        .or(env_cfg.taxonomy_batch_size)
+        .or(file_cfg.taxonomy_batch_size)
+        .unwrap_or(DEFAULT_TAXONOMY_BATCH_SIZE);
 
     let placement_mode = cli
         .placement_mode
@@ -271,9 +312,19 @@ fn resolve_from_sources(
             "page_cutoff must be greater than 0".to_string(),
         ));
     }
+    if pdf_extract_workers == 0 {
+        return Err(AppError::Validation(
+            "pdf_extract_workers must be greater than 0".to_string(),
+        ));
+    }
     if category_depth == 0 {
         return Err(AppError::Validation(
             "category_depth must be greater than 0".to_string(),
+        ));
+    }
+    if taxonomy_batch_size == 0 {
+        return Err(AppError::Validation(
+            "taxonomy_batch_size must be greater than 0".to_string(),
         ));
     }
     if keyword_batch_size == 0 {
@@ -288,7 +339,10 @@ fn resolve_from_sources(
         recursive,
         max_file_size_mb,
         page_cutoff,
+        pdf_extract_workers,
         category_depth,
+        taxonomy_mode,
+        taxonomy_batch_size,
         placement_mode,
         rebuild,
         dry_run,
@@ -327,7 +381,10 @@ pub fn default_config_toml() -> String {
             "recursive = {recursive}\n",
             "max_file_size_mb = {max_file_size_mb}\n",
             "page_cutoff = {page_cutoff}\n",
+            "pdf_extract_workers = {pdf_extract_workers}\n",
             "category_depth = {category_depth}\n",
+            "taxonomy_mode = \"batch-merge\"\n",
+            "taxonomy_batch_size = {taxonomy_batch_size}\n",
             "placement_mode = \"existing-only\"\n",
             "rebuild = {rebuild}\n",
             "dry_run = {dry_run}\n",
@@ -344,7 +401,9 @@ pub fn default_config_toml() -> String {
         recursive = DEFAULT_RECURSIVE,
         max_file_size_mb = DEFAULT_MAX_FILE_SIZE_MB,
         page_cutoff = DEFAULT_PAGE_CUTOFF,
+        pdf_extract_workers = DEFAULT_PDF_EXTRACT_WORKERS,
         category_depth = DEFAULT_CATEGORY_DEPTH,
+        taxonomy_batch_size = DEFAULT_TAXONOMY_BATCH_SIZE,
         rebuild = DEFAULT_REBUILD,
         dry_run = DEFAULT_DRY_RUN,
         keyword_batch_size = DEFAULT_KEYWORD_BATCH_SIZE,
@@ -420,6 +479,19 @@ fn parse_env_provider(key: &str) -> Result<Option<LlmProvider>> {
     }
 }
 
+fn parse_env_taxonomy_mode(key: &str) -> Result<Option<TaxonomyMode>> {
+    match env::var(key) {
+        Ok(v) => match v.to_ascii_lowercase().as_str() {
+            "global" => Ok(Some(TaxonomyMode::Global)),
+            "batch-merge" => Ok(Some(TaxonomyMode::BatchMerge)),
+            _ => Err(AppError::Config(format!(
+                "{key} must be one of: global, batch-merge"
+            ))),
+        },
+        Err(_) => Ok(None),
+    }
+}
+
 fn parse_env_placement_mode(key: &str) -> Result<Option<PlacementMode>> {
     match env::var(key) {
         Ok(v) => match v.to_ascii_lowercase().as_str() {
@@ -470,7 +542,7 @@ mod tests {
         Cli, CliArgs, Commands, EnvConfig, FileConfig, resolve_from_sources,
         write_default_config_at,
     };
-    use crate::models::{LlmProvider, PlacementMode};
+    use crate::models::{LlmProvider, PlacementMode, TaxonomyMode};
     use crate::pdf_extract::ExtractorMode;
 
     #[test]
@@ -486,8 +558,14 @@ mod tests {
             "7",
             "--page-cutoff",
             "4",
+            "--pdf-extract-workers",
+            "6",
             "--category-depth",
             "3",
+            "--taxonomy-mode",
+            "batch-merge",
+            "--taxonomy-batch-size",
+            "6",
             "--placement-mode",
             "allow-new",
             "--rebuild",
@@ -511,7 +589,10 @@ mod tests {
             recursive: Some(false),
             max_file_size_mb: Some(100),
             page_cutoff: Some(10),
+            pdf_extract_workers: Some(7),
             category_depth: Some(5),
+            taxonomy_mode: Some(TaxonomyMode::BatchMerge),
+            taxonomy_batch_size: Some(9),
             placement_mode: Some(PlacementMode::ExistingOnly),
             rebuild: Some(false),
             dry_run: Some(true),
@@ -528,7 +609,10 @@ mod tests {
             recursive: Some(false),
             max_file_size_mb: Some(200),
             page_cutoff: Some(20),
+            pdf_extract_workers: Some(8),
             category_depth: Some(6),
+            taxonomy_mode: Some(TaxonomyMode::BatchMerge),
+            taxonomy_batch_size: Some(8),
             placement_mode: Some(PlacementMode::ExistingOnly),
             rebuild: Some(false),
             dry_run: Some(true),
@@ -546,7 +630,10 @@ mod tests {
         assert!(cfg.recursive);
         assert_eq!(cfg.max_file_size_mb, 7);
         assert_eq!(cfg.page_cutoff, 4);
+        assert_eq!(cfg.pdf_extract_workers, 6);
         assert_eq!(cfg.category_depth, 3);
+        assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
+        assert_eq!(cfg.taxonomy_batch_size, 6);
         assert_eq!(cfg.placement_mode, PlacementMode::AllowNew);
         assert!(cfg.rebuild);
         assert!(!cfg.dry_run);
@@ -567,8 +654,11 @@ mod tests {
 
         let raw = fs::read_to_string(path).expect("read config");
         assert!(raw.contains("max_file_size_mb = 8"));
+        assert!(raw.contains("pdf_extract_workers = 4"));
         assert!(raw.contains("llm_provider = \"gemini\""));
         assert!(raw.contains("llm_model = \"gemini-2.5-flash\""));
+        assert!(raw.contains("taxonomy_mode = \"batch-merge\""));
+        assert!(raw.contains("taxonomy_batch_size = 3"));
         assert!(raw.contains("keyword_batch_size = 50"));
     }
 
@@ -610,6 +700,9 @@ mod tests {
 
         assert_eq!(cfg.llm_provider, LlmProvider::Gemini);
         assert_eq!(cfg.llm_model, "gemini-3-flash-preview");
+        assert_eq!(cfg.pdf_extract_workers, 4);
+        assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
+        assert_eq!(cfg.taxonomy_batch_size, 3);
         assert_eq!(cfg.keyword_batch_size, 50);
         assert!(!cfg.debug);
     }
@@ -627,8 +720,14 @@ mod tests {
             "16",
             "-p",
             "4",
+            "--pdf-extract-workers",
+            "5",
             "-d",
             "3",
+            "--taxonomy-mode",
+            "batch-merge",
+            "--taxonomy-batch-size",
+            "5",
             "-M",
             "allow-new",
             "-R",
@@ -656,7 +755,10 @@ mod tests {
         assert!(cfg.recursive);
         assert_eq!(cfg.max_file_size_mb, 16);
         assert_eq!(cfg.page_cutoff, 4);
+        assert_eq!(cfg.pdf_extract_workers, 5);
         assert_eq!(cfg.category_depth, 3);
+        assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
+        assert_eq!(cfg.taxonomy_batch_size, 5);
         assert_eq!(cfg.placement_mode, PlacementMode::AllowNew);
         assert!(cfg.rebuild);
         assert!(!cfg.dry_run);
@@ -679,7 +781,7 @@ mod tests {
             "--page-cutoff",
             "2",
             "--extractor",
-            "lopdf",
+            "pdf-oxide",
             "--debug",
             "/tmp/a.pdf",
             "/tmp/b.pdf",
@@ -688,9 +790,30 @@ mod tests {
         match cli.command {
             Some(Commands::ExtractText(args)) => {
                 assert_eq!(args.page_cutoff, 2);
-                assert_eq!(args.extractor, ExtractorMode::Lopdf);
+                assert_eq!(args.extractor, ExtractorMode::PdfOxide);
+                assert_eq!(args.pdf_extract_workers, 4);
                 assert!(args.debug);
                 assert_eq!(args.files.len(), 2);
+            }
+            _ => panic!("expected extract-text command"),
+        }
+    }
+
+    #[test]
+    fn parses_legacy_lopdf_extractor_alias() {
+        let cli = Cli::parse_from([
+            "sortyourpapers",
+            "extract-text",
+            "--extractor",
+            "lopdf",
+            "/tmp/a.pdf",
+        ]);
+
+        match cli.command {
+            Some(Commands::ExtractText(args)) => {
+                assert_eq!(args.extractor, ExtractorMode::PdfOxide);
+                assert_eq!(args.pdf_extract_workers, 4);
+                assert_eq!(args.files.len(), 1);
             }
             _ => panic!("expected extract-text command"),
         }

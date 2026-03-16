@@ -17,6 +17,19 @@ impl Default for PlacementMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum TaxonomyMode {
+    Global,
+    BatchMerge,
+}
+
+impl Default for TaxonomyMode {
+    fn default() -> Self {
+        Self::BatchMerge
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmProvider {
     Openai,
@@ -31,7 +44,10 @@ pub struct AppConfig {
     pub recursive: bool,
     pub max_file_size_mb: u64,
     pub page_cutoff: u8,
+    pub pdf_extract_workers: usize,
     pub category_depth: u8,
+    pub taxonomy_mode: TaxonomyMode,
+    pub taxonomy_batch_size: usize,
     pub placement_mode: PlacementMode,
     pub rebuild: bool,
     pub dry_run: bool,
@@ -54,6 +70,7 @@ pub struct PaperText {
     pub file_id: String,
     pub path: PathBuf,
     pub extracted_text: String,
+    pub llm_ready_text: String,
     pub pages_read: u8,
 }
 

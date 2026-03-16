@@ -17,7 +17,7 @@ async fn main() {
                     std::process::exit(1);
                 }
             },
-            Commands::ExtractText(args) => match sortyourpapers::run_extract_text(args) {
+            Commands::ExtractText(args) => match sortyourpapers::run_extract_text(args).await {
                 Ok(()) => {}
                 Err(err) => {
                     print_error_with_hints(&err);

@@ -5,28 +5,32 @@ use std::{
     io::Write,
     path::Path,
     process::Command,
+    sync::Arc,
     time::Instant,
 };
 
 use clap::ValueEnum;
-use lopdf::Document;
+use pdf_oxide::PdfDocument;
+use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::{
     error::AppError,
     models::{PaperText, PdfCandidate},
+    text_preprocess::preprocess_for_llm,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 pub enum ExtractorMode {
     Auto,
-    Lopdf,
+    #[value(alias = "lopdf")]
+    PdfOxide,
     Pdftotext,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExtractorUsed {
-    Lopdf,
+    PdfOxide,
     Pdftotext,
 }
 
@@ -49,24 +53,64 @@ pub fn reset_debug_extract_log(enabled: bool) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn extract_text_batch(
+pub async fn extract_text_batch(
     candidates: &[PdfCandidate],
     page_cutoff: u8,
     mode: ExtractorMode,
     debug: bool,
+    workers: usize,
 ) -> (Vec<PaperText>, Vec<(std::path::PathBuf, String)>) {
+    let max_workers = workers.max(1);
+    let semaphore = Arc::new(Semaphore::new(max_workers));
+    let mut join_set = JoinSet::new();
     let mut papers = Vec::new();
     let mut failures = Vec::new();
 
-    for candidate in candidates {
-        let file_id = make_file_id(&candidate.path);
-        match extract_one(candidate, page_cutoff, file_id, mode, debug) {
-            Ok(paper) => papers.push(paper),
-            Err(err) => failures.push((candidate.path.clone(), err.to_string())),
+    for (index, candidate) in candidates.iter().cloned().enumerate() {
+        let permit = semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("pdf extract semaphore should not close");
+        join_set.spawn(async move {
+            let _permit = permit;
+            let path = candidate.path.clone();
+            let file_id = make_file_id(&candidate.path);
+            let result = tokio::task::spawn_blocking(move || {
+                extract_one(&candidate, page_cutoff, file_id, mode, debug)
+            })
+            .await
+            .map_err(|err| AppError::Execution(format!("pdf extraction task failed: {err}")))
+            .and_then(|result| result);
+            (index, path, result)
+        });
+    }
+
+    while let Some(join_result) = join_set.join_next().await {
+        match join_result {
+            Ok((index, _path, Ok(paper))) => papers.push((index, paper)),
+            Ok((index, path, Err(err))) => failures.push((index, path, err.to_string())),
+            Err(err) => failures.push((
+                usize::MAX,
+                candidates
+                    .first()
+                    .map(|candidate| candidate.path.clone())
+                    .unwrap_or_default(),
+                format!("pdf extraction join failed: {err}"),
+            )),
         }
     }
 
-    (papers, failures)
+    papers.sort_by_key(|(index, _)| *index);
+    failures.sort_by_key(|(index, _, _)| *index);
+
+    (
+        papers.into_iter().map(|(_, paper)| paper).collect(),
+        failures
+            .into_iter()
+            .map(|(_, path, reason)| (path, reason))
+            .collect(),
+    )
 }
 
 pub fn extract_text_from_path(
@@ -94,8 +138,8 @@ fn extract_one(
 
     let mut fallback_reason: Option<String> = None;
     let (extracted_text, pages_read, extractor_used) = match mode {
-        ExtractorMode::Auto => match extract_with_lopdf(candidate, page_cutoff) {
-            Ok((text, pages_read)) => (text, pages_read, ExtractorUsed::Lopdf),
+        ExtractorMode::Auto => match extract_with_pdf_oxide(candidate, page_cutoff) {
+            Ok((text, pages_read)) => (text, pages_read, ExtractorUsed::PdfOxide),
             Err(primary_err) => {
                 fallback_reason = Some(primary_err.to_string());
                 match extract_with_pdftotext(candidate, page_cutoff) {
@@ -111,15 +155,17 @@ fn extract_one(
                 }
             }
         },
-        ExtractorMode::Lopdf => {
-            let (text, pages_read) = extract_with_lopdf(candidate, page_cutoff)?;
-            (text, pages_read, ExtractorUsed::Lopdf)
+        ExtractorMode::PdfOxide => {
+            let (text, pages_read) = extract_with_pdf_oxide(candidate, page_cutoff)?;
+            (text, pages_read, ExtractorUsed::PdfOxide)
         }
         ExtractorMode::Pdftotext => {
             let text = extract_with_pdftotext(candidate, page_cutoff)?;
             (text, page_cutoff, ExtractorUsed::Pdftotext)
         }
     };
+
+    let llm_ready_text = preprocess_for_llm(&extracted_text);
 
     if debug {
         let mut detail = String::new();
@@ -142,6 +188,7 @@ fn extract_one(
             started.elapsed(),
             fallback_reason.as_deref(),
             &extracted_text,
+            &llm_ready_text,
         ) {
             eprintln!(
                 "[debug][extract] failed to write log {}: {}",
@@ -154,36 +201,57 @@ fn extract_one(
         file_id,
         path: candidate.path.clone(),
         extracted_text,
+        llm_ready_text,
         pages_read,
     })
 }
 
-fn extract_with_lopdf(candidate: &PdfCandidate, page_cutoff: u8) -> Result<(String, u8), AppError> {
-    let doc = Document::load(&candidate.path)
+fn extract_with_pdf_oxide(
+    candidate: &PdfCandidate,
+    page_cutoff: u8,
+) -> Result<(String, u8), AppError> {
+    let mut doc = PdfDocument::open(&candidate.path)
         .map_err(|e| AppError::Pdf(format!("{}: {e}", candidate.path.display())))?;
 
-    let page_numbers: Vec<u32> = doc
-        .get_pages()
-        .keys()
-        .copied()
-        .take(usize::from(page_cutoff))
-        .collect();
-
-    if page_numbers.is_empty() {
+    let pages_read = doc
+        .page_count()
+        .map_err(|e| {
+            AppError::Pdf(format!(
+                "failed to inspect {}: {e}",
+                candidate.path.display()
+            ))
+        })?
+        .min(usize::from(page_cutoff));
+    if pages_read == 0 {
         return Err(AppError::Pdf(format!(
             "{} has no readable pages",
             candidate.path.display()
         )));
     }
 
-    let extracted_text = doc.extract_text(&page_numbers).map_err(|e| {
-        AppError::Pdf(format!(
-            "failed to extract text from {}: {e}",
-            candidate.path.display()
-        ))
-    })?;
+    let mut page_text = Vec::with_capacity(pages_read);
+    for page_index in 0..pages_read {
+        let text = doc.extract_text(page_index).map_err(|e| {
+            AppError::Pdf(format!(
+                "failed to extract page {} from {}: {e}",
+                page_index + 1,
+                candidate.path.display()
+            ))
+        })?;
+        if !text.trim().is_empty() {
+            page_text.push(text);
+        }
+    }
 
-    let pages_read = u8::try_from(page_numbers.len()).unwrap_or(page_cutoff);
+    let extracted_text = page_text.join("\n\n");
+    if extracted_text.trim().is_empty() {
+        return Err(AppError::Pdf(format!(
+            "pdf_oxide produced empty output for {}",
+            candidate.path.display()
+        )));
+    }
+
+    let pages_read = u8::try_from(pages_read).unwrap_or(page_cutoff);
     Ok((extracted_text, pages_read))
 }
 
@@ -232,7 +300,7 @@ pub fn make_file_id(path: &Path) -> String {
 impl ExtractorUsed {
     fn as_str(self) -> &'static str {
         match self {
-            ExtractorUsed::Lopdf => "lopdf",
+            ExtractorUsed::PdfOxide => "pdf-oxide",
             ExtractorUsed::Pdftotext => "pdftotext",
         }
     }
@@ -253,6 +321,7 @@ fn append_debug_extract_log(
     elapsed: std::time::Duration,
     fallback_reason: Option<&str>,
     extracted_text: &str,
+    llm_ready_text: &str,
 ) -> Result<(), AppError> {
     let mut file = OpenOptions::new()
         .create(true)
@@ -267,8 +336,10 @@ fn append_debug_extract_log(
     if let Some(reason) = fallback_reason {
         writeln!(file, "fallback_reason: {}", reason)?;
     }
-    writeln!(file, "--- text ---")?;
+    writeln!(file, "--- raw text ---")?;
     writeln!(file, "{}", extracted_text)?;
+    writeln!(file, "--- llm-ready text ---")?;
+    writeln!(file, "{}", llm_ready_text)?;
     writeln!(file, "=== END ===")?;
     writeln!(file)?;
     file.flush()?;

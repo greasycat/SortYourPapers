@@ -9,21 +9,21 @@ pub mod pdf_extract;
 pub mod place;
 pub mod planner;
 pub mod report;
+pub mod text_preprocess;
 
 use std::{
     path::Path,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use categorize::{extract_keywords, synthesize_categories};
+use categorize::{extract_keywords, synthesize_categories, synthesize_categories_batch_merged};
 use config::{CliArgs, ExtractTextArgs};
 use discovery::{dedupe_candidates, discover_pdf_candidates, split_by_size};
 use error::{AppError, Result};
 use llm::build_client;
-use models::{AppConfig, RunReport};
-use pdf_extract::{
-    ExtractorMode, extract_text_batch, extract_text_from_path, reset_debug_extract_log,
-};
+use models::{AppConfig, PdfCandidate, RunReport, TaxonomyMode};
+use pdf_extract::{ExtractorMode, extract_text_batch, reset_debug_extract_log};
 use place::{OutputSnapshot, generate_placements, inspect_output};
 use planner::build_move_plan;
 
@@ -36,34 +36,60 @@ pub fn init_config(force: bool) -> Result<std::path::PathBuf> {
     config::init_xdg_config(force)
 }
 
-pub fn run_extract_text(args: ExtractTextArgs) -> Result<()> {
+pub async fn run_extract_text(args: ExtractTextArgs) -> Result<()> {
     if args.page_cutoff == 0 {
         return Err(AppError::Validation(
             "page_cutoff must be greater than 0".to_string(),
         ));
     }
+    if args.pdf_extract_workers == 0 {
+        return Err(AppError::Validation(
+            "pdf_extract_workers must be greater than 0".to_string(),
+        ));
+    }
 
     reset_debug_extract_log(args.debug)?;
 
-    let mut failure_count = 0usize;
-    for (index, path) in args.files.iter().enumerate() {
+    let candidates = args
+        .files
+        .iter()
+        .map(|path| PdfCandidate {
+            path: path.clone(),
+            size_bytes: 0,
+        })
+        .collect::<Vec<_>>();
+    let (papers, failures) = extract_text_batch(
+        &candidates,
+        args.page_cutoff,
+        args.extractor,
+        args.debug,
+        args.pdf_extract_workers,
+    )
+    .await;
+
+    let failure_count = failures.len();
+    for (index, paper) in papers.iter().enumerate() {
         if index > 0 {
             println!();
         }
-
-        match extract_text_from_path(path, args.page_cutoff, args.extractor, args.debug) {
-            Ok(paper) => {
-                println!("=== {} ===", paper.path.display());
-                println!("file_id: {}", paper.file_id);
-                println!("pages_read: {}", paper.pages_read);
-                println!();
-                println!("{}", paper.extracted_text);
-            }
-            Err(err) => {
-                failure_count += 1;
-                eprintln!("[extract-failed] {}: {}", path.display(), err);
-            }
+        println!("=== {} ===", paper.path.display());
+        println!("file_id: {}", paper.file_id);
+        println!("pages_read: {}", paper.pages_read);
+        println!();
+        println!("--- raw ---");
+        println!("{}", paper.extracted_text);
+        if args.debug {
+            println!();
+            println!("--- llm-ready ---");
+            println!("{}", paper.llm_ready_text);
         }
+    }
+
+    for (path, err) in failures {
+        if !papers.is_empty() {
+            println!();
+        }
+        eprintln!("[extract-failed] {}: {}", path.display(), err);
     }
 
     if failure_count > 0 {
@@ -105,8 +131,14 @@ pub async fn run(config: AppConfig) -> Result<RunReport> {
     report.skipped = skipped.len();
 
     let stage_started = Instant::now();
-    let (papers, extraction_failures) =
-        extract_text_batch(&accepted, config.page_cutoff, ExtractorMode::Auto, debug);
+    let (papers, extraction_failures) = extract_text_batch(
+        &accepted,
+        config.page_cutoff,
+        ExtractorMode::Auto,
+        debug,
+        config.pdf_extract_workers,
+    )
+    .await;
     log_timing(debug, "extract-text", stage_started.elapsed());
     for (path, reason) in &extraction_failures {
         eprintln!("[extract-failed] {}: {}", path.display(), reason);
@@ -126,7 +158,7 @@ pub async fn run(config: AppConfig) -> Result<RunReport> {
     }
 
     let stage_started = Instant::now();
-    let llm_client = build_client(&config);
+    let llm_client = Arc::<dyn llm::LlmClient>::from(build_client(&config));
     log_timing(debug, "build-llm-client", stage_started.elapsed());
 
     let stage_started = Instant::now();
@@ -135,8 +167,21 @@ pub async fn run(config: AppConfig) -> Result<RunReport> {
     log_timing(debug, "extract-keywords", stage_started.elapsed());
 
     let stage_started = Instant::now();
-    let categories =
-        synthesize_categories(llm_client.as_ref(), &keyword_sets, config.category_depth).await?;
+    let categories = match config.taxonomy_mode {
+        TaxonomyMode::Global => {
+            synthesize_categories(llm_client.as_ref(), &keyword_sets, config.category_depth).await?
+        }
+        TaxonomyMode::BatchMerge => {
+            synthesize_categories_batch_merged(
+                Arc::clone(&llm_client),
+                &papers,
+                &keyword_sets,
+                config.category_depth,
+                config.taxonomy_batch_size,
+            )
+            .await?
+        }
+    };
     log_timing(debug, "synthesize-categories", stage_started.elapsed());
 
     let stage_started = Instant::now();
