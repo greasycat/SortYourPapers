@@ -13,6 +13,17 @@ pub fn execute_plan(actions: &[PlanAction], dry_run: bool) -> Result<usize> {
     let mut moved = 0usize;
 
     for action in actions {
+        if !action.source.exists() {
+            if action.destination.exists() {
+                continue;
+            }
+            return Err(AppError::Execution(format!(
+                "source '{}' is missing and destination '{}' does not exist",
+                action.source.display(),
+                action.destination.display()
+            )));
+        }
+
         match action.action {
             FileAction::Move => {
                 if let Some(parent) = action.destination.parent() {
@@ -89,6 +100,26 @@ mod tests {
 
         assert_eq!(moved, 1);
         assert!(!source.exists());
+        assert!(dest.exists());
+    }
+
+    #[test]
+    fn resume_skips_already_moved_file() {
+        let dir = tempdir().expect("tempdir");
+        let source = dir.path().join("a.pdf");
+        let dest = dir.path().join("out").join("a.pdf");
+        fs::create_dir_all(dest.parent().expect("parent")).expect("mkdir");
+        fs::write(&dest, b"content").expect("write destination");
+
+        let actions = vec![PlanAction {
+            source,
+            destination: dest.clone(),
+            action: FileAction::Move,
+        }];
+
+        let moved = execute_plan(&actions, false).expect("resume execution should succeed");
+
+        assert_eq!(moved, 0);
         assert!(dest.exists());
     }
 }

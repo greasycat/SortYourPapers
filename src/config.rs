@@ -15,17 +15,21 @@ use crate::{
 
 const DEFAULT_INPUT: &str = ".";
 const DEFAULT_OUTPUT: &str = "./sorted";
-const DEFAULT_MAX_FILE_SIZE_MB: u64 = 8;
+const DEFAULT_MAX_FILE_SIZE_MB: u64 = 16;
 const DEFAULT_PAGE_CUTOFF: u8 = 1;
-const DEFAULT_PDF_EXTRACT_WORKERS: usize = 4;
+const DEFAULT_PDF_EXTRACT_WORKERS: usize = 8;
 const DEFAULT_CATEGORY_DEPTH: u8 = 2;
-const DEFAULT_TAXONOMY_BATCH_SIZE: usize = 3;
+
+const DEFAULT_KEYWORD_BATCH_SIZE: usize = 20;
+const DEFAULT_BATCH_START_DELAY_MS: u64 = 100;
+const DEFAULT_TAXONOMY_BATCH_SIZE: usize = 4;
+const DEFAULT_PLACEMENT_BATCH_SIZE: usize = 10;
+
 const DEFAULT_RECURSIVE: bool = false;
 const DEFAULT_REBUILD: bool = false;
-const DEFAULT_DRY_RUN: bool = true;
+
 const DEFAULT_LLM_PROVIDER: LlmProvider = LlmProvider::Gemini;
 const DEFAULT_LLM_MODEL: &str = "gemini-3-flash-preview";
-const DEFAULT_KEYWORD_BATCH_SIZE: usize = 50;
 
 #[derive(Debug, Parser)]
 #[command(name = "sortyourpapers", version, about = "Sort PDFs with LLMs")]
@@ -41,6 +45,7 @@ pub struct Cli {
 pub enum Commands {
     Init(InitArgs),
     ExtractText(ExtractTextArgs),
+    Resume(ResumeArgs),
 }
 
 #[derive(Debug, Args)]
@@ -63,8 +68,23 @@ pub struct ExtractTextArgs {
     #[arg(long, default_value_t = DEFAULT_PDF_EXTRACT_WORKERS)]
     pub pdf_extract_workers: usize,
 
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub debug: bool,
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
+    pub verbosity: u8,
+}
+
+#[derive(Debug, Args)]
+pub struct ResumeArgs {
+    #[arg(value_name = "RUN_ID")]
+    pub run_id: Option<String>,
+
+    #[arg(short = 'a', long, action = ArgAction::SetTrue)]
+    pub apply: bool,
+
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
+    pub verbosity: u8,
+
+    #[arg(short = 'q', long, action = ArgAction::SetTrue)]
+    pub quiet: bool,
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -96,14 +116,14 @@ pub struct CliArgs {
     #[arg(long)]
     pub taxonomy_batch_size: Option<usize>,
 
+    #[arg(long)]
+    pub placement_batch_size: Option<usize>,
+
     #[arg(short = 'M', long)]
     pub placement_mode: Option<PlacementMode>,
 
     #[arg(short = 'R', long, num_args = 0..=1, default_missing_value = "true")]
     pub rebuild: Option<bool>,
-
-    #[arg(short = 'n', long, num_args = 0..=1, default_missing_value = "true")]
-    pub dry_run: Option<bool>,
 
     #[arg(short = 'a', long, action = ArgAction::SetTrue)]
     pub apply: bool,
@@ -123,8 +143,11 @@ pub struct CliArgs {
     #[arg(long)]
     pub keyword_batch_size: Option<usize>,
 
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub debug: bool,
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
+    pub verbosity: u8,
+
+    #[arg(short = 'q', long, action = ArgAction::SetTrue)]
+    pub quiet: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -138,14 +161,15 @@ struct FileConfig {
     category_depth: Option<u8>,
     taxonomy_mode: Option<TaxonomyMode>,
     taxonomy_batch_size: Option<usize>,
+    placement_batch_size: Option<usize>,
     placement_mode: Option<PlacementMode>,
     rebuild: Option<bool>,
-    dry_run: Option<bool>,
     llm_provider: Option<LlmProvider>,
     llm_model: Option<String>,
     llm_base_url: Option<String>,
     api_key: Option<String>,
     keyword_batch_size: Option<usize>,
+    batch_start_delay_ms: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -159,14 +183,15 @@ struct EnvConfig {
     category_depth: Option<u8>,
     taxonomy_mode: Option<TaxonomyMode>,
     taxonomy_batch_size: Option<usize>,
+    placement_batch_size: Option<usize>,
     placement_mode: Option<PlacementMode>,
     rebuild: Option<bool>,
-    dry_run: Option<bool>,
     llm_provider: Option<LlmProvider>,
     llm_model: Option<String>,
     llm_base_url: Option<String>,
     api_key: Option<String>,
     keyword_batch_size: Option<usize>,
+    batch_start_delay_ms: Option<u64>,
 }
 
 impl EnvConfig {
@@ -181,14 +206,15 @@ impl EnvConfig {
             category_depth: parse_env_u8("SYP_CATEGORY_DEPTH")?,
             taxonomy_mode: parse_env_taxonomy_mode("SYP_TAXONOMY_MODE")?,
             taxonomy_batch_size: parse_env_usize("SYP_TAXONOMY_BATCH_SIZE")?,
+            placement_batch_size: parse_env_usize("SYP_PLACEMENT_BATCH_SIZE")?,
             placement_mode: parse_env_placement_mode("SYP_PLACEMENT_MODE")?,
             rebuild: parse_env_bool("SYP_REBUILD")?,
-            dry_run: parse_env_bool("SYP_DRY_RUN")?,
             llm_provider: parse_env_provider("SYP_LLM_PROVIDER")?,
             llm_model: env::var("SYP_LLM_MODEL").ok(),
             llm_base_url: env::var("SYP_LLM_BASE_URL").ok(),
             api_key: env::var("SYP_API_KEY").ok(),
             keyword_batch_size: parse_env_usize("SYP_KEYWORD_BATCH_SIZE")?,
+            batch_start_delay_ms: parse_env_u64("SYP_BATCH_START_DELAY_MS")?,
         })
     }
 }
@@ -204,6 +230,7 @@ fn resolve_from_sources(
     env_cfg: EnvConfig,
     file_cfg: FileConfig,
 ) -> Result<AppConfig> {
+    let verbosity = normalize_verbosity(cli.verbosity);
     let input = cli
         .input
         .or(env_cfg.input)
@@ -258,6 +285,12 @@ fn resolve_from_sources(
         .or(file_cfg.taxonomy_batch_size)
         .unwrap_or(DEFAULT_TAXONOMY_BATCH_SIZE);
 
+    let placement_batch_size = cli
+        .placement_batch_size
+        .or(env_cfg.placement_batch_size)
+        .or(file_cfg.placement_batch_size)
+        .unwrap_or(DEFAULT_PLACEMENT_BATCH_SIZE);
+
     let placement_mode = cli
         .placement_mode
         .or(env_cfg.placement_mode)
@@ -270,14 +303,7 @@ fn resolve_from_sources(
         .or(file_cfg.rebuild)
         .unwrap_or(DEFAULT_REBUILD);
 
-    let dry_run = if cli.apply {
-        false
-    } else {
-        cli.dry_run
-            .or(env_cfg.dry_run)
-            .or(file_cfg.dry_run)
-            .unwrap_or(DEFAULT_DRY_RUN)
-    };
+    let dry_run = !cli.apply;
 
     let llm_provider = cli
         .llm_provider
@@ -301,6 +327,10 @@ fn resolve_from_sources(
         .or(env_cfg.keyword_batch_size)
         .or(file_cfg.keyword_batch_size)
         .unwrap_or(DEFAULT_KEYWORD_BATCH_SIZE);
+    let batch_start_delay_ms = env_cfg
+        .batch_start_delay_ms
+        .or(file_cfg.batch_start_delay_ms)
+        .unwrap_or(DEFAULT_BATCH_START_DELAY_MS);
 
     if max_file_size_mb == 0 {
         return Err(AppError::Validation(
@@ -327,6 +357,11 @@ fn resolve_from_sources(
             "taxonomy_batch_size must be greater than 0".to_string(),
         ));
     }
+    if placement_batch_size == 0 {
+        return Err(AppError::Validation(
+            "placement_batch_size must be greater than 0".to_string(),
+        ));
+    }
     if keyword_batch_size == 0 {
         return Err(AppError::Validation(
             "keyword_batch_size must be greater than 0".to_string(),
@@ -343,6 +378,7 @@ fn resolve_from_sources(
         category_depth,
         taxonomy_mode,
         taxonomy_batch_size,
+        placement_batch_size,
         placement_mode,
         rebuild,
         dry_run,
@@ -351,12 +387,23 @@ fn resolve_from_sources(
         llm_base_url,
         api_key,
         keyword_batch_size,
-        debug: cli.debug,
+        batch_start_delay_ms,
+        verbose: verbosity >= 1,
+        debug: verbosity >= 2,
+        quiet: cli.quiet,
     })
+}
+
+fn normalize_verbosity(raw: u8) -> u8 {
+    raw.min(2)
 }
 
 pub fn xdg_config_path() -> Option<PathBuf> {
     BaseDirs::new().map(|base| base.config_dir().join("sortyourpapers").join("config.toml"))
+}
+
+pub fn xdg_cache_dir() -> Option<PathBuf> {
+    BaseDirs::new().map(|base| base.cache_dir().join("sortyourpapers"))
 }
 
 pub fn init_xdg_config(force: bool) -> Result<PathBuf> {
@@ -385,14 +432,15 @@ pub fn default_config_toml() -> String {
             "category_depth = {category_depth}\n",
             "taxonomy_mode = \"batch-merge\"\n",
             "taxonomy_batch_size = {taxonomy_batch_size}\n",
+            "placement_batch_size = {placement_batch_size}\n",
             "placement_mode = \"existing-only\"\n",
             "rebuild = {rebuild}\n",
-            "dry_run = {dry_run}\n",
             "\n",
             "# Default LLM settings\n",
             "llm_provider = \"gemini\"\n",
-            "llm_model = \"gemini-2.5-flash\"\n",
+            "llm_model = \"{llm_model}\"\n",
             "keyword_batch_size = {keyword_batch_size}\n",
+            "batch_start_delay_ms = {batch_start_delay_ms}\n",
             "# llm_base_url = \"https://generativelanguage.googleapis.com/v1beta\"\n",
             "# api_key = \"\"\n"
         ),
@@ -404,9 +452,11 @@ pub fn default_config_toml() -> String {
         pdf_extract_workers = DEFAULT_PDF_EXTRACT_WORKERS,
         category_depth = DEFAULT_CATEGORY_DEPTH,
         taxonomy_batch_size = DEFAULT_TAXONOMY_BATCH_SIZE,
+        placement_batch_size = DEFAULT_PLACEMENT_BATCH_SIZE,
         rebuild = DEFAULT_REBUILD,
-        dry_run = DEFAULT_DRY_RUN,
+        llm_model = DEFAULT_LLM_MODEL,
         keyword_batch_size = DEFAULT_KEYWORD_BATCH_SIZE,
+        batch_start_delay_ms = DEFAULT_BATCH_START_DELAY_MS,
     )
 }
 
@@ -566,6 +616,8 @@ mod tests {
             "batch-merge",
             "--taxonomy-batch-size",
             "6",
+            "--placement-batch-size",
+            "14",
             "--placement-mode",
             "allow-new",
             "--rebuild",
@@ -580,7 +632,7 @@ mod tests {
             "cli-key",
             "--keyword-batch-size",
             "12",
-            "--debug",
+            "-vv",
         ]);
 
         let env_cfg = EnvConfig {
@@ -593,14 +645,15 @@ mod tests {
             category_depth: Some(5),
             taxonomy_mode: Some(TaxonomyMode::BatchMerge),
             taxonomy_batch_size: Some(9),
+            placement_batch_size: Some(18),
             placement_mode: Some(PlacementMode::ExistingOnly),
             rebuild: Some(false),
-            dry_run: Some(true),
             llm_provider: Some(LlmProvider::Ollama),
             llm_model: Some("env-model".to_string()),
             llm_base_url: Some("http://env".to_string()),
             api_key: Some("env-key".to_string()),
             keyword_batch_size: Some(30),
+            batch_start_delay_ms: Some(250),
         };
 
         let file_cfg = FileConfig {
@@ -613,14 +666,15 @@ mod tests {
             category_depth: Some(6),
             taxonomy_mode: Some(TaxonomyMode::BatchMerge),
             taxonomy_batch_size: Some(8),
+            placement_batch_size: Some(16),
             placement_mode: Some(PlacementMode::ExistingOnly),
             rebuild: Some(false),
-            dry_run: Some(true),
             llm_provider: Some(LlmProvider::Ollama),
             llm_model: Some("file-model".to_string()),
             llm_base_url: Some("http://file".to_string()),
             api_key: Some("file-key".to_string()),
             keyword_batch_size: Some(25),
+            batch_start_delay_ms: Some(150),
         };
 
         let cfg = resolve_from_sources(cli, env_cfg, file_cfg).expect("config should resolve");
@@ -634,6 +688,7 @@ mod tests {
         assert_eq!(cfg.category_depth, 3);
         assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
         assert_eq!(cfg.taxonomy_batch_size, 6);
+        assert_eq!(cfg.placement_batch_size, 14);
         assert_eq!(cfg.placement_mode, PlacementMode::AllowNew);
         assert!(cfg.rebuild);
         assert!(!cfg.dry_run);
@@ -642,6 +697,8 @@ mod tests {
         assert_eq!(cfg.llm_base_url.as_deref(), Some("http://cli.example/v1"));
         assert_eq!(cfg.api_key.as_deref(), Some("cli-key"));
         assert_eq!(cfg.keyword_batch_size, 12);
+        assert_eq!(cfg.batch_start_delay_ms, 250);
+        assert!(cfg.verbose);
         assert!(cfg.debug);
     }
 
@@ -653,13 +710,16 @@ mod tests {
         write_default_config_at(&path, false).expect("write default config");
 
         let raw = fs::read_to_string(path).expect("read config");
-        assert!(raw.contains("max_file_size_mb = 8"));
-        assert!(raw.contains("pdf_extract_workers = 4"));
+        assert!(raw.contains("max_file_size_mb = 16"));
+        assert!(raw.contains("pdf_extract_workers = 8"));
         assert!(raw.contains("llm_provider = \"gemini\""));
-        assert!(raw.contains("llm_model = \"gemini-2.5-flash\""));
+        assert!(raw.contains("llm_model = \"gemini-3-flash-preview\""));
         assert!(raw.contains("taxonomy_mode = \"batch-merge\""));
-        assert!(raw.contains("taxonomy_batch_size = 3"));
-        assert!(raw.contains("keyword_batch_size = 50"));
+        assert!(raw.contains("taxonomy_batch_size = 4"));
+        assert!(raw.contains("placement_batch_size = 10"));
+        assert!(raw.contains("keyword_batch_size = 20"));
+        assert!(raw.contains("batch_start_delay_ms = 100"));
+        assert!(!raw.contains("dry_run ="));
     }
 
     #[test]
@@ -700,10 +760,14 @@ mod tests {
 
         assert_eq!(cfg.llm_provider, LlmProvider::Gemini);
         assert_eq!(cfg.llm_model, "gemini-3-flash-preview");
-        assert_eq!(cfg.pdf_extract_workers, 4);
+        assert_eq!(cfg.pdf_extract_workers, 8);
         assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
-        assert_eq!(cfg.taxonomy_batch_size, 3);
-        assert_eq!(cfg.keyword_batch_size, 50);
+        assert_eq!(cfg.taxonomy_batch_size, 4);
+        assert_eq!(cfg.placement_batch_size, 10);
+        assert_eq!(cfg.keyword_batch_size, 20);
+        assert_eq!(cfg.batch_start_delay_ms, 100);
+        assert!(cfg.dry_run);
+        assert!(!cfg.verbose);
         assert!(!cfg.debug);
     }
 
@@ -728,11 +792,11 @@ mod tests {
             "batch-merge",
             "--taxonomy-batch-size",
             "5",
+            "--placement-batch-size",
+            "15",
             "-M",
             "allow-new",
             "-R",
-            "-n",
-            "false",
             "-a",
             "-P",
             "gemini",
@@ -744,7 +808,7 @@ mod tests {
             "abc",
             "--keyword-batch-size",
             "64",
-            "--debug",
+            "-vv",
         ]);
 
         let cfg =
@@ -759,6 +823,7 @@ mod tests {
         assert_eq!(cfg.category_depth, 3);
         assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
         assert_eq!(cfg.taxonomy_batch_size, 5);
+        assert_eq!(cfg.placement_batch_size, 15);
         assert_eq!(cfg.placement_mode, PlacementMode::AllowNew);
         assert!(cfg.rebuild);
         assert!(!cfg.dry_run);
@@ -770,6 +835,8 @@ mod tests {
         );
         assert_eq!(cfg.api_key.as_deref(), Some("abc"));
         assert_eq!(cfg.keyword_batch_size, 64);
+        assert_eq!(cfg.batch_start_delay_ms, 100);
+        assert!(cfg.verbose);
         assert!(cfg.debug);
     }
 
@@ -782,7 +849,7 @@ mod tests {
             "2",
             "--extractor",
             "pdf-oxide",
-            "--debug",
+            "-vv",
             "/tmp/a.pdf",
             "/tmp/b.pdf",
         ]);
@@ -791,8 +858,8 @@ mod tests {
             Some(Commands::ExtractText(args)) => {
                 assert_eq!(args.page_cutoff, 2);
                 assert_eq!(args.extractor, ExtractorMode::PdfOxide);
-                assert_eq!(args.pdf_extract_workers, 4);
-                assert!(args.debug);
+                assert_eq!(args.pdf_extract_workers, 8);
+                assert_eq!(args.verbosity, 2);
                 assert_eq!(args.files.len(), 2);
             }
             _ => panic!("expected extract-text command"),
@@ -812,10 +879,37 @@ mod tests {
         match cli.command {
             Some(Commands::ExtractText(args)) => {
                 assert_eq!(args.extractor, ExtractorMode::PdfOxide);
-                assert_eq!(args.pdf_extract_workers, 4);
+                assert_eq!(args.pdf_extract_workers, 8);
                 assert_eq!(args.files.len(), 1);
             }
             _ => panic!("expected extract-text command"),
+        }
+    }
+
+    #[test]
+    fn parses_resume_subcommand() {
+        let cli = Cli::parse_from(["sortyourpapers", "resume", "run-123"]);
+
+        match cli.command {
+            Some(Commands::Resume(args)) => {
+                assert_eq!(args.run_id.as_deref(), Some("run-123"));
+                assert!(!args.apply);
+            }
+            _ => panic!("expected resume command"),
+        }
+    }
+
+    #[test]
+    fn parses_resume_verbosity_override() {
+        let cli = Cli::parse_from(["sortyourpapers", "resume", "--apply", "-vv", "run-123"]);
+
+        match cli.command {
+            Some(Commands::Resume(args)) => {
+                assert_eq!(args.run_id.as_deref(), Some("run-123"));
+                assert!(args.apply);
+                assert_eq!(args.verbosity, 2);
+            }
+            _ => panic!("expected resume command"),
         }
     }
 }

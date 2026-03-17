@@ -1,5 +1,5 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -61,8 +61,11 @@ struct CompareArgs {
     #[arg(long, default_value_t = 3)]
     taxonomy_batch_size: usize,
 
-    #[arg(long, action = clap::ArgAction::SetTrue)]
-    debug: bool,
+    #[arg(long, default_value_t = 25)]
+    placement_batch_size: usize,
+
+    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count)]
+    verbosity: u8,
 }
 
 struct ModeTiming {
@@ -94,23 +97,25 @@ async fn run_compare(args: CompareArgs) -> Result<(), AppError> {
         category_depth: args.category_depth,
         taxonomy_mode: None,
         taxonomy_batch_size: Some(args.taxonomy_batch_size),
+        placement_batch_size: Some(args.placement_batch_size),
         placement_mode: args.placement_mode,
         rebuild: args.rebuild,
-        dry_run: Some(true),
         apply: false,
         llm_provider: args.llm_provider,
         llm_model: args.llm_model,
         llm_base_url: args.llm_base_url,
         api_key: args.api_key,
         keyword_batch_size: args.keyword_batch_size,
-        debug: args.debug,
+        verbosity: args.verbosity,
+        quiet: args.verbosity == 0,
     };
 
     println!("Comparing taxonomy modes");
     println!("output_root: {}", output_root.display());
-    println!("dry_run: true");
+    println!("mode: preview");
     println!("pdf_extract_workers: {}", args.pdf_extract_workers);
     println!("taxonomy_batch_size: {}", args.taxonomy_batch_size);
+    println!("placement_batch_size: {}", args.placement_batch_size);
     println!();
 
     let batch_timing = run_mode(
@@ -149,7 +154,7 @@ async fn run_compare(args: CompareArgs) -> Result<(), AppError> {
 
 async fn run_mode(
     base_cli: CliArgs,
-    output_root: &PathBuf,
+    output_root: &Path,
     mode: TaxonomyMode,
     label: &str,
 ) -> Result<ModeTiming, AppError> {

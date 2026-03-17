@@ -3,30 +3,20 @@ use std::path::PathBuf;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum PlacementMode {
+    #[default]
     ExistingOnly,
     AllowNew,
 }
 
-impl Default for PlacementMode {
-    fn default() -> Self {
-        Self::ExistingOnly
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum TaxonomyMode {
     Global,
+    #[default]
     BatchMerge,
-}
-
-impl Default for TaxonomyMode {
-    fn default() -> Self {
-        Self::BatchMerge
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
@@ -37,7 +27,7 @@ pub enum LlmProvider {
     Gemini,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub input: PathBuf,
     pub output: PathBuf,
@@ -48,6 +38,7 @@ pub struct AppConfig {
     pub category_depth: u8,
     pub taxonomy_mode: TaxonomyMode,
     pub taxonomy_batch_size: usize,
+    pub placement_batch_size: usize,
     pub placement_mode: PlacementMode,
     pub rebuild: bool,
     pub dry_run: bool,
@@ -56,16 +47,22 @@ pub struct AppConfig {
     pub llm_base_url: Option<String>,
     pub api_key: Option<String>,
     pub keyword_batch_size: usize,
+    pub batch_start_delay_ms: u64,
+    #[serde(default)]
+    pub verbose: bool,
+    #[serde(default)]
     pub debug: bool,
+    #[serde(default)]
+    pub quiet: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfCandidate {
     pub path: PathBuf,
     pub size_bytes: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaperText {
     pub file_id: String,
     pub path: PathBuf,
@@ -97,19 +94,19 @@ pub struct PlacementDecision {
     pub confidence: Option<f32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileAction {
     Move,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanAction {
     pub source: PathBuf,
     pub destination: PathBuf,
     pub action: FileAction,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunReport {
     pub scanned: usize,
     pub processed: usize,

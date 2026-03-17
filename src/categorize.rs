@@ -2,15 +2,18 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     io::{IsTerminal, stderr},
     sync::Arc,
+    time::Instant,
 };
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
+use tokio::time::{Instant as TokioInstant, sleep_until};
 
 use crate::{
     error::{AppError, Result},
     llm::{LlmClient, call_json_with_retry},
+    logging::{Verbosity, format_duration},
     models::{CategoryTree, KeywordSet, PaperText},
 };
 
@@ -18,7 +21,9 @@ const MAX_JSON_ATTEMPTS: usize = 3;
 const MAX_SEMANTIC_ATTEMPTS: usize = 3;
 const MAX_TEXT_CHARS_PER_FILE: usize = 4_000;
 const MAX_TOTAL_BATCH_TEXT_CHARS: usize = 60_000;
+const MAX_CONCURRENT_KEYWORD_BATCH_REQUESTS: usize = 4;
 const MAX_CONCURRENT_TAXONOMY_BATCH_REQUESTS: usize = 4;
+const FINAL_MERGE_LABEL: &str = "taxonomy/merge";
 
 #[derive(Debug, Deserialize)]
 struct KeywordPair {
@@ -44,6 +49,12 @@ struct CategoryBatchSummary {
     categories: Vec<CategoryTree>,
 }
 
+#[derive(Debug, Serialize)]
+struct MergeCategoryBatchInput<'a> {
+    batch_index: usize,
+    categories: &'a [CategoryTree],
+}
+
 #[derive(Debug, Clone)]
 struct PreparedCategoryBatch {
     batch_index: usize,
@@ -51,10 +62,18 @@ struct PreparedCategoryBatch {
     keyword_sets: Vec<KeywordSet>,
 }
 
+#[derive(Debug, Clone)]
+struct PreparedKeywordBatch {
+    batch_index: usize,
+    papers: Vec<PaperText>,
+}
+
 pub async fn extract_keywords(
-    client: &dyn LlmClient,
+    client: Arc<dyn LlmClient>,
     papers: &[PaperText],
     keyword_batch_size: usize,
+    batch_start_delay_ms: u64,
+    verbosity: Verbosity,
 ) -> Result<Vec<KeywordSet>> {
     if papers.is_empty() {
         return Ok(Vec::new());
@@ -65,64 +84,257 @@ pub async fn extract_keywords(
         ));
     }
 
-    let mut sets = Vec::with_capacity(papers.len());
-    for batch in papers.chunks(keyword_batch_size) {
-        let system = "You extract concise research keywords from academic paper excerpts. Return strict JSON only.";
-        let base_user = build_batch_keyword_prompt(batch)?;
-        let mut user = base_user.clone();
-        let mut accepted: Option<Vec<KeywordSet>> = None;
-        let mut last_issue = String::new();
-
-        for attempt in 1..=MAX_SEMANTIC_ATTEMPTS {
-            let response: KeywordBatchResponse =
-                call_json_with_retry(client, system, &user, MAX_JSON_ATTEMPTS).await?;
-
-            match validate_keyword_batch_response(&response.pairs, batch) {
-                Ok(batch_sets) => {
-                    accepted = Some(batch_sets);
-                    break;
-                }
-                Err(err) => {
-                    last_issue = err.to_string();
-                }
-            }
-
-            if attempt < MAX_SEMANTIC_ATTEMPTS {
-                user = format!(
-                    "{base_user}\n\nYour previous response had this issue: {last_issue}.\nReturn JSON again.\nImportant: return exactly one pair for every file_id."
-                );
-            }
+    let total_batches = papers.len().div_ceil(keyword_batch_size);
+    verbosity.stage_line(
+        "keywords",
+        format!(
+            "{} papers ready; batching into {} request(s) of up to {} file(s)",
+            papers.len(),
+            total_batches,
+            keyword_batch_size
+        ),
+    );
+    let progress = new_batch_progress_bar(total_batches, verbosity.quiet(), "keyword batches");
+    let batch_verbosity = if progress.is_hidden() {
+        verbosity
+    } else {
+        verbosity.silenced()
+    };
+    let prepared_batches = papers
+        .chunks(keyword_batch_size)
+        .enumerate()
+        .map(|(batch_index, batch)| PreparedKeywordBatch {
+            batch_index: batch_index + 1,
+            papers: batch.to_vec(),
+        })
+        .collect::<Vec<_>>();
+    let batch_results = run_keyword_batches_concurrently(
+        client,
+        prepared_batches,
+        total_batches,
+        batch_start_delay_ms,
+        batch_verbosity,
+        progress.clone(),
+    )
+    .await;
+    let batch_results = match batch_results {
+        Ok(results) => results,
+        Err(err) => {
+            progress.abandon();
+            return Err(err);
         }
-
-        let Some(batch_sets) = accepted else {
-            let batch_span = format_batch_span(batch);
-            return Err(AppError::Validation(format!(
-                "failed keyword extraction validation for batch {}: {}",
-                batch_span, last_issue
-            )));
-        };
+    };
+    progress.finish_and_clear();
+    let mut sets = Vec::with_capacity(papers.len());
+    for (_, batch_sets) in batch_results {
         sets.extend(batch_sets);
     }
 
+    verbosity.success_line(
+        "KEYWORDS",
+        format!(
+            "completed {} batch(es) and collected {} keyword set(s)",
+            total_batches,
+            sets.len()
+        ),
+    );
+
     Ok(sets)
+}
+
+async fn extract_keyword_batch(
+    client: &dyn LlmClient,
+    batch: &[PaperText],
+    verbosity: Verbosity,
+    current_batch: usize,
+    total_batches: usize,
+) -> Result<Vec<KeywordSet>> {
+    let system = "You extract concise research keywords from academic paper excerpts. Return strict JSON only.";
+    let base_user = build_batch_keyword_prompt(batch)?;
+    let mut user = base_user.clone();
+    let mut accepted: Option<Vec<KeywordSet>> = None;
+    let mut last_issue = String::new();
+
+    for attempt in 1..=MAX_SEMANTIC_ATTEMPTS {
+        let response: KeywordBatchResponse =
+            call_json_with_retry(client, system, &user, MAX_JSON_ATTEMPTS).await?;
+
+        match validate_keyword_batch_response(&response.pairs, batch) {
+            Ok(batch_sets) => {
+                accepted = Some(batch_sets);
+                break;
+            }
+            Err(err) => {
+                last_issue = err.to_string();
+            }
+        }
+
+        if attempt < MAX_SEMANTIC_ATTEMPTS {
+            verbosity.warn_line(
+                "KEYWORDS",
+                format!(
+                    "batch {current_batch}/{total_batches} retry {}/{}: {}",
+                    attempt + 1,
+                    MAX_SEMANTIC_ATTEMPTS,
+                    last_issue
+                ),
+            );
+            user = format!(
+                "{base_user}\n\nYour previous response had this issue: {last_issue}.\nReturn JSON again.\nImportant: return exactly one pair for every file_id."
+            );
+        }
+    }
+
+    let batch_span = format_batch_span(batch);
+    accepted.ok_or_else(|| {
+        AppError::Validation(format!(
+            "failed keyword extraction validation for batch {}: {}",
+            batch_span, last_issue
+        ))
+    })
+}
+
+async fn run_keyword_batches_concurrently(
+    client: Arc<dyn LlmClient>,
+    prepared_batches: Vec<PreparedKeywordBatch>,
+    total_batches: usize,
+    batch_start_delay_ms: u64,
+    verbosity: Verbosity,
+    progress: ProgressBar,
+) -> Result<Vec<(usize, Vec<KeywordSet>)>> {
+    let max_in_flight = MAX_CONCURRENT_KEYWORD_BATCH_REQUESTS.max(1);
+    let dispatch_spacing = batch_dispatch_spacing(batch_start_delay_ms);
+    let mut pending_batches = prepared_batches.into_iter();
+    let mut in_flight = JoinSet::new();
+    let mut batch_results = Vec::with_capacity(total_batches);
+    let mut next_dispatch_at = None;
+
+    for _ in 0..max_in_flight {
+        let Some(batch) = pending_batches.next() else {
+            break;
+        };
+        wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
+        spawn_keyword_batch(
+            &mut in_flight,
+            Arc::clone(&client),
+            batch,
+            verbosity,
+            total_batches,
+        );
+    }
+
+    while let Some(join_result) = in_flight.join_next().await {
+        let (batch_index, batch_sets) = match join_result {
+            Ok(Ok(result)) => result,
+            Ok(Err(err)) => return Err(err),
+            Err(err) => {
+                return Err(AppError::Execution(format!(
+                    "keyword batch task failed: {err}"
+                )));
+            }
+        };
+        batch_results.push((batch_index, batch_sets));
+        progress.inc(1);
+
+        if let Some(batch) = pending_batches.next() {
+            wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
+            spawn_keyword_batch(
+                &mut in_flight,
+                Arc::clone(&client),
+                batch,
+                verbosity,
+                total_batches,
+            );
+        }
+    }
+
+    batch_results.sort_by_key(|(batch_index, _)| *batch_index);
+    Ok(batch_results)
+}
+
+fn spawn_keyword_batch(
+    join_set: &mut JoinSet<Result<(usize, Vec<KeywordSet>)>>,
+    client: Arc<dyn LlmClient>,
+    batch: PreparedKeywordBatch,
+    verbosity: Verbosity,
+    total_batches: usize,
+) {
+    join_set.spawn(async move {
+        let started_at = Instant::now();
+        let batch_span = format_batch_span(&batch.papers);
+        verbosity.stage_line(
+            "keywords",
+            format!(
+                "batch {}/{} {}",
+                batch.batch_index, total_batches, batch_span
+            ),
+        );
+        let keyword_sets = match extract_keyword_batch(
+            client.as_ref(),
+            &batch.papers,
+            verbosity,
+            batch.batch_index,
+            total_batches,
+        )
+        .await
+        {
+            Ok(keyword_sets) => keyword_sets,
+            Err(err) => {
+                verbosity.error_line(
+                    "KEYWORDS",
+                    format!(
+                        "batch {}/{} failed after {} {}: {}",
+                        batch.batch_index,
+                        total_batches,
+                        format_duration(started_at.elapsed()),
+                        batch_span,
+                        err
+                    ),
+                );
+                return Err(err);
+            }
+        };
+        verbosity.success_line(
+            "KEYWORDS",
+            format!(
+                "batch {}/{} completed in {} {}",
+                batch.batch_index,
+                total_batches,
+                format_duration(started_at.elapsed()),
+                batch_span
+            ),
+        );
+        Ok((batch.batch_index, keyword_sets))
+    });
 }
 
 pub async fn synthesize_categories(
     client: &dyn LlmClient,
     keyword_sets: &[KeywordSet],
     category_depth: u8,
+    verbosity: Verbosity,
 ) -> Result<Vec<CategoryTree>> {
     if keyword_sets.is_empty() {
         return Ok(Vec::new());
     }
 
     let unique_keywords = collect_unique_keywords(keyword_sets);
+    verbosity.stage_line(
+        "taxonomy",
+        format!(
+            "synthesizing categories from {} unique keyword(s) with max depth {}",
+            unique_keywords.len(),
+            category_depth
+        ),
+    );
     let base_user = build_category_prompt(&unique_keywords, category_depth)?;
     request_validated_categories(
         client,
         "You design hierarchical folder taxonomies for academic PDFs. Return strict JSON only.",
         &base_user,
         category_depth,
+        verbosity,
+        "taxonomy/global",
     )
     .await
 }
@@ -133,6 +345,8 @@ pub async fn synthesize_categories_batch_merged(
     keyword_sets: &[KeywordSet],
     category_depth: u8,
     taxonomy_batch_size: usize,
+    batch_start_delay_ms: u64,
+    verbosity: Verbosity,
 ) -> Result<Vec<CategoryTree>> {
     if papers.is_empty() || keyword_sets.is_empty() {
         return Ok(Vec::new());
@@ -178,17 +392,39 @@ pub async fn synthesize_categories_batch_merged(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let mut batch_summaries =
-        run_category_batches_concurrently(Arc::clone(&client), prepared_batches, category_depth)
-            .await?;
+    verbosity.stage_line(
+        "taxonomy",
+        format!(
+            "prepared {} partial batch(es) with batch size {} before merge",
+            prepared_batches.len(),
+            taxonomy_batch_size
+        ),
+    );
+    let mut batch_summaries = run_category_batches_concurrently(
+        Arc::clone(&client),
+        prepared_batches,
+        category_depth,
+        batch_start_delay_ms,
+        verbosity,
+    )
+    .await?;
     batch_summaries.sort_by_key(|summary| summary.batch_index);
 
+    verbosity.stage_line(
+        "taxonomy",
+        format!(
+            "merging {} partial taxonomy batch(es)",
+            batch_summaries.len()
+        ),
+    );
     let base_user = build_merge_category_prompt(&batch_summaries, category_depth)?;
     request_validated_categories(
         client.as_ref(),
         "You merge partial folder taxonomies for academic PDFs into one final taxonomy. Return strict JSON only.",
         &base_user,
         category_depth,
+        verbosity,
+        "taxonomy/merge",
     )
     .await
 }
@@ -197,18 +433,38 @@ async fn run_category_batches_concurrently(
     client: Arc<dyn LlmClient>,
     prepared_batches: Vec<PreparedCategoryBatch>,
     category_depth: u8,
+    batch_start_delay_ms: u64,
+    verbosity: Verbosity,
 ) -> Result<Vec<CategoryBatchSummary>> {
-    let progress = new_batch_progress_bar(prepared_batches.len());
+    let progress = new_batch_progress_bar(
+        prepared_batches.len(),
+        verbosity.quiet(),
+        "taxonomy batches",
+    );
+    let batch_verbosity = if progress.is_hidden() {
+        verbosity
+    } else {
+        verbosity.silenced()
+    };
     let max_in_flight = MAX_CONCURRENT_TAXONOMY_BATCH_REQUESTS.max(1);
+    let dispatch_spacing = batch_dispatch_spacing(batch_start_delay_ms);
     let mut pending_batches = prepared_batches.into_iter();
     let mut in_flight = JoinSet::new();
     let mut batch_summaries = Vec::new();
+    let mut next_dispatch_at = None;
 
     for _ in 0..max_in_flight {
         let Some(batch) = pending_batches.next() else {
             break;
         };
-        spawn_category_batch(&mut in_flight, Arc::clone(&client), batch, category_depth);
+        wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
+        spawn_category_batch(
+            &mut in_flight,
+            Arc::clone(&client),
+            batch,
+            category_depth,
+            batch_verbosity,
+        );
     }
 
     while let Some(join_result) = in_flight.join_next().await {
@@ -229,7 +485,14 @@ async fn run_category_batches_concurrently(
         progress.inc(1);
 
         if let Some(batch) = pending_batches.next() {
-            spawn_category_batch(&mut in_flight, Arc::clone(&client), batch, category_depth);
+            wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
+            spawn_category_batch(
+                &mut in_flight,
+                Arc::clone(&client),
+                batch,
+                category_depth,
+                batch_verbosity,
+            );
         }
     }
 
@@ -243,10 +506,53 @@ fn spawn_category_batch(
     client: Arc<dyn LlmClient>,
     batch: PreparedCategoryBatch,
     category_depth: u8,
+    verbosity: Verbosity,
 ) {
     join_set.spawn(async move {
-        let categories =
-            synthesize_categories(client.as_ref(), &batch.keyword_sets, category_depth).await?;
+        let started_at = Instant::now();
+        let paper_count = batch.file_ids.len();
+        verbosity.stage_line(
+            "taxonomy-batch",
+            format!(
+                "partial batch {}: {} paper(s), {} keyword set(s)",
+                batch.batch_index,
+                paper_count,
+                batch.keyword_sets.len()
+            ),
+        );
+        let categories = match synthesize_categories(
+            client.as_ref(),
+            &batch.keyword_sets,
+            category_depth,
+            verbosity,
+        )
+        .await
+        {
+            Ok(categories) => categories,
+            Err(err) => {
+                verbosity.error_line(
+                    "TAXONOMY",
+                    format!(
+                        "partial batch {} failed after {} ({} paper(s)): {}",
+                        batch.batch_index,
+                        format_duration(started_at.elapsed()),
+                        paper_count,
+                        err
+                    ),
+                );
+                return Err(err);
+            }
+        };
+        verbosity.success_line(
+            "TAXONOMY",
+            format!(
+                "partial batch {} complete in {}: {} top-level categor(ies) from {} paper(s)",
+                batch.batch_index,
+                format_duration(started_at.elapsed()),
+                categories.len(),
+                paper_count
+            ),
+        );
         Ok(CategoryBatchSummary {
             batch_index: batch.batch_index,
             file_ids: batch.file_ids,
@@ -256,8 +562,8 @@ fn spawn_category_batch(
     });
 }
 
-fn new_batch_progress_bar(batch_count: usize) -> ProgressBar {
-    if batch_count <= 1 || !stderr().is_terminal() {
+fn new_batch_progress_bar(batch_count: usize, quiet: bool, label: &str) -> ProgressBar {
+    if quiet || batch_count <= 1 || !stderr().is_terminal() {
         return ProgressBar::hidden();
     }
 
@@ -267,13 +573,27 @@ fn new_batch_progress_bar(batch_count: usize) -> ProgressBar {
     );
     progress.set_style(
         ProgressStyle::with_template(
-            "{spinner:.cyan} taxonomy batches [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
+            "{spinner:.cyan} {msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
         )
         .unwrap_or_else(|_| ProgressStyle::default_bar())
         .progress_chars("##-"),
     );
-    progress.set_message("taxonomy batches");
+    progress.set_message(label.to_string());
     progress
+}
+
+fn batch_dispatch_spacing(batch_start_delay_ms: u64) -> std::time::Duration {
+    std::time::Duration::from_millis(batch_start_delay_ms)
+}
+
+async fn wait_for_dispatch_slot(
+    next_dispatch_at: &mut Option<TokioInstant>,
+    dispatch_spacing: std::time::Duration,
+) {
+    if let Some(deadline) = *next_dispatch_at {
+        sleep_until(deadline).await;
+    }
+    *next_dispatch_at = Some(TokioInstant::now() + dispatch_spacing);
 }
 
 pub fn validate_category_depth(categories: &[CategoryTree], max_depth: u8) -> Result<()> {
@@ -341,9 +661,17 @@ fn build_merge_category_prompt(
     batch_summaries: &[CategoryBatchSummary],
     category_depth: u8,
 ) -> Result<String> {
+    let merge_batches = batch_summaries
+        .iter()
+        .map(|summary| MergeCategoryBatchInput {
+            batch_index: summary.batch_index,
+            categories: &summary.categories,
+        })
+        .collect::<Vec<_>>();
+
     Ok(format!(
-        "Return JSON with schema:\n{{\"categories\":[{{\"name\":\"...\",\"children\":[...]}}]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category names among siblings\n- output at least one top-level category\n- preserve strong concepts that recur across batches\n\nbatch_results:\n{}",
-        serde_json::to_string_pretty(batch_summaries).map_err(AppError::from)?
+        "Return JSON with schema:\n{{\"categories\":[{{\"name\":\"...\",\"children\":[...]}}]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category names among siblings\n- output at least one top-level category\n- preserve strong concepts that recur across batches\n- use only the batch category trees below when deciding the merge\n\nbatch_categories:\n{}",
+        serde_json::to_string_pretty(&merge_batches).map_err(AppError::from)?
     ))
 }
 
@@ -352,11 +680,20 @@ async fn request_validated_categories(
     system: &str,
     base_user: &str,
     category_depth: u8,
+    verbosity: Verbosity,
+    label: &str,
 ) -> Result<Vec<CategoryTree>> {
     let mut user = base_user.to_string();
     let mut last_issue = String::new();
 
     for attempt in 1..=MAX_SEMANTIC_ATTEMPTS {
+        if label == FINAL_MERGE_LABEL && verbosity.debug_enabled() {
+            verbosity.debug_line(
+                "LLM",
+                format_llm_request_debug_message(label, attempt, system, &user),
+            );
+        }
+
         let response: CategoryResponse =
             call_json_with_retry(client, system, &user, MAX_JSON_ATTEMPTS).await?;
 
@@ -367,10 +704,28 @@ async fn request_validated_categories(
         } else if let Err(err) = validate_category_names(&response.categories) {
             last_issue = err.to_string();
         } else {
+            verbosity.success_line(
+                "VALIDATED",
+                format!(
+                    "{} accepted with {} top-level categor(ies)",
+                    label,
+                    response.categories.len()
+                ),
+            );
             return Ok(response.categories);
         }
 
         if attempt < MAX_SEMANTIC_ATTEMPTS {
+            verbosity.warn_line(
+                "RETRY",
+                format!(
+                    "{} retry {}/{}: {}",
+                    label,
+                    attempt + 1,
+                    MAX_SEMANTIC_ATTEMPTS,
+                    last_issue
+                ),
+            );
             user = format!(
                 "{base_user}\n\nYour previous response failed validation with this error: {last_issue}.\nReturn corrected JSON that satisfies all rules."
             );
@@ -380,6 +735,17 @@ async fn request_validated_categories(
     Err(AppError::Validation(format!(
         "failed category synthesis validation: {last_issue}"
     )))
+}
+
+fn format_llm_request_debug_message(
+    label: &str,
+    attempt: usize,
+    system: &str,
+    user: &str,
+) -> String {
+    format!(
+        "{label} request attempt {attempt}/{MAX_SEMANTIC_ATTEMPTS}\nsystem:\n{system}\nuser:\n{user}"
+    )
 }
 
 fn build_batch_keyword_prompt(batch: &[PaperText]) -> Result<String> {
@@ -512,18 +878,21 @@ mod tests {
             Arc, Mutex,
             atomic::{AtomicUsize, Ordering},
         },
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use async_trait::async_trait;
+    use tokio::time::sleep;
 
     use super::build_batch_keyword_prompt;
     use super::{
-        KeywordPair, build_merge_category_prompt, synthesize_categories_batch_merged,
+        KeywordPair, build_merge_category_prompt, extract_keywords,
+        format_llm_request_debug_message, synthesize_categories_batch_merged,
         validate_category_depth, validate_keyword_batch_response,
     };
     use crate::error::Result;
     use crate::llm::LlmClient;
+    use crate::logging::Verbosity;
     use crate::models::{CategoryTree, KeywordSet, PaperText};
 
     struct RoutingFakeClient {
@@ -539,16 +908,18 @@ mod tests {
                 .expect("prompts lock")
                 .push(user_prompt.to_string());
 
-            if user_prompt.contains("batch_results") {
+            if user_prompt.contains("batch_categories") {
                 self.merge_calls.fetch_add(1, Ordering::SeqCst);
                 let batch_one = user_prompt.find("\"Batch One\"");
                 let batch_two = user_prompt.find("\"Batch Two\"");
                 assert!(matches!((batch_one, batch_two), (Some(a), Some(b)) if a < b));
+                assert!(!user_prompt.contains("\"file_ids\""));
+                assert!(!user_prompt.contains("\"keywords\""));
                 return Ok("{\"categories\":[{\"name\":\"Merged\",\"children\":[]}]}".to_string());
             }
 
             if user_prompt.contains("\"transformer\"") {
-                std::thread::sleep(Duration::from_millis(40));
+                sleep(Duration::from_millis(40)).await;
                 return Ok(
                     "{\"categories\":[{\"name\":\"Batch One\",\"children\":[]}]}".to_string(),
                 );
@@ -570,6 +941,14 @@ mod tests {
         prompts: Mutex<Vec<String>>,
     }
 
+    struct ConcurrentKeywordProbeClient {
+        calls: AtomicUsize,
+        active_calls: AtomicUsize,
+        max_active_calls: AtomicUsize,
+        started_at: Mutex<Vec<Instant>>,
+        delay: Duration,
+    }
+
     #[async_trait]
     impl LlmClient for FailingBatchClient {
         async fn chat(&self, _system_prompt: &str, user_prompt: &str) -> Result<String> {
@@ -578,7 +957,7 @@ mod tests {
                 .expect("prompts lock")
                 .push(user_prompt.to_string());
 
-            if user_prompt.contains("batch_results") {
+            if user_prompt.contains("batch_categories") {
                 return Err(crate::error::AppError::Llm(
                     "merge should not be called after batch failure".to_string(),
                 ));
@@ -591,6 +970,70 @@ mod tests {
             }
 
             Ok("{\"categories\":[{\"name\":\"Batch One\",\"children\":[]}]}".to_string())
+        }
+    }
+
+    #[async_trait]
+    impl LlmClient for ConcurrentKeywordProbeClient {
+        async fn chat(&self, _system_prompt: &str, user_prompt: &str) -> Result<String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.started_at
+                .lock()
+                .expect("started_at lock")
+                .push(Instant::now());
+            let active = self.active_calls.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut observed = self.max_active_calls.load(Ordering::SeqCst);
+            while active > observed {
+                match self.max_active_calls.compare_exchange(
+                    observed,
+                    active,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                ) {
+                    Ok(_) => break,
+                    Err(actual) => observed = actual,
+                }
+            }
+
+            sleep(self.delay).await;
+
+            let response = if user_prompt.contains("\"file_id\": \"a\"") {
+                Ok(serde_json::json!({
+                    "pairs": [
+                        {
+                            "file_id": "a",
+                            "keywords": ["alpha", "beta"]
+                        }
+                    ]
+                })
+                .to_string())
+            } else if user_prompt.contains("\"file_id\": \"b\"") {
+                Ok(serde_json::json!({
+                    "pairs": [
+                        {
+                            "file_id": "b",
+                            "keywords": ["gamma", "delta"]
+                        }
+                    ]
+                })
+                .to_string())
+            } else if user_prompt.contains("\"file_id\": \"c\"") {
+                Ok(serde_json::json!({
+                    "pairs": [
+                        {
+                            "file_id": "c",
+                            "keywords": ["epsilon", "zeta"]
+                        }
+                    ]
+                })
+                .to_string())
+            } else {
+                Err(crate::error::AppError::Execution(
+                    "probe client could not determine requested file_id".to_string(),
+                ))
+            };
+            self.active_calls.fetch_sub(1, Ordering::SeqCst);
+            response
         }
     }
 
@@ -692,7 +1135,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_prompt_includes_partial_batch_taxonomies() {
+    fn merge_prompt_includes_only_partial_batch_taxonomies() {
         let prompt = build_merge_category_prompt(
             &[super::CategoryBatchSummary {
                 batch_index: 1,
@@ -709,7 +1152,63 @@ mod tests {
 
         assert!(prompt.contains("\"batch_index\": 1"));
         assert!(prompt.contains("\"Attention\""));
-        assert!(prompt.contains("\"transformer\""));
+        assert!(prompt.contains("batch_categories"));
+        assert!(!prompt.contains("\"transformer\""));
+        assert!(!prompt.contains("\"file_ids\""));
+        assert!(!prompt.contains("\"keywords\""));
+    }
+
+    #[test]
+    fn debug_message_formats_final_merge_request() {
+        let message =
+            format_llm_request_debug_message("taxonomy/merge", 2, "system prompt", "user prompt");
+
+        assert!(message.contains("taxonomy/merge request attempt 2/3"));
+        assert!(message.contains("system:\nsystem prompt"));
+        assert!(message.contains("user:\nuser prompt"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn keyword_batches_run_concurrently() {
+        let client = Arc::new(ConcurrentKeywordProbeClient {
+            calls: AtomicUsize::new(0),
+            active_calls: AtomicUsize::new(0),
+            max_active_calls: AtomicUsize::new(0),
+            started_at: Mutex::new(Vec::new()),
+            delay: Duration::from_millis(150),
+        });
+        let papers = vec![make_paper("a"), make_paper("b"), make_paper("c")];
+
+        let keyword_sets = extract_keywords(
+            client.clone(),
+            &papers,
+            1,
+            100,
+            Verbosity::new(false, false, true),
+        )
+        .await
+        .expect("concurrent keyword extraction should succeed");
+
+        assert_eq!(keyword_sets.len(), 3);
+        assert_eq!(keyword_sets[0].file_id, "a");
+        assert_eq!(keyword_sets[2].file_id, "c");
+        assert_eq!(
+            keyword_sets[0].keywords,
+            vec!["alpha".to_string(), "beta".to_string()]
+        );
+        assert_eq!(
+            keyword_sets[1].keywords,
+            vec!["gamma".to_string(), "delta".to_string()]
+        );
+        assert_eq!(
+            keyword_sets[2].keywords,
+            vec!["epsilon".to_string(), "zeta".to_string()]
+        );
+        assert_eq!(client.calls.load(Ordering::SeqCst), 3);
+        assert!(client.max_active_calls.load(Ordering::SeqCst) > 1);
+        let started_at = client.started_at.lock().expect("started_at");
+        assert_eq!(started_at.len(), 3);
+        assert!(started_at[1].duration_since(started_at[0]) >= Duration::from_millis(80));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -733,9 +1232,17 @@ mod tests {
             make_keyword_set("d", &["generator"]),
         ];
 
-        let categories = synthesize_categories_batch_merged(client, &papers, &keyword_sets, 2, 2)
-            .await
-            .expect("batch merge categories");
+        let categories = synthesize_categories_batch_merged(
+            client,
+            &papers,
+            &keyword_sets,
+            2,
+            2,
+            100,
+            crate::logging::Verbosity::new(false, false, false),
+        )
+        .await
+        .expect("batch merge categories");
 
         assert_eq!(categories.len(), 1);
         assert_eq!(categories[0].name, "Merged");
@@ -752,7 +1259,7 @@ mod tests {
         assert!(
             prompts
                 .iter()
-                .any(|prompt| prompt.contains("batch_results"))
+                .any(|prompt| prompt.contains("batch_categories"))
         );
     }
 
@@ -776,9 +1283,17 @@ mod tests {
             make_keyword_set("d", &["generator"]),
         ];
 
-        let err = synthesize_categories_batch_merged(client, &papers, &keyword_sets, 2, 2)
-            .await
-            .expect_err("batch merge should fail");
+        let err = synthesize_categories_batch_merged(
+            client,
+            &papers,
+            &keyword_sets,
+            2,
+            2,
+            100,
+            crate::logging::Verbosity::new(false, false, false),
+        )
+        .await
+        .expect_err("batch merge should fail");
 
         assert!(err.to_string().contains("simulated batch failure"));
 
@@ -786,7 +1301,7 @@ mod tests {
         assert!(
             !prompts
                 .iter()
-                .any(|prompt| prompt.contains("batch_results"))
+                .any(|prompt| prompt.contains("batch_categories"))
         );
     }
 

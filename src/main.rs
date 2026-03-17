@@ -24,6 +24,22 @@ async fn main() {
                     std::process::exit(1);
                 }
             },
+            Commands::Resume(args) => {
+                match sortyourpapers::resume_run(
+                    args.run_id,
+                    args.apply,
+                    args.verbosity,
+                    args.quiet,
+                )
+                .await
+                {
+                    Ok(_) => {}
+                    Err(err) => {
+                        print_error_with_hints(&err);
+                        std::process::exit(1);
+                    }
+                }
+            }
         }
         return;
     }
@@ -37,16 +53,16 @@ async fn main() {
 fn print_error_with_hints(err: &AppError) {
     eprintln!("error: {err}");
 
-    if let AppError::MissingConfig(missing_key) = err {
-        if !missing_key.to_ascii_lowercase().contains("api_key") {
-            if let Some(path) = sortyourpapers::config::xdg_config_path() {
-                eprintln!(
-                    "hint: run `sortyourpapers init` to create a default config at {}",
-                    path.display()
-                );
-            } else {
-                eprintln!("hint: run `sortyourpapers init` to create a default XDG config");
-            }
+    if let AppError::MissingConfig(missing_key) = err
+        && !missing_key.to_ascii_lowercase().contains("api_key")
+    {
+        if let Some(path) = sortyourpapers::config::xdg_config_path() {
+            eprintln!(
+                "hint: run `sortyourpapers init` to create a default config at {}",
+                path.display()
+            );
+        } else {
+            eprintln!("hint: run `sortyourpapers init` to create a default XDG config");
         }
     }
 }
