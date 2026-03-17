@@ -5,17 +5,20 @@ Use LLMs to sort papers.
 - Scans a folder for PDFs (optional recursive mode)
 - Ignores files larger than a configurable limit (default `16MB`)
 - Extracts text from first `N` pages (default `1`)
-- Extracts file-keyword pairs in LLM batches (default `20` files per batch)
-- Assigns papers to destination folders in LLM batches (default `10` files per batch)
-- Supports taxonomy synthesis in either one global pass or `batch-merge` mode (`4` papers per batch by default, followed by one final merge request). `batch-merge` is the default.
+- Extracts file-keyword pairs plus a per-file preliminary `k`-depth category text in LLM batches (default `20` files per batch)
+- Builds the global taxonomy from the aggregated preliminary category texts and returns a linear path array that is rebuilt into a tree
+- Remaps papers to final destination folders in LLM batches (default `10` files per batch) using each file's keywords, preliminary category text, and the synthesized taxonomy
+- Keeps `taxonomy-mode` and `taxonomy-batch-size` for CLI/config compatibility, but both taxonomy modes now run the same aggregate taxonomy synthesis flow
 - Uses an LLM to:
   - extract keywords per paper
-  - synthesize folder taxonomy
-  - place each PDF into one destination folder
+  - suggest a preliminary category text per paper
+  - synthesize folder taxonomy from the aggregated preliminary texts
+  - remap each PDF into one final destination folder
 - Supports preview mode by default and real moves with `--apply`
 - Supports rebuild mode to ignore existing folder names and reclassify all PDFs
-- Persists each run under the XDG cache dir so interrupted runs can be resumed
-- Prints stage progress by default for preprocessing, keyword batching, taxonomy batching, and merge steps
+- Persists each run under the XDG cache dir so interrupted runs can be resumed, including partial keyword/preliminary-category batches
+- Shows `indicatif` progress bars by default for preprocessing, keyword batching, taxonomy synthesis, placement batching, and apply-mode moves
+- Keeps warnings/errors and the final summary visible by default while suppressing most staging chatter unless `-v` or `-vv` is enabled
 
 ## Configuration Priority
 `CLI > ENV > XDG config > defaults`
@@ -47,12 +50,27 @@ cargo run -- \
 
 If a run is interrupted after some stages completed, list saved runs and choose one to resume:
 ```bash
-cargo run -- resume
+cargo run -- session resume
 ```
 
 Resume a specific run id:
 ```bash
-cargo run -- resume run-123456789
+cargo run -- session resume run-123456789
+```
+
+List saved sessions without resuming:
+```bash
+cargo run -- session list
+```
+
+Remove a saved session:
+```bash
+cargo run -- session remove run-123456789
+```
+
+Clear all incomplete sessions for the current workspace:
+```bash
+cargo run -- session clear
 ```
 
 Show verbose timing and resume diagnostics:
@@ -71,7 +89,7 @@ cargo run -- \
   -vv
 ```
 
-Suppress stage output and final summary:
+Suppress progress bars and final summary:
 ```bash
 cargo run -- \
   --input ./papers \
@@ -111,19 +129,23 @@ cargo run --bin compare_taxonomy_modes -- \
 ## Core Flags
 - `init [-f|--force]` create default XDG config file  
 - `extract-text [--page-cutoff <u8>] [--extractor <auto|pdf-oxide|pdftotext>] [-v|-vv] <PDF...>` extract text directly  
-- `resume [RUN_ID]` list saved runs and prompt for a choice when `RUN_ID` is omitted, or resume a specific run id from the XDG cache state directory  
-- `-q, --quiet` suppress stage progress output and final summary
-- `-v, --verbose` enable verbose diagnostics such as timings and resume/extraction details
-- `-vv` enable debug output, including full LLM request payloads
+- `session|ses resume [RUN_ID]` list saved sessions and prompt for a choice when `RUN_ID` is omitted, or resume a specific run id from the XDG cache state directory
+- `session|ses list|ls` print saved sessions for the current workspace
+- `session|ses remove|rm [RUN_ID ...]` delete one or more saved sessions, or prompt for one when omitted interactively
+- `session|ses clear|clr` delete incomplete saved sessions for the current workspace
+- `-q, --quiet` suppress progress bars and final summary while still printing warnings/errors
+- normal mode prints one concise numbered line per top-level stage, for example `[3/10] Filter oversized PDFs`
+- `-v, --verbose` enable detailed stage diagnostics such as run/resume headlines and timings
+- `-vv` enable full debug output, including raw LLM request payloads
 - `-i, --input <PATH>` default `.`  
 - `-o, --output <PATH>` default `./sorted`  
 - `-r, --recursive` default `false`  
 - `-s, --max-file-size-mb <u64>` default `16`  
 - `-p, --page-cutoff <u8>` default `1`  
 - `--pdf-extract-workers <usize>` default `8`
-- `-d, --category-depth <u8>` default `2`  
-- `--taxonomy-mode <global|batch-merge>` default `batch-merge`
-- `--taxonomy-batch-size <usize>` default `4` (papers per partial taxonomy batch in `batch-merge` mode)
+- `-d, --category-depth <u8>` default `2` (used for per-file preliminary category suggestions and the final synthesized taxonomy)  
+- `--taxonomy-mode <global|batch-merge>` default `batch-merge` (compatibility flag; both values use the same aggregate taxonomy synthesis flow)
+- `--taxonomy-batch-size <usize>` default `4` (compatibility flag; retained for config/CLI stability)
 - `--placement-batch-size <usize>` default `10` (papers per placement request)
 - `-M, --placement-mode <existing-only|allow-new>` default `existing-only`  
 - `-R, --rebuild` default `false`  
@@ -138,9 +160,12 @@ cargo run --bin compare_taxonomy_modes -- \
 Each normal sorting run creates a state directory under `$XDG_CACHE_HOME/sortyourpapers/resume/<cwd-hash>/runs/<run-id>`.
 Fallback when `XDG_CACHE_HOME` is unset: `~/.cache/sortyourpapers/resume/<cwd-hash>/runs/<run-id>`.
 Completed stage outputs are written as JSON files, and `latest_run` is stored alongside that workspace’s `runs/` directory.
-`resume` without a `RUN_ID` prints all saved runs and asks which one to continue.
-`resume <RUN_ID>` reloads the saved config and continues from the first missing stage instead of repeating earlier LLM calls.
-Use `resume --quiet` if you only want the exit status without the stage stream.
+Interrupted keyword extraction also saves partial batch progress so resume can skip already completed `(file_id, keywords, preliminary_categories_k_depth)` work.
+`session resume` without a `RUN_ID` prints all saved sessions and asks which one to continue.
+`session resume <RUN_ID>` reloads the saved config and continues from the first missing stage instead of repeating earlier LLM calls.
+`session list` prints saved sessions without resuming.
+`session remove` deletes specific saved sessions, and `session clear` removes incomplete ones for the current workspace.
+Use `session resume --quiet` if you only want the exit status without the progress stream or final summary.
 
 ## Environment Variables
 - `SYP_INPUT`

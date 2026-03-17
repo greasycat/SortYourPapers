@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::{
     config,
     error::{AppError, Result},
-    models::{AppConfig, PaperText, PdfCandidate},
+    models::{AppConfig, PaperText, PdfCandidate, RunReport},
 };
 
 const RESUME_ROOT_DIR: &str = "resume";
@@ -20,6 +20,7 @@ const RUNS_DIR: &str = "runs";
 const LATEST_RUN_FILE: &str = "latest_run";
 const MANIFEST_FILE: &str = "manifest.json";
 const CONFIG_FILE: &str = "config.json";
+const REPORT_FILE: &str = "report.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -40,6 +41,24 @@ pub enum RunStage {
 }
 
 impl RunStage {
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::DiscoverInput => "Discover input PDFs",
+            Self::DiscoverOutput => "Discover existing output PDFs",
+            Self::Dedupe => "Deduplicate candidate PDFs",
+            Self::FilterSize => "Filter oversized PDFs",
+            Self::ExtractText => "Extract text and preprocess papers",
+            Self::BuildLlmClient => "Build LLM client",
+            Self::ExtractKeywords => "Extract keywords",
+            Self::SynthesizeCategories => "Synthesize categories",
+            Self::InspectOutput => "Inspect output tree",
+            Self::GeneratePlacements => "Generate placements",
+            Self::BuildPlan => "Build file move plan",
+            Self::ExecutePlan => "Execute plan",
+            Self::Completed => "Complete run",
+        }
+    }
+
     fn file_name(self) -> Option<&'static str> {
         match self {
             Self::DiscoverInput => Some("01-discover-input.json"),
@@ -121,6 +140,16 @@ impl RunWorkspace {
         Self::list_runs_in(&cwd)
     }
 
+    pub fn remove_runs(run_ids: &[String]) -> Result<Vec<String>> {
+        let cwd = env::current_dir()?;
+        Self::remove_runs_in(&cwd, run_ids)
+    }
+
+    pub fn clear_incomplete_runs() -> Result<Vec<String>> {
+        let cwd = env::current_dir()?;
+        Self::clear_incomplete_runs_in(&cwd)
+    }
+
     pub fn runs_root() -> Result<PathBuf> {
         let cwd = env::current_dir()?;
         runs_root_in(&cwd)
@@ -128,6 +157,14 @@ impl RunWorkspace {
 
     pub fn load_config(&self) -> Result<AppConfig> {
         read_json(&self.root_dir.join(CONFIG_FILE))
+    }
+
+    pub fn load_report(&self) -> Result<Option<RunReport>> {
+        let path = self.root_dir.join(REPORT_FILE);
+        if !path.exists() {
+            return Ok(None);
+        }
+        read_json(&path).map(Some)
     }
 
     pub fn load_stage<T>(&self, stage: RunStage) -> Result<Option<T>>
@@ -153,6 +190,36 @@ impl RunWorkspace {
         })?;
         write_json(&self.root_dir.join(file_name), value)?;
         self.mark_stage(stage)
+    }
+
+    pub fn save_report(&self, report: &RunReport) -> Result<()> {
+        write_json(&self.root_dir.join(REPORT_FILE), report)
+    }
+
+    pub fn load_artifact<T>(&self, file_name: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        let path = self.root_dir.join(file_name);
+        if !path.exists() {
+            return Ok(None);
+        }
+        read_json(&path).map(Some)
+    }
+
+    pub fn save_artifact<T>(&self, file_name: &str, value: &T) -> Result<()>
+    where
+        T: Serialize,
+    {
+        write_json(&self.root_dir.join(file_name), value)
+    }
+
+    pub fn remove_artifact(&self, file_name: &str) -> Result<()> {
+        match fs::remove_file(self.root_dir.join(file_name)) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(AppError::Io(err)),
+        }
     }
 
     pub fn mark_stage(&mut self, stage: RunStage) -> Result<()> {
@@ -259,36 +326,7 @@ impl RunWorkspace {
         if !runs_root.exists() {
             return Ok(Vec::new());
         }
-
-        let latest_run_id = read_latest_run_id(base_dir).ok();
-        let mut runs = Vec::new();
-        for entry in fs::read_dir(&runs_root)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-
-            let root_dir = entry.path();
-            let manifest_path = root_dir.join(MANIFEST_FILE);
-            if !manifest_path.exists() {
-                continue;
-            }
-
-            let manifest: RunManifest = read_json(&manifest_path)?;
-            let is_latest = latest_run_id
-                .as_deref()
-                .is_some_and(|latest| latest == manifest.run_id);
-            runs.push(RunSummary {
-                run_id: manifest.run_id,
-                created_unix_ms: manifest.created_unix_ms,
-                cwd: manifest.cwd,
-                last_completed_stage: manifest.last_completed_stage,
-                is_latest,
-            });
-        }
-
-        runs.sort_by(|left, right| right.created_unix_ms.cmp(&left.created_unix_ms));
-        Ok(runs)
+        list_runs_from_cache_root(base_dir, &resume_workspace_root(base_dir)?)
     }
 
     #[cfg(test)]
@@ -314,45 +352,72 @@ impl RunWorkspace {
 
     #[cfg(test)]
     fn list_runs_with_cache_root(base_dir: &Path, cache_root: &Path) -> Result<Vec<RunSummary>> {
-        let runs_root = cache_root.join(RUNS_DIR);
-        if !runs_root.exists() {
+        list_runs_from_cache_root(base_dir, cache_root)
+    }
+
+    fn remove_runs_in(base_dir: &Path, run_ids: &[String]) -> Result<Vec<String>> {
+        if run_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        let latest_run_id = fs::read_to_string(cache_root.join(LATEST_RUN_FILE))
-            .ok()
-            .map(|run_id| run_id.trim().to_string());
-        let mut runs = Vec::new();
-        for entry in fs::read_dir(&runs_root)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
+        let runs_root = runs_root_in(base_dir)?;
+        let mut removed = Vec::with_capacity(run_ids.len());
+        for run_id in run_ids {
+            let root_dir = runs_root.join(run_id);
+            if !root_dir.exists() {
+                return Err(AppError::Execution(format!(
+                    "run state '{}' not found under {}",
+                    run_id,
+                    root_dir.display()
+                )));
             }
 
-            let root_dir = entry.path();
-            let manifest_path = root_dir.join(MANIFEST_FILE);
-            if !manifest_path.exists() {
-                continue;
-            }
-
-            let manifest: RunManifest = read_json(&manifest_path)?;
+            let manifest: RunManifest = read_json(&root_dir.join(MANIFEST_FILE))?;
             if manifest.cwd != base_dir {
-                continue;
+                return Err(AppError::Execution(format!(
+                    "run '{}' does not belong to working directory {}",
+                    run_id,
+                    base_dir.display()
+                )));
             }
-            let is_latest = latest_run_id
-                .as_deref()
-                .is_some_and(|latest| latest == manifest.run_id);
-            runs.push(RunSummary {
-                run_id: manifest.run_id,
-                created_unix_ms: manifest.created_unix_ms,
-                cwd: manifest.cwd,
-                last_completed_stage: manifest.last_completed_stage,
-                is_latest,
-            });
+
+            fs::remove_dir_all(&root_dir)?;
+            removed.push(run_id.clone());
         }
 
-        runs.sort_by(|left, right| right.created_unix_ms.cmp(&left.created_unix_ms));
-        Ok(runs)
+        refresh_latest_run(base_dir)?;
+        Ok(removed)
+    }
+
+    fn clear_incomplete_runs_in(base_dir: &Path) -> Result<Vec<String>> {
+        let run_ids = Self::list_runs_in(base_dir)?
+            .into_iter()
+            .filter(|run| run.last_completed_stage != Some(RunStage::Completed))
+            .map(|run| run.run_id)
+            .collect::<Vec<_>>();
+        Self::remove_runs_in(base_dir, &run_ids)
+    }
+
+    #[cfg(test)]
+    fn remove_runs_with_cache_root(
+        base_dir: &Path,
+        cache_root: &Path,
+        run_ids: &[String],
+    ) -> Result<Vec<String>> {
+        remove_runs_with_cache_root(base_dir, cache_root, run_ids)
+    }
+
+    #[cfg(test)]
+    fn clear_incomplete_runs_with_cache_root(
+        base_dir: &Path,
+        cache_root: &Path,
+    ) -> Result<Vec<String>> {
+        let run_ids = list_runs_from_cache_root(base_dir, cache_root)?
+            .into_iter()
+            .filter(|run| run.last_completed_stage != Some(RunStage::Completed))
+            .map(|run| run.run_id)
+            .collect::<Vec<_>>();
+        remove_runs_with_cache_root(base_dir, cache_root, &run_ids)
     }
 }
 
@@ -398,19 +463,120 @@ fn unique_run_dir(runs_root: &Path, created_unix_ms: u128) -> (String, PathBuf) 
     }
 }
 
-fn read_latest_run_id(base_dir: &Path) -> Result<String> {
-    let latest_path = latest_run_path_in(base_dir)?;
-    let run_id = fs::read_to_string(&latest_path).map_err(|err| {
-        if err.kind() == std::io::ErrorKind::NotFound {
-            AppError::Execution(format!(
-                "no resumable run found at {}",
-                latest_path.display()
-            ))
-        } else {
-            AppError::Io(err)
+fn list_runs_from_cache_root(base_dir: &Path, cache_root: &Path) -> Result<Vec<RunSummary>> {
+    let runs_root = cache_root.join(RUNS_DIR);
+    if !runs_root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let latest_run_id = fs::read_to_string(cache_root.join(LATEST_RUN_FILE))
+        .ok()
+        .map(|run_id| run_id.trim().to_string());
+    let mut runs = Vec::new();
+    for entry in fs::read_dir(&runs_root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
         }
-    })?;
-    Ok(run_id.trim().to_string())
+
+        let root_dir = entry.path();
+        let manifest_path = root_dir.join(MANIFEST_FILE);
+        if !manifest_path.exists() {
+            continue;
+        }
+
+        let manifest: RunManifest = read_json(&manifest_path)?;
+        if manifest.cwd != base_dir {
+            continue;
+        }
+
+        let is_latest = latest_run_id
+            .as_deref()
+            .is_some_and(|latest| latest == manifest.run_id);
+        runs.push(RunSummary {
+            run_id: manifest.run_id,
+            created_unix_ms: manifest.created_unix_ms,
+            cwd: manifest.cwd,
+            last_completed_stage: manifest.last_completed_stage,
+            is_latest,
+        });
+    }
+
+    runs.sort_by(|left, right| right.created_unix_ms.cmp(&left.created_unix_ms));
+    Ok(runs)
+}
+
+fn refresh_latest_run(base_dir: &Path) -> Result<()> {
+    let cache_root = resume_workspace_root(base_dir)?;
+    let latest_path = cache_root.join(LATEST_RUN_FILE);
+    let next_latest = list_runs_from_cache_root(base_dir, &cache_root)?
+        .into_iter()
+        .next()
+        .map(|run| run.run_id);
+
+    match next_latest {
+        Some(run_id) => fs::write(latest_path, run_id)?,
+        None => match fs::remove_file(&latest_path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(AppError::Io(err)),
+        },
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+fn remove_runs_with_cache_root(
+    base_dir: &Path,
+    cache_root: &Path,
+    run_ids: &[String],
+) -> Result<Vec<String>> {
+    if run_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let runs_root = cache_root.join(RUNS_DIR);
+    let mut removed = Vec::with_capacity(run_ids.len());
+    for run_id in run_ids {
+        let root_dir = runs_root.join(run_id);
+        if !root_dir.exists() {
+            return Err(AppError::Execution(format!(
+                "run state '{}' not found under {}",
+                run_id,
+                root_dir.display()
+            )));
+        }
+
+        let manifest: RunManifest = read_json(&root_dir.join(MANIFEST_FILE))?;
+        if manifest.cwd != base_dir {
+            return Err(AppError::Execution(format!(
+                "run '{}' does not belong to working directory {}",
+                run_id,
+                base_dir.display()
+            )));
+        }
+
+        fs::remove_dir_all(&root_dir)?;
+        removed.push(run_id.clone());
+    }
+
+    let latest_path = cache_root.join(LATEST_RUN_FILE);
+    let next_latest = list_runs_from_cache_root(base_dir, cache_root)?
+        .into_iter()
+        .next()
+        .map(|run| run.run_id);
+
+    match next_latest {
+        Some(run_id) => fs::write(latest_path, run_id)?,
+        None => match fs::remove_file(&latest_path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(AppError::Io(err)),
+        },
+    }
+
+    Ok(removed)
 }
 
 fn write_json<T>(path: &Path, value: &T) -> Result<()>
@@ -440,7 +606,10 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{FilterSizeState, RunStage, RunWorkspace, StageFailure};
-    use crate::models::{AppConfig, LlmProvider, PdfCandidate, PlacementMode, TaxonomyMode};
+    use crate::categorize::KeywordBatchProgress;
+    use crate::models::{
+        AppConfig, LlmProvider, PdfCandidate, PlacementMode, RunReport, TaxonomyMode,
+    };
 
     fn sample_config() -> AppConfig {
         AppConfig {
@@ -534,6 +703,58 @@ mod tests {
     }
 
     #[test]
+    fn report_round_trip_works() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+        let workspace = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create workspace");
+        let mut report = RunReport::new(true);
+        report.scanned = 3;
+        report.llm_usage.keywords.call_count = 2;
+
+        workspace.save_report(&report).expect("save report");
+
+        let loaded = workspace
+            .load_report()
+            .expect("load report")
+            .expect("report should exist");
+        assert_eq!(loaded.scanned, 3);
+        assert_eq!(loaded.llm_usage.keywords.call_count, 2);
+    }
+
+    #[test]
+    fn artifact_round_trip_and_removal_work() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+        let workspace = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create workspace");
+        let mut progress = KeywordBatchProgress::default();
+        progress.usage.call_count = 2;
+
+        workspace
+            .save_artifact("taxonomy-progress.json", &progress)
+            .expect("save artifact");
+
+        let loaded = workspace
+            .load_artifact::<KeywordBatchProgress>("taxonomy-progress.json")
+            .expect("load artifact")
+            .expect("artifact should exist");
+        assert_eq!(loaded.usage.call_count, 2);
+
+        workspace
+            .remove_artifact("taxonomy-progress.json")
+            .expect("remove artifact");
+        assert!(
+            workspace
+                .load_artifact::<KeywordBatchProgress>("taxonomy-progress.json")
+                .expect("reload artifact")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn lists_runs_newest_first_and_marks_latest() {
         let dir = tempdir().expect("tempdir");
         let cache_root = dir.path().join("cache");
@@ -556,5 +777,79 @@ mod tests {
         assert_eq!(runs[1].run_id, first.run_id());
         assert_eq!(runs[1].last_completed_stage, Some(RunStage::ExtractText));
         assert!(!runs[1].is_latest);
+    }
+
+    #[test]
+    fn removing_latest_run_repoints_latest_pointer() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+
+        let first = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create first");
+        let second = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create second");
+
+        let removed = RunWorkspace::remove_runs_with_cache_root(
+            dir.path(),
+            &cache_root,
+            &[second.run_id().to_string()],
+        )
+        .expect("remove latest");
+
+        assert_eq!(removed, vec![second.run_id().to_string()]);
+        let runs =
+            RunWorkspace::list_runs_with_cache_root(dir.path(), &cache_root).expect("list runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].run_id, first.run_id());
+        assert!(runs[0].is_latest);
+    }
+
+    #[test]
+    fn removing_last_run_clears_latest_pointer() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+
+        let run = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create run");
+
+        RunWorkspace::remove_runs_with_cache_root(
+            dir.path(),
+            &cache_root,
+            &[run.run_id().to_string()],
+        )
+        .expect("remove only run");
+
+        let latest_path = cache_root.join("latest_run");
+        assert!(!latest_path.exists());
+    }
+
+    #[test]
+    fn clear_incomplete_runs_preserves_completed_runs() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+
+        let mut incomplete = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create incomplete");
+        incomplete
+            .mark_stage(RunStage::ExtractText)
+            .expect("mark incomplete stage");
+
+        let mut completed = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create completed");
+        completed.mark_completed().expect("mark completed");
+
+        let removed = RunWorkspace::clear_incomplete_runs_with_cache_root(dir.path(), &cache_root)
+            .expect("clear incomplete");
+
+        assert_eq!(removed, vec![incomplete.run_id().to_string()]);
+        let runs =
+            RunWorkspace::list_runs_with_cache_root(dir.path(), &cache_root).expect("list runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].run_id, completed.run_id());
+        assert_eq!(runs[0].last_completed_stage, Some(RunStage::Completed));
+        assert!(runs[0].is_latest);
     }
 }
