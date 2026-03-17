@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
+use std::time::Duration;
+use tokio::time::sleep;
 
 use crate::{
     error::{AppError, Result},
@@ -9,6 +11,9 @@ use crate::{
 pub mod gemini;
 pub mod ollama;
 pub mod openai;
+
+const MAX_HTTP_ATTEMPTS: usize = 3;
+const HTTP_RETRY_BASE_DELAY_MS: u64 = 500;
 
 #[async_trait]
 pub trait LlmClient: Send + Sync {
@@ -49,7 +54,7 @@ pub async fn call_json_with_retry<T: DeserializeOwned>(
     let mut last_error = String::new();
 
     for attempt in 1..=attempts {
-        let content = client.chat_json(system_prompt, &prompt).await?;
+        let content = chat_json_with_retry(client, system_prompt, &prompt).await?;
         let normalized = strip_code_fence(&content);
 
         match serde_json::from_str::<T>(&normalized) {
@@ -70,6 +75,48 @@ pub async fn call_json_with_retry<T: DeserializeOwned>(
     )))
 }
 
+async fn chat_json_with_retry(
+    client: &dyn LlmClient,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<String> {
+    let mut last_error = None;
+
+    for attempt in 1..=MAX_HTTP_ATTEMPTS {
+        match client.chat_json(system_prompt, user_prompt).await {
+            Ok(content) => return Ok(content),
+            Err(err) if should_retry_llm_http_error(&err) && attempt < MAX_HTTP_ATTEMPTS => {
+                last_error = Some(err);
+                sleep(http_retry_delay(attempt)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        AppError::Execution("chat_json retry loop exited without a result".to_string())
+    }))
+}
+
+fn should_retry_llm_http_error(err: &AppError) -> bool {
+    match err {
+        AppError::Http(http_err) => {
+            if let Some(status) = http_err.status() {
+                return status.as_u16() == 429 || status.is_server_error();
+            }
+
+            http_err.is_timeout() || http_err.is_connect() || http_err.is_request()
+        }
+        _ => false,
+    }
+}
+
+fn http_retry_delay(attempt: usize) -> Duration {
+    let exponent = u32::try_from(attempt.saturating_sub(1)).unwrap_or(u32::MAX);
+    let multiplier = 2_u64.saturating_pow(exponent).max(1);
+    Duration::from_millis(HTTP_RETRY_BASE_DELAY_MS.saturating_mul(multiplier))
+}
+
 fn strip_code_fence(raw: &str) -> String {
     let trimmed = raw.trim();
     if !trimmed.starts_with("```") {
@@ -88,4 +135,110 @@ fn strip_code_fence(raw: &str) -> String {
         .unwrap_or(lines.len());
 
     lines[start..end].join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::openai::OpenAiClient;
+    use serde_json::Value;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        thread,
+    };
+
+    enum StubAction {
+        Close,
+        Respond(String),
+    }
+
+    #[tokio::test]
+    async fn call_json_with_retry_retries_transport_failures() {
+        let (base_url, requests, handle) = spawn_openai_stub(vec![
+            StubAction::Close,
+            StubAction::Respond(http_response(
+                "HTTP/1.1 200 OK",
+                r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
+            )),
+        ]);
+        let client = OpenAiClient::new("test-model".to_string(), Some(base_url), None);
+
+        let value: Value = call_json_with_retry(&client, "system", "user", 1)
+            .await
+            .expect("transport retries should recover");
+
+        assert_eq!(value["ok"], true);
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        handle
+            .join()
+            .expect("stub server thread should exit cleanly");
+    }
+
+    #[tokio::test]
+    async fn call_json_with_retry_retries_server_errors() {
+        let (base_url, requests, handle) = spawn_openai_stub(vec![
+            StubAction::Respond(http_response(
+                "HTTP/1.1 500 Internal Server Error",
+                r#"{"error":"temporary"}"#,
+            )),
+            StubAction::Respond(http_response(
+                "HTTP/1.1 200 OK",
+                r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
+            )),
+        ]);
+        let client = OpenAiClient::new("test-model".to_string(), Some(base_url), None);
+
+        let value: Value = call_json_with_retry(&client, "system", "user", 1)
+            .await
+            .expect("server status retries should recover");
+
+        assert_eq!(value["ok"], true);
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        handle
+            .join()
+            .expect("stub server thread should exit cleanly");
+    }
+
+    fn spawn_openai_stub(
+        actions: Vec<StubAction>,
+    ) -> (String, Arc<AtomicUsize>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stub server");
+        let addr = listener.local_addr().expect("stub server addr");
+        let requests = Arc::new(AtomicUsize::new(0));
+        let request_counter = Arc::clone(&requests);
+
+        let handle = thread::spawn(move || {
+            for action in actions {
+                let (mut stream, _) = listener.accept().expect("accept request");
+                request_counter.fetch_add(1, Ordering::SeqCst);
+
+                let mut buffer = [0_u8; 8192];
+                let _ = stream.read(&mut buffer);
+
+                match action {
+                    StubAction::Close => {}
+                    StubAction::Respond(response) => {
+                        stream
+                            .write_all(response.as_bytes())
+                            .expect("write response");
+                        stream.flush().expect("flush response");
+                    }
+                }
+            }
+        });
+
+        (format!("http://{addr}"), requests, handle)
+    }
+
+    fn http_response(status_line: &str, body: &str) -> String {
+        format!(
+            "{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
 }
