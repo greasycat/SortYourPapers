@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use std::time::Duration;
 use tokio::time::sleep;
 
 use crate::{
     error::{AppError, Result},
-    models::{AppConfig, LlmProvider},
+    models::{AppConfig, LlmCallMetrics, LlmProvider},
 };
 
 pub mod gemini;
@@ -15,11 +16,48 @@ pub mod openai;
 const MAX_HTTP_ATTEMPTS: usize = 3;
 const HTTP_RETRY_BASE_DELAY_MS: u64 = 500;
 
+#[derive(Debug, Clone)]
+pub struct JsonResponseSchema {
+    name: &'static str,
+    schema: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct LlmResponse {
+    pub content: String,
+    pub metrics: LlmCallMetrics,
+}
+
+#[derive(Debug)]
+pub struct ParsedLlmResponse<T> {
+    pub value: T,
+    pub metrics: LlmCallMetrics,
+}
+
+impl JsonResponseSchema {
+    pub fn new(name: &'static str, schema: Value) -> Self {
+        Self { name, schema }
+    }
+
+    pub fn name(&self) -> &str {
+        self.name
+    }
+
+    pub fn schema(&self) -> &Value {
+        &self.schema
+    }
+}
+
 #[async_trait]
 pub trait LlmClient: Send + Sync {
-    async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<String>;
+    async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<LlmResponse>;
 
-    async fn chat_json(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
+    async fn chat_json(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        _schema: &JsonResponseSchema,
+    ) -> Result<LlmResponse> {
         self.chat(system_prompt, user_prompt).await
     }
 }
@@ -47,20 +85,36 @@ pub async fn call_json_with_retry<T: DeserializeOwned>(
     client: &dyn LlmClient,
     system_prompt: &str,
     user_prompt: &str,
+    schema: &JsonResponseSchema,
     max_attempts: usize,
-) -> Result<T> {
+) -> Result<ParsedLlmResponse<T>> {
     let mut prompt = user_prompt.to_string();
     let attempts = max_attempts.max(1);
     let mut last_error = String::new();
+    let mut aggregated_metrics: Option<LlmCallMetrics> = None;
 
     for attempt in 1..=attempts {
-        let content = chat_json_with_retry(client, system_prompt, &prompt).await?;
-        let normalized = strip_code_fence(&content);
+        let response = chat_json_with_retry(client, system_prompt, &prompt, schema).await?;
+        let mut metrics = response.metrics;
+        let normalized = strip_code_fence(&response.content);
 
         match serde_json::from_str::<T>(&normalized) {
-            Ok(v) => return Ok(v),
+            Ok(v) => {
+                let mut total_metrics: LlmCallMetrics = aggregated_metrics.unwrap_or_default();
+                total_metrics.merge_from(&metrics);
+                return Ok(ParsedLlmResponse {
+                    value: v,
+                    metrics: total_metrics,
+                });
+            }
             Err(err) => {
                 last_error = err.to_string();
+                if attempt < attempts {
+                    metrics.json_retry_count += 1;
+                }
+                let mut total_metrics: LlmCallMetrics = aggregated_metrics.unwrap_or_default();
+                total_metrics.merge_from(&metrics);
+                aggregated_metrics = Some(total_metrics);
                 if attempt < attempts {
                     prompt = format!(
                         "{user_prompt}\n\nYour previous response was invalid JSON ({last_error}). Return ONLY valid JSON matching the requested schema, with no markdown fences."
@@ -75,16 +129,28 @@ pub async fn call_json_with_retry<T: DeserializeOwned>(
     )))
 }
 
+pub async fn call_text_with_retry(
+    client: &dyn LlmClient,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<LlmResponse> {
+    chat_with_retry(client, system_prompt, user_prompt).await
+}
+
 async fn chat_json_with_retry(
     client: &dyn LlmClient,
     system_prompt: &str,
     user_prompt: &str,
-) -> Result<String> {
+    schema: &JsonResponseSchema,
+) -> Result<LlmResponse> {
     let mut last_error = None;
 
     for attempt in 1..=MAX_HTTP_ATTEMPTS {
-        match client.chat_json(system_prompt, user_prompt).await {
-            Ok(content) => return Ok(content),
+        match client.chat_json(system_prompt, user_prompt, schema).await {
+            Ok(mut response) => {
+                response.metrics.http_attempt_count = attempt as u64;
+                return Ok(response);
+            }
             Err(err) if should_retry_llm_http_error(&err) && attempt < MAX_HTTP_ATTEMPTS => {
                 last_error = Some(err);
                 sleep(http_retry_delay(attempt)).await;
@@ -95,6 +161,32 @@ async fn chat_json_with_retry(
 
     Err(last_error.unwrap_or_else(|| {
         AppError::Execution("chat_json retry loop exited without a result".to_string())
+    }))
+}
+
+async fn chat_with_retry(
+    client: &dyn LlmClient,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<LlmResponse> {
+    let mut last_error = None;
+
+    for attempt in 1..=MAX_HTTP_ATTEMPTS {
+        match client.chat(system_prompt, user_prompt).await {
+            Ok(mut response) => {
+                response.metrics.http_attempt_count = attempt as u64;
+                return Ok(response);
+            }
+            Err(err) if should_retry_llm_http_error(&err) && attempt < MAX_HTTP_ATTEMPTS => {
+                last_error = Some(err);
+                sleep(http_retry_delay(attempt)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        AppError::Execution("chat retry loop exited without a result".to_string())
     }))
 }
 
@@ -117,7 +209,7 @@ fn http_retry_delay(attempt: usize) -> Duration {
     Duration::from_millis(HTTP_RETRY_BASE_DELAY_MS.saturating_mul(multiplier))
 }
 
-fn strip_code_fence(raw: &str) -> String {
+pub(crate) fn strip_code_fence(raw: &str) -> String {
     let trimmed = raw.trim();
     if !trimmed.starts_with("```") {
         return trimmed.to_string();
@@ -137,11 +229,43 @@ fn strip_code_fence(raw: &str) -> String {
     lines[start..end].join("\n")
 }
 
+impl LlmCallMetrics {
+    fn merge_from(&mut self, other: &Self) {
+        if self.provider.is_empty() {
+            self.provider.clone_from(&other.provider);
+        }
+        if self.model.is_empty() {
+            self.model.clone_from(&other.model);
+        }
+        if self.endpoint_kind.is_empty() {
+            self.endpoint_kind.clone_from(&other.endpoint_kind);
+        }
+
+        self.request_chars += other.request_chars;
+        self.response_chars += other.response_chars;
+        self.http_attempt_count += other.http_attempt_count;
+        self.json_retry_count += other.json_retry_count;
+        self.semantic_retry_count += other.semantic_retry_count;
+        self.input_tokens = sum_optional(self.input_tokens, other.input_tokens);
+        self.output_tokens = sum_optional(self.output_tokens, other.output_tokens);
+        self.total_tokens = sum_optional(self.total_tokens, other.total_tokens);
+    }
+}
+
+fn sum_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(a), Some(b)) => Some(a + b),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::llm::openai::OpenAiClient;
-    use serde_json::Value;
+    use serde_json::{Value, json};
     use std::{
         io::{Read, Write},
         net::TcpListener,
@@ -167,12 +291,15 @@ mod tests {
             )),
         ]);
         let client = OpenAiClient::new("test-model".to_string(), Some(base_url), None);
+        let schema = test_response_schema();
 
-        let value: Value = call_json_with_retry(&client, "system", "user", 1)
-            .await
-            .expect("transport retries should recover");
+        let response: ParsedLlmResponse<Value> =
+            call_json_with_retry(&client, "system", "user", &schema, 1)
+                .await
+                .expect("transport retries should recover");
 
-        assert_eq!(value["ok"], true);
+        assert_eq!(response.value["ok"], true);
+        assert_eq!(response.metrics.http_attempt_count, 2);
         assert_eq!(requests.load(Ordering::SeqCst), 2);
         handle
             .join()
@@ -192,12 +319,15 @@ mod tests {
             )),
         ]);
         let client = OpenAiClient::new("test-model".to_string(), Some(base_url), None);
+        let schema = test_response_schema();
 
-        let value: Value = call_json_with_retry(&client, "system", "user", 1)
-            .await
-            .expect("server status retries should recover");
+        let response: ParsedLlmResponse<Value> =
+            call_json_with_retry(&client, "system", "user", &schema, 1)
+                .await
+                .expect("server status retries should recover");
 
-        assert_eq!(value["ok"], true);
+        assert_eq!(response.value["ok"], true);
+        assert_eq!(response.metrics.http_attempt_count, 2);
         assert_eq!(requests.load(Ordering::SeqCst), 2);
         handle
             .join()
@@ -239,6 +369,22 @@ mod tests {
         format!(
             "{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
+        )
+    }
+
+    fn test_response_schema() -> JsonResponseSchema {
+        JsonResponseSchema::new(
+            "test_response",
+            json!({
+                "type": "object",
+                "properties": {
+                    "ok": {
+                        "type": "boolean"
+                    }
+                },
+                "required": ["ok"],
+                "additionalProperties": false
+            }),
         )
     }
 }

@@ -15,10 +15,11 @@ use super::{
     KeywordBatchProgress, KeywordBatchResult, KeywordPair, TaxonomyBatchProgress,
     TaxonomyBatchResult, extract_keywords, extract_keywords_with_progress,
     prompts::{
-        build_batch_keyword_prompt, build_category_prompt, build_merge_category_prompt,
-        format_llm_request_debug_message,
+        build_batch_keyword_prompt, build_category_prompt, build_merge_category_plain_text_prompt,
+        build_merge_category_prompt, format_llm_request_debug_message,
     },
     synthesize_categories, synthesize_categories_with_progress,
+    taxonomy::{merge_category_batches_with_timeout, parse_plain_text_category_paths},
     validation::{
         aggregate_preliminary_categories, validate_category_depth, validate_keyword_batch_response,
     },
@@ -48,6 +49,28 @@ struct CapturedSchemaCall {
 #[derive(Default)]
 struct JsonOnlySchemaProbeClient {
     captured_calls: Mutex<Vec<CapturedSchemaCall>>,
+}
+
+struct MergeTimeoutFallbackClient {
+    chat_json_delay: Duration,
+    chat_json_calls: AtomicUsize,
+    chat_calls: AtomicUsize,
+    chat_json_prompts: Mutex<Vec<String>>,
+    chat_prompts: Mutex<Vec<String>>,
+    chat_responses: Mutex<Vec<String>>,
+}
+
+impl MergeTimeoutFallbackClient {
+    fn new(chat_json_delay: Duration, chat_responses: Vec<String>) -> Self {
+        Self {
+            chat_json_delay,
+            chat_json_calls: AtomicUsize::new(0),
+            chat_calls: AtomicUsize::new(0),
+            chat_json_prompts: Mutex::new(Vec::new()),
+            chat_prompts: Mutex::new(Vec::new()),
+            chat_responses: Mutex::new(chat_responses.into_iter().rev().collect()),
+        }
+    }
 }
 
 #[async_trait]
@@ -179,6 +202,47 @@ impl LlmClient for JsonOnlySchemaProbeClient {
                 "unexpected schema {other}"
             ))),
         }
+    }
+}
+
+#[async_trait]
+impl LlmClient for MergeTimeoutFallbackClient {
+    async fn chat(&self, _system_prompt: &str, user_prompt: &str) -> Result<LlmResponse> {
+        self.chat_calls.fetch_add(1, Ordering::SeqCst);
+        self.chat_prompts
+            .lock()
+            .expect("chat_prompts lock")
+            .push(user_prompt.to_string());
+        let content = self
+            .chat_responses
+            .lock()
+            .expect("chat_responses lock")
+            .pop()
+            .expect("chat response");
+        Ok(llm_response(&content))
+    }
+
+    async fn chat_json(
+        &self,
+        _system_prompt: &str,
+        user_prompt: &str,
+        _schema: &JsonResponseSchema,
+    ) -> Result<LlmResponse> {
+        self.chat_json_calls.fetch_add(1, Ordering::SeqCst);
+        self.chat_json_prompts
+            .lock()
+            .expect("chat_json_prompts lock")
+            .push(user_prompt.to_string());
+        sleep(self.chat_json_delay).await;
+        Ok(llm_response(
+            &serde_json::json!({
+                "categories": [
+                    ["Late"],
+                    ["Late", "Response"]
+                ]
+            })
+            .to_string(),
+        ))
     }
 }
 
@@ -414,6 +478,173 @@ fn merge_prompt_flattens_and_sorts_category_paths() {
     assert!(!prompt.contains("\"children\""));
     assert!(prompt.contains("user_merge_suggestion"));
     assert!(prompt.contains("Merge speech categories under one parent"));
+}
+
+#[test]
+fn merge_plain_text_prompt_uses_line_format() {
+    let prompt = build_merge_category_plain_text_prompt(
+        &[vec![CategoryTree {
+            name: "AI".to_string(),
+            children: vec![CategoryTree {
+                name: "Transformers".to_string(),
+                children: vec![],
+            }],
+        }]],
+        2,
+        None,
+    )
+    .expect("plain-text prompt");
+
+    assert!(prompt.contains("Return plain text only."));
+    assert!(prompt.contains("return one full category path per line"));
+    assert!(prompt.contains("use ` > ` between path segments"));
+    assert!(prompt.contains("- no JSON"));
+    assert!(!prompt.contains("Return JSON with schema"));
+}
+
+#[test]
+fn parse_plain_text_category_paths_trims_and_skips_blank_lines() {
+    let paths = parse_plain_text_category_paths(
+        "```text\n AI \n\nAI > Transformers\n Systems > Databases \n```",
+    )
+    .expect("paths");
+
+    assert_eq!(
+        paths,
+        vec![
+            vec!["AI".to_string()],
+            vec!["AI".to_string(), "Transformers".to_string()],
+            vec!["Systems".to_string(), "Databases".to_string()],
+        ]
+    );
+}
+
+#[tokio::test]
+async fn taxonomy_merge_keeps_structured_schema_before_timeout() {
+    let raw_client = Arc::new(JsonOnlySchemaProbeClient::default());
+    let client: Arc<dyn LlmClient> = raw_client.clone();
+    let partial_categories = vec![
+        vec![CategoryTree {
+            name: "Systems".to_string(),
+            children: vec![],
+        }],
+        vec![CategoryTree {
+            name: "AI".to_string(),
+            children: vec![CategoryTree {
+                name: "Transformers".to_string(),
+                children: vec![],
+            }],
+        }],
+    ];
+
+    let (categories, usage) = merge_category_batches_with_timeout(
+        client.as_ref(),
+        &partial_categories,
+        2,
+        None,
+        Verbosity::new(false, false, false),
+        Duration::from_secs(1),
+    )
+    .await
+    .expect("structured merge should succeed");
+
+    assert_eq!(usage.call_count, 1);
+    assert_eq!(categories[0].name, "AI");
+
+    let captured = raw_client
+        .captured_calls
+        .lock()
+        .expect("captured_calls lock");
+    assert_eq!(captured.len(), 1);
+    assert_eq!(captured[0].name, "category_response");
+    assert!(captured[0].user_prompt.contains("category_paths"));
+}
+
+#[tokio::test]
+async fn taxonomy_merge_times_out_to_plain_text_paths() {
+    let client = MergeTimeoutFallbackClient::new(
+        Duration::from_millis(50),
+        vec!["AI\nAI > Transformers\nSystems\nSystems > Databases".to_string()],
+    );
+    let partial_categories = vec![
+        vec![CategoryTree {
+            name: "Systems".to_string(),
+            children: vec![CategoryTree {
+                name: "Databases".to_string(),
+                children: vec![],
+            }],
+        }],
+        vec![CategoryTree {
+            name: "AI".to_string(),
+            children: vec![CategoryTree {
+                name: "Transformers".to_string(),
+                children: vec![],
+            }],
+        }],
+    ];
+
+    let (categories, usage) = merge_category_batches_with_timeout(
+        &client,
+        &partial_categories,
+        2,
+        None,
+        Verbosity::new(false, false, false),
+        Duration::from_millis(5),
+    )
+    .await
+    .expect("plain-text fallback should succeed");
+
+    assert_eq!(usage.call_count, 1);
+    assert_eq!(client.chat_json_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(client.chat_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(categories[0].name, "AI");
+    assert_eq!(categories[1].name, "Systems");
+
+    let prompts = client.chat_prompts.lock().expect("chat_prompts lock");
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].contains("return one full category path per line"));
+    assert!(prompts[0].contains("use ` > ` between path segments"));
+}
+
+#[tokio::test]
+async fn taxonomy_merge_plain_text_retry_repairs_invalid_response() {
+    let client = MergeTimeoutFallbackClient::new(
+        Duration::from_millis(50),
+        vec!["AI >".to_string(), "AI\nAI > Transformers".to_string()],
+    );
+    let partial_categories = vec![
+        vec![CategoryTree {
+            name: "Systems".to_string(),
+            children: vec![],
+        }],
+        vec![CategoryTree {
+            name: "AI".to_string(),
+            children: vec![CategoryTree {
+                name: "Transformers".to_string(),
+                children: vec![],
+            }],
+        }],
+    ];
+
+    let (categories, usage) = merge_category_batches_with_timeout(
+        &client,
+        &partial_categories,
+        2,
+        None,
+        Verbosity::new(false, false, false),
+        Duration::from_millis(5),
+    )
+    .await
+    .expect("fallback retry should succeed");
+
+    assert_eq!(usage.call_count, 2);
+    assert_eq!(client.chat_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(categories[0].name, "AI");
+
+    let prompts = client.chat_prompts.lock().expect("chat_prompts lock");
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts[1].contains("Return corrected plain text"));
+    assert!(prompts[1].contains("do not return JSON or markdown"));
 }
 
 #[tokio::test]
