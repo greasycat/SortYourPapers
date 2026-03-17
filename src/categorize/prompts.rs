@@ -1,5 +1,6 @@
 use crate::{
     error::{AppError, Result},
+    models::CategoryTree,
     models::PaperText,
 };
 
@@ -13,6 +14,50 @@ pub(super) fn build_category_prompt(
         "Return JSON with schema:\n{{\"categories\":[[\"Top Level\"],[\"Top Level\",\"Subcategory\"]]}}\nRules:\n- use only the aggregated preliminary category texts below\n- each entry in `categories` must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n\naggregated_preliminary_categories:\n{}",
         serde_json::to_string(aggregated_preliminary_categories).map_err(AppError::from)?
     ))
+}
+
+pub(super) fn build_merge_category_prompt(
+    batch_categories: &[Vec<CategoryTree>],
+    category_depth: u8,
+    user_suggestion: Option<&str>,
+) -> Result<String> {
+    let mut category_paths = batch_categories
+        .iter()
+        .flat_map(|categories| flatten_category_paths(categories))
+        .collect::<Vec<_>>();
+    category_paths.sort_by_key(|path| path.join("/"));
+    let suggestion_section = user_suggestion
+        .map(str::trim)
+        .filter(|suggestion| !suggestion.is_empty())
+        .map(|suggestion| format!("\n\nuser_merge_suggestion:\n{suggestion}"))
+        .unwrap_or_default();
+
+    Ok(format!(
+        "Return JSON with schema:\n{{\"categories\":[[\"Top Level\"],[\"Top Level\",\"Subcategory\"]]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below\n- each entry in `categories` must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy\n\ncategory_paths:\n{}{}",
+        serde_json::to_string(&category_paths).map_err(AppError::from)?,
+        suggestion_section
+    ))
+}
+
+fn flatten_category_paths(categories: &[CategoryTree]) -> Vec<Vec<String>> {
+    let mut paths = Vec::new();
+    for category in categories {
+        collect_category_paths(category, &mut Vec::new(), &mut paths);
+    }
+    paths
+}
+
+fn collect_category_paths(
+    category: &CategoryTree,
+    prefix: &mut Vec<String>,
+    paths: &mut Vec<Vec<String>>,
+) {
+    prefix.push(category.name.clone());
+    paths.push(prefix.clone());
+    for child in &category.children {
+        collect_category_paths(child, prefix, paths);
+    }
+    prefix.pop();
 }
 
 pub(super) fn build_batch_keyword_prompt(batch: &[PaperText]) -> Result<String> {

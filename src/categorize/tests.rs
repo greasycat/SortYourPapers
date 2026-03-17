@@ -12,12 +12,13 @@ use serde_json::Value;
 use tokio::time::sleep;
 
 use super::{
-    KeywordBatchProgress, KeywordBatchResult, KeywordPair, extract_keywords,
-    extract_keywords_with_progress,
+    KeywordBatchProgress, KeywordBatchResult, KeywordPair, TaxonomyBatchProgress,
+    TaxonomyBatchResult, extract_keywords, extract_keywords_with_progress,
     prompts::{
-        build_batch_keyword_prompt, build_category_prompt, format_llm_request_debug_message,
+        build_batch_keyword_prompt, build_category_prompt, build_merge_category_prompt,
+        format_llm_request_debug_message,
     },
-    synthesize_categories,
+    synthesize_categories, synthesize_categories_with_progress,
     validation::{
         aggregate_preliminary_categories, validate_category_depth, validate_keyword_batch_response,
     },
@@ -348,6 +349,8 @@ async fn taxonomy_synthesis_uses_aggregated_preliminary_categories() {
         client.as_ref(),
         &preliminary_pairs,
         2,
+        10,
+        0,
         Verbosity::new(false, false, false),
     )
     .await
@@ -370,6 +373,158 @@ async fn taxonomy_synthesis_uses_aggregated_preliminary_categories() {
     );
     assert!(captured[0].user_prompt.contains("AI/Transformers"));
     assert!(!captured[0].user_prompt.contains("\"keywords\""));
+}
+
+#[test]
+fn merge_prompt_flattens_and_sorts_category_paths() {
+    let prompt = build_merge_category_prompt(
+        &[
+            vec![CategoryTree {
+                name: "Systems".to_string(),
+                children: vec![CategoryTree {
+                    name: "Databases".to_string(),
+                    children: vec![],
+                }],
+            }],
+            vec![CategoryTree {
+                name: "AI".to_string(),
+                children: vec![
+                    CategoryTree {
+                        name: "Vision".to_string(),
+                        children: vec![],
+                    },
+                    CategoryTree {
+                        name: "Transformers".to_string(),
+                        children: vec![],
+                    },
+                ],
+            }],
+        ],
+        2,
+        Some("Merge speech categories under one parent"),
+    )
+    .expect("prompt");
+
+    assert!(prompt.contains("category_paths"));
+    assert!(!prompt.contains("batch_categories"));
+    assert!(!prompt.contains("\"batch_index\""));
+    assert!(prompt.contains(
+        "[[\"AI\"],[\"AI\",\"Transformers\"],[\"AI\",\"Vision\"],[\"Systems\"],[\"Systems\",\"Databases\"]]"
+    ));
+    assert!(!prompt.contains("\"children\""));
+    assert!(prompt.contains("user_merge_suggestion"));
+    assert!(prompt.contains("Merge speech categories under one parent"));
+}
+
+#[tokio::test]
+async fn taxonomy_synthesis_batches_preliminary_categories_before_merge() {
+    let raw_client = Arc::new(JsonOnlySchemaProbeClient::default());
+    let client: Arc<dyn LlmClient> = raw_client.clone();
+    let preliminary_pairs = vec![
+        PreliminaryCategoryPair {
+            file_id: "a".to_string(),
+            preliminary_categories_k_depth: "AI/Transformers".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "b".to_string(),
+            preliminary_categories_k_depth: "AI/Vision".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "c".to_string(),
+            preliminary_categories_k_depth: "Systems/Databases".to_string(),
+        },
+    ];
+
+    let (categories, usage) = synthesize_categories(
+        client.as_ref(),
+        &preliminary_pairs,
+        2,
+        2,
+        0,
+        Verbosity::new(false, false, false),
+    )
+    .await
+    .expect("batched taxonomy synthesis should succeed");
+
+    assert_eq!(usage.call_count, 3);
+    assert_eq!(categories[0].name, "AI");
+
+    let captured = raw_client
+        .captured_calls
+        .lock()
+        .expect("captured_calls lock");
+    assert_eq!(captured.len(), 3);
+    assert!(
+        captured[0]
+            .user_prompt
+            .contains("aggregated_preliminary_categories")
+    );
+    assert!(
+        captured[1]
+            .user_prompt
+            .contains("aggregated_preliminary_categories")
+    );
+    assert!(captured[2].user_prompt.contains("category_paths"));
+}
+
+#[tokio::test]
+async fn taxonomy_resume_skips_saved_batches() {
+    let raw_client = Arc::new(JsonOnlySchemaProbeClient::default());
+    let client: Arc<dyn LlmClient> = raw_client.clone();
+    let preliminary_pairs = vec![
+        PreliminaryCategoryPair {
+            file_id: "a".to_string(),
+            preliminary_categories_k_depth: "AI/Transformers".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "b".to_string(),
+            preliminary_categories_k_depth: "AI/Vision".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "c".to_string(),
+            preliminary_categories_k_depth: "Systems/Databases".to_string(),
+        },
+    ];
+    let saved_progress = TaxonomyBatchProgress {
+        completed_batches: vec![TaxonomyBatchResult {
+            batch_index: 1,
+            input_count: 2,
+            categories: vec![CategoryTree {
+                name: "Saved".to_string(),
+                children: vec![],
+            }],
+            elapsed_ms: 10,
+        }],
+        usage: LlmUsageSummary {
+            call_count: 1,
+            ..LlmUsageSummary::default()
+        },
+    };
+
+    let (categories, usage) = synthesize_categories_with_progress(
+        client.as_ref(),
+        &preliminary_pairs,
+        2,
+        2,
+        0,
+        saved_progress,
+        |_| Ok(()),
+        Verbosity::new(false, false, false),
+    )
+    .await
+    .expect("taxonomy resume should succeed");
+
+    assert_eq!(usage.call_count, 3);
+    assert_eq!(categories[0].name, "AI");
+
+    let captured = raw_client
+        .captured_calls
+        .lock()
+        .expect("captured_calls lock");
+    assert_eq!(captured.len(), 2);
+    assert!(captured[0].user_prompt.contains("Systems/Databases"));
+    assert!(captured[1].user_prompt.contains("category_paths"));
+    assert!(!captured[0].user_prompt.contains("AI/Vision"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
