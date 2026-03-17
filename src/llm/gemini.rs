@@ -65,8 +65,8 @@ struct GenerationConfig {
     temperature: Option<f32>,
     #[serde(rename = "responseMimeType", skip_serializing_if = "Option::is_none")]
     response_mime_type: Option<String>,
-    #[serde(rename = "responseJsonSchema", skip_serializing_if = "Option::is_none")]
-    response_json_schema: Option<serde_json::Value>,
+    #[serde(rename = "responseSchema", skip_serializing_if = "Option::is_none")]
+    response_schema: Option<serde_json::Value>,
     #[serde(rename = "thinkingConfig", skip_serializing_if = "Option::is_none")]
     thinking_config: Option<ThinkingConfig>,
 }
@@ -127,7 +127,7 @@ impl GeminiClient {
         system_prompt: &str,
         user_prompt: &str,
         response_mime_type: Option<String>,
-        response_json_schema: Option<serde_json::Value>,
+        response_schema: Option<serde_json::Value>,
     ) -> Result<LlmResponse> {
         let api_key = self
             .api_key
@@ -140,30 +140,20 @@ impl GeminiClient {
             self.normalized_model()
         );
 
-        let use_fast_plain_text_mode =
-            response_mime_type.is_none() && response_json_schema.is_none();
+        let combined_prompt = combine_prompts(system_prompt, user_prompt);
         let payload = GenerateContentRequest {
-            system_instruction: (!use_fast_plain_text_mode).then(|| Content {
-                role: None,
-                parts: vec![Part {
-                    text: system_prompt.to_string(),
-                }],
-            }),
+            system_instruction: None,
             contents: vec![Content {
                 role: Some("user".to_string()),
                 parts: vec![Part {
-                    text: if use_fast_plain_text_mode {
-                        combine_prompts(system_prompt, user_prompt)
-                    } else {
-                        user_prompt.to_string()
-                    },
+                    text: combined_prompt,
                 }],
             }],
             generation_config: GenerationConfig {
-                temperature: (!use_fast_plain_text_mode).then_some(0.0),
+                temperature: None,
                 response_mime_type,
-                response_json_schema,
-                thinking_config: use_fast_plain_text_mode.then(|| ThinkingConfig {
+                response_schema,
+                thinking_config: Some(ThinkingConfig {
                     thinking_level: "MEDIUM".to_string(),
                 }),
             },
@@ -241,7 +231,7 @@ mod tests {
     use tokio::time::timeout;
 
     #[tokio::test]
-    async fn chat_json_sends_response_json_schema_to_gemini() {
+    async fn chat_json_sends_response_schema_to_gemini() {
         let (base_url, request_rx, handle) = spawn_single_request_server(
             "HTTP/1.1 200 OK",
             r#"{
@@ -275,15 +265,20 @@ mod tests {
             Value::String("application/json".to_string())
         );
         assert_eq!(
-            body["generationConfig"]["responseJsonSchema"],
+            body["generationConfig"]["responseSchema"],
             schema.schema().clone()
         );
-        assert!(body["generationConfig"]["responseSchema"].is_null());
+        assert!(body["generationConfig"]["responseJsonSchema"].is_null());
         assert_eq!(
-            body["systemInstruction"]["parts"][0]["text"],
-            "system prompt"
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "MEDIUM"
         );
-        assert_eq!(body["contents"][0]["parts"][0]["text"], "user prompt");
+        assert!(body["systemInstruction"].is_null());
+        assert_eq!(
+            body["contents"][0]["parts"][0]["text"],
+            "system prompt\n\nuser prompt"
+        );
+        assert!(body["generationConfig"]["temperature"].is_null());
 
         handle.join().expect("server thread");
     }
@@ -311,15 +306,15 @@ mod tests {
         let body = request_body_json(&request);
 
         assert_eq!(
-            body["generationConfig"]["responseJsonSchema"],
+            body["generationConfig"]["responseSchema"],
             schema.schema().clone()
         );
         assert_eq!(
-            body["generationConfig"]["responseJsonSchema"]["properties"]["categories"]["items"]["type"],
+            body["generationConfig"]["responseSchema"]["properties"]["categories"]["items"]["type"],
             json!("array")
         );
         assert_eq!(
-            body["generationConfig"]["responseJsonSchema"]["properties"]["categories"]["items"]["items"]
+            body["generationConfig"]["responseSchema"]["properties"]["categories"]["items"]["items"]
                 ["type"],
             json!("string")
         );
@@ -373,26 +368,34 @@ mod tests {
         let request = String::from_utf8(request).expect("request should be utf8");
         let body = request_body_json(&request);
 
-        assert_eq!(body["systemInstruction"]["parts"][0]["text"], system);
-        assert_eq!(body["contents"][0]["parts"][0]["text"], user);
+        assert!(body["systemInstruction"].is_null());
+        assert_eq!(
+            body["contents"][0]["parts"][0]["text"],
+            format!("{system}\n\n{user}")
+        );
         assert_eq!(
             body["generationConfig"]["responseMimeType"],
             Value::String("application/json".to_string())
         );
         assert_eq!(
-            body["generationConfig"]["responseJsonSchema"],
+            body["generationConfig"]["responseSchema"],
             schema.schema().clone()
         );
         assert_eq!(
-            body["generationConfig"]["responseJsonSchema"]["properties"]["categories"]["items"]["type"],
+            body["generationConfig"]["responseSchema"]["properties"]["categories"]["items"]["type"],
             json!("array")
         );
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "MEDIUM"
+        );
+        assert!(body["generationConfig"]["temperature"].is_null());
 
         handle.join().expect("server thread");
     }
 
     #[tokio::test]
-    async fn chat_does_not_send_response_json_schema() {
+    async fn chat_uses_lean_plain_text_request_shape() {
         let (base_url, request_rx, handle) = spawn_single_request_server(
             "HTTP/1.1 200 OK",
             r#"{"candidates":[{"content":{"parts":[{"text":"plain text"}]}}]}"#,
