@@ -8,12 +8,15 @@ pub mod llm;
 pub mod papers;
 pub mod placement;
 pub mod session;
+pub mod syp;
 pub mod taxonomy;
 pub mod terminal;
+pub mod tui;
 
 mod app_run;
 mod categorize;
 mod discovery;
+mod entrypoints;
 mod execute;
 mod logging;
 mod models;
@@ -30,7 +33,9 @@ mod lib_tests;
 
 pub use app_run::{run, run_extract_text, run_with_args};
 pub use cli::{Cli, CliArgs, Commands, ExtractTextArgs, SessionCommands};
+pub use entrypoints::{print_error_with_hints, run_cli};
 pub use session_ops::{
     clear_sessions, init_config, list_sessions, remove_sessions, rerun_run, resume_run,
     review_session,
 };
+pub use syp::{SypCli, run_syp};
