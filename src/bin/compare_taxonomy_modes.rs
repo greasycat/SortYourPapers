@@ -5,9 +5,10 @@ use std::{
 
 use clap::Parser;
 use sortyourpapers::{
-    config::{self, CliArgs},
+    config,
+    domain::{LlmProvider, PlacementMode, TaxonomyMode},
     error::AppError,
-    models::{LlmProvider, PlacementMode, TaxonomyMode},
+    CliArgs,
 };
 
 #[derive(Debug, Parser)]

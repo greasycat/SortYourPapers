@@ -6,18 +6,18 @@ use crate::{
     run_state::{RunStage, RunWorkspace},
 };
 
-pub(super) struct StagePlan {
+pub(crate) struct StagePlan {
     stages: Vec<RunStage>,
 }
 
 impl StagePlan {
-    pub(super) fn new(config: &AppConfig, include_llm_client: bool) -> Self {
+    pub(crate) fn new(config: &AppConfig, include_llm_client: bool) -> Self {
         Self {
             stages: stage_sequence(config.rebuild && config.output.exists(), include_llm_client),
         }
     }
 
-    pub(super) fn announce(&self, verbosity: Verbosity, stage: RunStage) {
+    pub(crate) fn announce(&self, verbosity: Verbosity, stage: RunStage) {
         if verbosity.quiet() || verbosity.verbose_enabled() {
             return;
         }
@@ -67,11 +67,11 @@ pub(crate) fn stage_sequence(
     stages
 }
 
-pub(super) fn log_stage(verbosity: Verbosity, stage: &str, message: String) {
+pub(crate) fn log_stage(verbosity: Verbosity, stage: &str, message: String) {
     verbosity.stage_line(stage, message);
 }
 
-pub(super) fn log_resume(verbosity: Verbosity, stage: &str, workspace: &RunWorkspace) {
+pub(crate) fn log_resume(verbosity: Verbosity, stage: &str, workspace: &RunWorkspace) {
     verbosity.debug_line(
         "RESUME",
         format!(
@@ -82,7 +82,7 @@ pub(super) fn log_resume(verbosity: Verbosity, stage: &str, workspace: &RunWorks
     );
 }
 
-pub(super) fn log_timing(verbosity: Verbosity, stage: &str, elapsed: Duration) {
+pub(crate) fn log_timing(verbosity: Verbosity, stage: &str, elapsed: Duration) {
     if verbosity.verbose_enabled() {
         verbosity.debug_line(
             "TIMING",

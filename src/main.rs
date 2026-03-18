@@ -1,5 +1,5 @@
 use clap::Parser;
-use sortyourpapers::config::{Cli, Commands, SessionCommands};
+use sortyourpapers::{Cli, Commands, SessionCommands};
 use sortyourpapers::error::AppError;
 
 #[tokio::main]

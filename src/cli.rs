@@ -1,40 +1,28 @@
-mod resolve;
-mod sources;
-mod xdg;
-
-#[cfg(test)]
-mod tests;
-
 use std::path::PathBuf;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
-use serde::Deserialize;
 
 use crate::{
-    error::Result,
-    models::{AppConfig, LlmProvider, PlacementMode, TaxonomyMode},
-    pdf_extract::ExtractorMode,
-    run_state::RunStage,
+    domain::{LlmProvider, PlacementMode, TaxonomyMode},
+    papers::extract::ExtractorMode,
+    session::RunStage,
 };
 
-const DEFAULT_INPUT: &str = ".";
-const DEFAULT_OUTPUT: &str = "./sorted";
-const DEFAULT_MAX_FILE_SIZE_MB: u64 = 16;
-const DEFAULT_PAGE_CUTOFF: u8 = 1;
-const DEFAULT_PDF_EXTRACT_WORKERS: usize = 8;
-const DEFAULT_CATEGORY_DEPTH: u8 = 2;
-
-const DEFAULT_KEYWORD_BATCH_SIZE: usize = 20;
-const DEFAULT_BATCH_START_DELAY_MS: u64 = 100;
-const DEFAULT_TAXONOMY_BATCH_SIZE: usize = 4;
-const DEFAULT_PLACEMENT_BATCH_SIZE: usize = 10;
-const DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER: usize = 5;
-
-const DEFAULT_RECURSIVE: bool = false;
-const DEFAULT_REBUILD: bool = false;
-
-const DEFAULT_LLM_PROVIDER: LlmProvider = LlmProvider::Gemini;
-const DEFAULT_LLM_MODEL: &str = "gemini-3-flash-preview";
+pub(crate) const DEFAULT_INPUT: &str = ".";
+pub(crate) const DEFAULT_OUTPUT: &str = "./sorted";
+pub(crate) const DEFAULT_MAX_FILE_SIZE_MB: u64 = 16;
+pub(crate) const DEFAULT_PAGE_CUTOFF: u8 = 1;
+pub(crate) const DEFAULT_PDF_EXTRACT_WORKERS: usize = 8;
+pub(crate) const DEFAULT_CATEGORY_DEPTH: u8 = 2;
+pub(crate) const DEFAULT_KEYWORD_BATCH_SIZE: usize = 20;
+pub(crate) const DEFAULT_BATCH_START_DELAY_MS: u64 = 100;
+pub(crate) const DEFAULT_TAXONOMY_BATCH_SIZE: usize = 4;
+pub(crate) const DEFAULT_PLACEMENT_BATCH_SIZE: usize = 10;
+pub(crate) const DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER: usize = 5;
+pub(crate) const DEFAULT_RECURSIVE: bool = false;
+pub(crate) const DEFAULT_REBUILD: bool = false;
+pub(crate) const DEFAULT_LLM_PROVIDER: LlmProvider = LlmProvider::Gemini;
+pub(crate) const DEFAULT_LLM_MODEL: &str = "gemini-3-flash-preview";
 
 #[derive(Debug, Parser)]
 #[command(name = "sortyourpapers", version, about = "Sort PDFs with LLMs")]
@@ -206,85 +194,4 @@ pub struct CliArgs {
 
     #[arg(short = 'q', long, action = ArgAction::SetTrue)]
     pub quiet: bool,
-}
-
-#[derive(Debug, Default, Deserialize, Clone)]
-struct FileConfig {
-    input: Option<PathBuf>,
-    output: Option<PathBuf>,
-    recursive: Option<bool>,
-    max_file_size_mb: Option<u64>,
-    page_cutoff: Option<u8>,
-    pdf_extract_workers: Option<usize>,
-    category_depth: Option<u8>,
-    taxonomy_mode: Option<TaxonomyMode>,
-    taxonomy_batch_size: Option<usize>,
-    placement_batch_size: Option<usize>,
-    placement_mode: Option<PlacementMode>,
-    rebuild: Option<bool>,
-    llm_provider: Option<LlmProvider>,
-    llm_model: Option<String>,
-    llm_base_url: Option<String>,
-    api_key: Option<String>,
-    keyword_batch_size: Option<usize>,
-    batch_start_delay_ms: Option<u64>,
-    subcategories_suggestion_number: Option<usize>,
-}
-
-#[derive(Debug, Default)]
-struct EnvConfig {
-    input: Option<PathBuf>,
-    output: Option<PathBuf>,
-    recursive: Option<bool>,
-    max_file_size_mb: Option<u64>,
-    page_cutoff: Option<u8>,
-    pdf_extract_workers: Option<usize>,
-    category_depth: Option<u8>,
-    taxonomy_mode: Option<TaxonomyMode>,
-    taxonomy_batch_size: Option<usize>,
-    placement_batch_size: Option<usize>,
-    placement_mode: Option<PlacementMode>,
-    rebuild: Option<bool>,
-    llm_provider: Option<LlmProvider>,
-    llm_model: Option<String>,
-    llm_base_url: Option<String>,
-    api_key: Option<String>,
-    keyword_batch_size: Option<usize>,
-    batch_start_delay_ms: Option<u64>,
-    subcategories_suggestion_number: Option<usize>,
-}
-
-/// Resolves the runtime configuration from CLI, environment, XDG config, and defaults.
-///
-/// # Errors
-/// Returns an error when config sources cannot be loaded or the resolved
-/// configuration contains invalid values.
-pub fn resolve_config(cli: CliArgs) -> Result<AppConfig> {
-    let file_cfg = xdg::load_xdg_config()?;
-    let env_cfg = sources::env_config_from_process()?;
-    resolve::resolve_from_sources(cli, env_cfg, file_cfg)
-}
-
-#[must_use]
-pub fn xdg_config_path() -> Option<PathBuf> {
-    xdg::xdg_config_path()
-}
-
-#[must_use]
-pub fn xdg_cache_dir() -> Option<PathBuf> {
-    xdg::xdg_cache_dir()
-}
-
-/// Initializes the default XDG configuration file.
-///
-/// # Errors
-/// Returns an error when the XDG config directory cannot be resolved or the
-/// file cannot be written.
-pub fn init_xdg_config(force: bool) -> Result<PathBuf> {
-    xdg::init_xdg_config(force)
-}
-
-#[must_use]
-pub fn default_config_toml() -> String {
-    xdg::default_config_toml()
 }

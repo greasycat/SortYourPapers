@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::error::{AppError, Result};
 use crate::models::LlmCallMetrics;
 
-use super::{JsonResponseSchema, LlmClient, LlmResponse};
+use crate::llm::{JsonResponseSchema, LlmClient, LlmResponse};
 
 const DEFAULT_BASE_URL: &str = "http://localhost:11434";
 const HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
