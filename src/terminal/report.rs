@@ -4,69 +4,11 @@ use crate::{
 };
 
 pub fn print_report(report: &RunReport, verbosity: Verbosity) {
-    println!("{}", verbosity.header_stdout("SortYourPapers Summary"));
-    println!(
-        "{} {}",
-        verbosity.muted("mode"),
-        if report.dry_run {
-            verbosity.warn("preview")
-        } else {
-            verbosity.good("apply")
-        }
-    );
-    println!(
-        "{} {}",
-        verbosity.muted("scanned"),
-        verbosity.accent(report.scanned.to_string())
-    );
-    println!(
-        "{} {}",
-        verbosity.muted("processed"),
-        verbosity.good(report.processed.to_string())
-    );
-    println!(
-        "{} {}",
-        verbosity.muted("skipped(size)"),
-        verbosity.warn(report.skipped.to_string())
-    );
-    println!(
-        "{} {}",
-        verbosity.muted("failed"),
-        verbosity.bad(report.failed.to_string())
-    );
-    println!(
-        "{} {}",
-        verbosity.muted("planned_actions"),
-        verbosity.accent(report.actions.len().to_string())
-    );
-
-    if !report.actions.is_empty() {
-        println!();
-        println!("{}", verbosity.header_stdout("Planned Actions"));
-        for action in &report.actions {
-            println!(
-                "{} {} {} {}",
-                verbosity.accent("MOVE"),
-                action.source.display(),
-                verbosity.muted("->"),
-                action.destination.display()
-            );
-        }
-    }
-
-    if report.llm_usage.has_activity() {
-        println!();
-        println!("{}", verbosity.header_stdout("LLM Usage"));
-        print_llm_usage_stage("keywords", &report.llm_usage.keywords, verbosity);
-        print_llm_usage_stage("taxonomy", &report.llm_usage.taxonomy, verbosity);
-        print_llm_usage_stage("placements", &report.llm_usage.placements, verbosity);
-    }
+    super::current_backend().show_report(report, verbosity);
 }
 
 pub fn print_category_tree(categories: &[CategoryTree], verbosity: Verbosity) {
-    println!();
-    println!("{}", verbosity.header_stdout("Final Categories"));
-    println!("{}", render_category_tree(categories));
+    super::current_backend().show_category_tree(categories, verbosity);
 }
 
 #[must_use]
@@ -83,12 +25,107 @@ pub fn render_category_tree(categories: &[CategoryTree]) -> String {
     lines.join("\n")
 }
 
-fn print_llm_usage_stage(label: &str, usage: &LlmUsageSummary, verbosity: Verbosity) {
+pub(crate) fn render_report_lines(report: &RunReport, verbosity: Verbosity) -> Vec<String> {
+    let mut lines = vec![
+        verbosity.header_stdout("SortYourPapers Summary"),
+        format!(
+            "{} {}",
+            verbosity.muted("mode"),
+            if report.dry_run {
+                verbosity.warn("preview")
+            } else {
+                verbosity.good("apply")
+            }
+        ),
+        format!(
+            "{} {}",
+            verbosity.muted("scanned"),
+            verbosity.accent(report.scanned.to_string())
+        ),
+        format!(
+            "{} {}",
+            verbosity.muted("processed"),
+            verbosity.good(report.processed.to_string())
+        ),
+        format!(
+            "{} {}",
+            verbosity.muted("skipped(size)"),
+            verbosity.warn(report.skipped.to_string())
+        ),
+        format!(
+            "{} {}",
+            verbosity.muted("failed"),
+            verbosity.bad(report.failed.to_string())
+        ),
+        format!(
+            "{} {}",
+            verbosity.muted("planned_actions"),
+            verbosity.accent(report.actions.len().to_string())
+        ),
+    ];
+
+    if !report.actions.is_empty() {
+        lines.push(String::new());
+        lines.push(verbosity.header_stdout("Planned Actions"));
+        for action in &report.actions {
+            lines.push(format!(
+                "{} {} {} {}",
+                verbosity.accent("MOVE"),
+                action.source.display(),
+                verbosity.muted("->"),
+                action.destination.display()
+            ));
+        }
+    }
+
+    if report.llm_usage.has_activity() {
+        lines.push(String::new());
+        lines.push(verbosity.header_stdout("LLM Usage"));
+        render_llm_usage_stage(
+            "keywords",
+            &report.llm_usage.keywords,
+            verbosity,
+            &mut lines,
+        );
+        render_llm_usage_stage(
+            "taxonomy",
+            &report.llm_usage.taxonomy,
+            verbosity,
+            &mut lines,
+        );
+        render_llm_usage_stage(
+            "placements",
+            &report.llm_usage.placements,
+            verbosity,
+            &mut lines,
+        );
+    }
+
+    lines
+}
+
+pub(crate) fn render_category_tree_lines(
+    categories: &[CategoryTree],
+    verbosity: Verbosity,
+) -> Vec<String> {
+    vec![
+        String::new(),
+        verbosity.header_stdout("Final Categories"),
+        render_category_tree(categories),
+    ]
+}
+
+fn render_llm_usage_stage(
+    label: &str,
+    usage: &LlmUsageSummary,
+    verbosity: Verbosity,
+    lines: &mut Vec<String>,
+) {
     if !usage.has_activity() {
         return;
     }
 
-    println!(
+    lines.push(format!(
         "{} calls={} http_attempts={} request_chars={} response_chars={} json_retries={} semantic_retries={}",
         verbosity.accent(label),
         usage.call_count,
@@ -97,17 +134,17 @@ fn print_llm_usage_stage(label: &str, usage: &LlmUsageSummary, verbosity: Verbos
         usage.response_chars,
         usage.json_retry_count,
         usage.semantic_retry_count,
-    );
+    ));
 
     if usage.calls_with_native_tokens > 0 {
-        println!(
+        lines.push(format!(
             "  {} prompt={} completion={} total={} native_token_calls={}",
             verbosity.muted("tokens"),
             usage.input_tokens,
             usage.output_tokens,
             usage.total_tokens,
             usage.calls_with_native_tokens,
-        );
+        ));
     }
 }
 

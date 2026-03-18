@@ -1,6 +1,5 @@
 use std::{
     future::Future,
-    io::{self, BufRead, IsTerminal, Write},
     path::Path,
     pin::Pin,
     sync::Arc,
@@ -25,6 +24,7 @@ use crate::{
     planner::build_move_plan,
     report,
     run_state::{ExtractTextState, RunStage, RunWorkspace},
+    terminal::{self, InspectReviewPrompt},
 };
 
 use super::planning::{StagePlan, log_resume, log_stage, log_timing};
@@ -98,9 +98,9 @@ pub(super) async fn inspect_output_stage(
         verbosity,
         stage_plan,
         |categories, prompt_verbosity| {
-            prompt_for_inspect_review_action(categories, prompt_verbosity)
+            terminal::prompt_inspect_review_action(categories, prompt_verbosity)
         },
-        || prompt_for_continue_improving(),
+        || terminal::prompt_continue_improving(),
         |_partial_categories, suggestion, current_categories, merge_verbosity| {
             let review_client = review_client.clone();
             let improvement_source = vec![current_categories.to_vec()];
@@ -137,7 +137,7 @@ async fn inspect_output_stage_with_interaction<PA, PC, I>(
     mut improve_categories: I,
 ) -> Result<Vec<CategoryTree>>
 where
-    PA: FnMut(&[CategoryTree], Verbosity) -> Result<InspectReviewAction>,
+    PA: FnMut(&[CategoryTree], Verbosity) -> Result<InspectReviewPrompt>,
     PC: FnMut() -> Result<bool>,
     I: for<'a> FnMut(
         &'a [Vec<CategoryTree>],
@@ -178,11 +178,11 @@ where
 
     loop {
         match prompt_action(&categories, verbosity)? {
-            InspectReviewAction::Accept => break,
-            InspectReviewAction::Cancel => {
+            InspectReviewPrompt::Accept => break,
+            InspectReviewPrompt::Cancel => {
                 return Err(AppError::Execution("inspect-output cancelled".to_string()));
             }
-            InspectReviewAction::Suggest(suggestion) => {
+            InspectReviewPrompt::Suggest(suggestion) => {
                 let (improved_categories, usage) = improve_categories(
                     &partial_categories,
                     suggestion.as_str(),
@@ -214,141 +214,9 @@ where
 }
 
 fn render_inspect_taxonomy(categories: &[CategoryTree], verbosity: Verbosity) {
-    if !verbosity.quiet() || io::stdin().is_terminal() {
+    if !verbosity.quiet() || terminal::terminal_is_interactive() {
         report::print_category_tree(categories, verbosity);
     }
-}
-
-fn prompt_for_inspect_review_action(
-    categories: &[CategoryTree],
-    verbosity: Verbosity,
-) -> Result<InspectReviewAction> {
-    if !io::stdin().is_terminal() {
-        return Ok(InspectReviewAction::Accept);
-    }
-
-    let mut stdin = io::stdin().lock();
-    let mut stderr = io::stderr();
-    prompt_for_inspect_review_action_with_io(categories, verbosity, &mut stdin, &mut stderr)
-}
-
-fn prompt_for_inspect_review_action_with_io<R, W>(
-    _categories: &[CategoryTree],
-    _verbosity: Verbosity,
-    reader: &mut R,
-    writer: &mut W,
-) -> Result<InspectReviewAction>
-where
-    R: BufRead,
-    W: Write,
-{
-    let mut input = String::new();
-    loop {
-        write!(
-            writer,
-            "Enter a taxonomy improvement suggestion, press Enter to continue, or type 'q' to cancel: "
-        )?;
-        writer.flush()?;
-
-        input.clear();
-        let bytes_read = reader.read_line(&mut input)?;
-        if bytes_read == 0 {
-            return Err(AppError::Execution(
-                "inspect-output cancelled before a review choice was made".to_string(),
-            ));
-        }
-
-        match resolve_inspect_review_action(input.trim()) {
-            Ok(action) => return Ok(action),
-            Err(err) => writeln!(writer, "error: {err}")?,
-        }
-    }
-}
-
-fn prompt_for_continue_improving() -> Result<bool> {
-    if !io::stdin().is_terminal() {
-        return Ok(false);
-    }
-
-    let mut stdin = io::stdin().lock();
-    let mut stderr = io::stderr();
-    prompt_for_continue_improving_with_io(&mut stdin, &mut stderr)
-}
-
-fn prompt_for_continue_improving_with_io<R, W>(reader: &mut R, writer: &mut W) -> Result<bool>
-where
-    R: BufRead,
-    W: Write,
-{
-    let mut input = String::new();
-    loop {
-        write!(
-            writer,
-            "Continue improving this taxonomy? [y/N] (or 'q' to cancel): "
-        )?;
-        writer.flush()?;
-
-        input.clear();
-        let bytes_read = reader.read_line(&mut input)?;
-        if bytes_read == 0 {
-            return Err(AppError::Execution(
-                "inspect-output cancelled before a continuation choice was made".to_string(),
-            ));
-        }
-
-        match resolve_continue_improving(input.trim()) {
-            Ok(InspectLoopDecision::ContinueImproving) => return Ok(true),
-            Ok(InspectLoopDecision::Finish) => return Ok(false),
-            Ok(InspectLoopDecision::Cancel) => {
-                return Err(AppError::Execution("inspect-output cancelled".to_string()));
-            }
-            Err(err) => writeln!(writer, "error: {err}")?,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum InspectReviewAction {
-    Accept,
-    Cancel,
-    Suggest(String),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InspectLoopDecision {
-    ContinueImproving,
-    Finish,
-    Cancel,
-}
-
-fn resolve_inspect_review_action(input: &str) -> Result<InspectReviewAction> {
-    if input.is_empty() {
-        return Ok(InspectReviewAction::Accept);
-    }
-
-    if input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("quit") {
-        return Ok(InspectReviewAction::Cancel);
-    }
-
-    Ok(InspectReviewAction::Suggest(input.to_string()))
-}
-
-fn resolve_continue_improving(input: &str) -> Result<InspectLoopDecision> {
-    if input.is_empty() || input.eq_ignore_ascii_case("n") || input.eq_ignore_ascii_case("no") {
-        return Ok(InspectLoopDecision::Finish);
-    }
-
-    if input.eq_ignore_ascii_case("y") || input.eq_ignore_ascii_case("yes") {
-        return Ok(InspectLoopDecision::ContinueImproving);
-    }
-
-    if input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("quit") {
-        return Ok(InspectLoopDecision::Cancel);
-    }
-
-    Err(AppError::Execution(
-        "enter 'y' to keep improving, press Enter to continue, or type 'q' to cancel".to_string(),
-    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -526,11 +394,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{
-        InspectLoopDecision, InspectReviewAction, InspectReviewState,
-        inspect_output_stage_with_interaction, prompt_for_continue_improving_with_io,
-        resolve_continue_improving, resolve_inspect_review_action,
-    };
+    use super::{InspectReviewState, inspect_output_stage_with_interaction};
     use crate::{
         app_run::stages::planning::StagePlan,
         error::AppError,
@@ -540,55 +404,8 @@ mod tests {
             SynthesizeCategoriesState, TaxonomyMode,
         },
         run_state::{RunStage, RunWorkspace},
+        terminal::InspectReviewPrompt,
     };
-
-    #[test]
-    fn inspect_review_action_accepts_blank_input() {
-        assert_eq!(
-            resolve_inspect_review_action("").expect("blank input should continue"),
-            InspectReviewAction::Accept
-        );
-    }
-
-    #[test]
-    fn inspect_review_action_treats_text_as_suggestion() {
-        assert_eq!(
-            resolve_inspect_review_action("merge speech categories")
-                .expect("suggestion should parse"),
-            InspectReviewAction::Suggest("merge speech categories".to_string())
-        );
-    }
-
-    #[test]
-    fn inspect_review_action_allows_cancel() {
-        assert_eq!(
-            resolve_inspect_review_action("q").expect("cancel should parse"),
-            InspectReviewAction::Cancel
-        );
-    }
-
-    #[test]
-    fn continue_improving_prompt_rejects_invalid_input_until_valid_line() {
-        let mut input = b"maybe\ny\n".as_slice();
-        let mut output = Vec::new();
-
-        let keep_improving =
-            prompt_for_continue_improving_with_io(&mut input, &mut output).expect("prompt");
-
-        assert!(keep_improving);
-        let rendered = String::from_utf8(output).expect("utf8");
-        assert!(rendered.contains(
-            "error: enter 'y' to keep improving, press Enter to continue, or type 'q' to cancel"
-        ));
-    }
-
-    #[test]
-    fn continue_improving_defaults_to_finish_on_blank_input() {
-        assert_eq!(
-            resolve_continue_improving("").expect("blank should finish"),
-            InspectLoopDecision::Finish
-        );
-    }
 
     #[tokio::test]
     async fn inspect_stage_saves_state_only_after_acceptance() {
@@ -652,11 +469,11 @@ mod tests {
             |_categories, _verbosity| match prompt_calls.get() {
                 0 => {
                     prompt_calls.set(1);
-                    Ok(InspectReviewAction::Suggest(
+                    Ok(InspectReviewPrompt::Suggest(
                         "Merge speech categories".to_string(),
                     ))
                 }
-                _ => Ok(InspectReviewAction::Accept),
+                _ => Ok(InspectReviewPrompt::Accept),
             },
             || match continue_calls.get() {
                 0 => {
@@ -708,7 +525,7 @@ mod tests {
             &mut workspace,
             Verbosity::new(false, false, false),
             &stage_plan,
-            |_categories, _verbosity| Ok(InspectReviewAction::Accept),
+            |_categories, _verbosity| Ok(InspectReviewPrompt::Accept),
             || Ok(false),
             |_partials, _suggestion, current_categories, _verbosity| {
                 let current_categories = current_categories.to_vec();
@@ -726,7 +543,7 @@ mod tests {
             &stage_plan,
             |_categories, _verbosity| {
                 prompt_calls.set(prompt_calls.get() + 1);
-                Ok(InspectReviewAction::Accept)
+                Ok(InspectReviewPrompt::Accept)
             },
             || Ok(false),
             |_partials, _suggestion, current_categories, _verbosity| {

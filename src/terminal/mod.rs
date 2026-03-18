@@ -1,11 +1,16 @@
+mod backend;
 pub mod report;
 
 use std::{
-    io::{IsTerminal, stderr, stdout},
+    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use indicatif::{ProgressState, ProgressStyle};
+
+pub use backend::{
+    BackendGuard, InspectReviewPrompt, TerminalBackend, current_backend, install_backend,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Verbosity {
@@ -52,11 +57,11 @@ impl Verbosity {
     }
 
     pub fn use_color_stderr(self) -> bool {
-        !self.quiet && stderr().is_terminal()
+        !self.quiet && current_backend().stderr_is_terminal()
     }
 
     pub fn use_color_stdout(self) -> bool {
-        !self.quiet && stdout().is_terminal()
+        !self.quiet && current_backend().stdout_is_terminal()
     }
 
     pub fn show_stage_output(self) -> bool {
@@ -64,7 +69,11 @@ impl Verbosity {
     }
 
     pub fn show_progress(self, total: usize, allow_single: bool) -> bool {
-        self.show_progress_with_terminal(total, allow_single, stderr().is_terminal())
+        self.show_progress_with_terminal(
+            total,
+            allow_single,
+            current_backend().stderr_is_terminal(),
+        )
     }
 
     fn show_progress_with_terminal(
@@ -78,13 +87,13 @@ impl Verbosity {
 
     pub fn info(self, message: impl AsRef<str>) {
         if !self.quiet {
-            eprintln!("{}", message.as_ref());
+            current_backend().write_stderr_line(message.as_ref());
         }
     }
 
     pub fn debug(self, message: impl AsRef<str>) {
         if self.debug_enabled() {
-            eprintln!("{}", message.as_ref());
+            current_backend().write_stderr_line(message.as_ref());
         }
     }
 
@@ -115,12 +124,12 @@ impl Verbosity {
 
     pub fn warn_line(self, label: &str, message: impl AsRef<str>) {
         let tag = self.paint(label, "1;33");
-        eprintln!("{tag} {}", message.as_ref());
+        current_backend().write_stderr_line(&format!("{tag} {}", message.as_ref()));
     }
 
     pub fn error_line(self, label: &str, message: impl AsRef<str>) {
         let tag = self.paint(label, "1;31");
-        eprintln!("{tag} {}", message.as_ref());
+        current_backend().write_stderr_line(&format!("{tag} {}", message.as_ref()));
     }
 
     pub fn debug_line(self, label: &str, message: impl AsRef<str>) {
@@ -155,6 +164,7 @@ impl Verbosity {
     pub fn muted(self, text: impl AsRef<str>) -> String {
         self.paint(text.as_ref(), "90")
     }
+
     fn paint(self, text: &str, code: &str) -> String {
         if self.use_color_stderr() || self.use_color_stdout() {
             format!("\x1b[{code}m{text}\x1b[0m")
@@ -165,35 +175,33 @@ impl Verbosity {
 }
 
 pub struct ProgressTracker {
-    inner: Option<ProgressBar>,
+    id: Option<u64>,
 }
 
 impl ProgressTracker {
     pub fn new(verbosity: Verbosity, total: usize, label: &str, allow_single: bool) -> Self {
-        let inner = verbosity.show_progress(total, allow_single).then(|| {
-            let progress = ProgressBar::new(total as u64);
-            progress.set_style(progress_style());
-            progress.set_message(label.to_string());
-            progress.enable_steady_tick(Duration::from_millis(100));
-            progress
+        let id = verbosity.show_progress(total, allow_single).then(|| {
+            let id = next_progress_id();
+            current_backend().start_progress(id, total, label);
+            id
         });
-        Self { inner }
+        Self { id }
     }
 
     pub fn inc(&mut self, delta: usize) {
-        if let Some(progress) = self.inner.as_ref() {
-            progress.inc(delta as u64);
+        if let Some(id) = self.id {
+            current_backend().advance_progress(id, delta);
         }
     }
 
     pub fn finish(&mut self) {
-        if let Some(progress) = self.inner.take() {
-            progress.finish_and_clear();
+        if let Some(id) = self.id.take() {
+            current_backend().finish_progress(id);
         }
     }
 }
 
-fn progress_style() -> ProgressStyle {
+pub(crate) fn progress_style() -> ProgressStyle {
     match ProgressStyle::with_template(
         "{spinner:.cyan} {msg} [{wide_bar:.cyan/blue}] {pos}/{len} [{elapsed_mm_ss}/{eta_mm_ss}]",
     ) {
@@ -228,6 +236,26 @@ pub fn format_duration(duration: Duration) -> String {
     } else {
         format!("{:.1}ms", duration.as_secs_f64() * 1000.0)
     }
+}
+
+pub fn terminal_is_interactive() -> bool {
+    current_backend().is_interactive()
+}
+
+pub fn prompt_inspect_review_action(
+    categories: &[crate::models::CategoryTree],
+    verbosity: Verbosity,
+) -> crate::error::Result<InspectReviewPrompt> {
+    current_backend().prompt_inspect_review_action(categories, verbosity)
+}
+
+pub fn prompt_continue_improving() -> crate::error::Result<bool> {
+    current_backend().prompt_continue_improving()
+}
+
+fn next_progress_id() -> u64 {
+    static NEXT_PROGRESS_ID: AtomicU64 = AtomicU64::new(1);
+    NEXT_PROGRESS_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 #[cfg(test)]
