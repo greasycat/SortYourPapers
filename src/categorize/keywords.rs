@@ -410,21 +410,38 @@ fn validate_saved_keyword_progress(
 
     let expected_batches = prepared_batches
         .iter()
-        .map(|batch| (batch.batch_index, batch.papers.len()))
+        .map(|batch| {
+            (
+                batch.batch_index,
+                batch
+                    .papers
+                    .iter()
+                    .map(|paper| paper.file_id.clone())
+                    .collect::<Vec<_>>(),
+            )
+        })
         .collect::<std::collections::HashMap<_, _>>();
 
     for batch in &progress.completed_batches {
-        let Some(expected_len) = expected_batches.get(&batch.batch_index) else {
+        let Some(expected_file_ids) = expected_batches.get(&batch.batch_index) else {
             return Err(AppError::Validation(format!(
                 "saved keyword batch {} no longer matches the current input",
                 batch.batch_index
             )));
         };
-        if batch.keyword_sets.len() != *expected_len
-            || batch.preliminary_pairs.len() != *expected_len
-        {
+        let keyword_file_ids = batch
+            .keyword_sets
+            .iter()
+            .map(|set| set.file_id.clone())
+            .collect::<Vec<_>>();
+        let preliminary_file_ids = batch
+            .preliminary_pairs
+            .iter()
+            .map(|pair| pair.file_id.clone())
+            .collect::<Vec<_>>();
+        if keyword_file_ids != *expected_file_ids || preliminary_file_ids != *expected_file_ids {
             return Err(AppError::Validation(format!(
-                "saved keyword batch {} has inconsistent result counts",
+                "saved keyword batch {} has inconsistent file ids",
                 batch.batch_index
             )));
         }

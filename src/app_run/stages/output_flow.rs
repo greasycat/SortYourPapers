@@ -4,6 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use serde::Deserialize;
+
 use crate::{
     error::{AppError, Result},
     execute, llm,
@@ -11,7 +13,10 @@ use crate::{
     models::{
         AppConfig, CategoryTree, KeywordSet, PlacementDecision, PreliminaryCategoryPair, RunReport,
     },
-    place::{OutputSnapshot, PlacementOptions, generate_placements, inspect_output},
+    place::{
+        OutputSnapshot, PlacementBatchProgress, PlacementOptions,
+        generate_placements_with_progress, inspect_output,
+    },
     planner::build_move_plan,
     report,
     run_state::{ExtractTextState, RunStage, RunWorkspace},
@@ -19,37 +24,94 @@ use crate::{
 
 use super::planning::{StagePlan, log_resume, log_stage, log_timing};
 
+const PLACEMENT_BATCH_PROGRESS_FILE: &str = "09-generate-placements-partial-batches.json";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(from = "InspectReviewStateRepr")]
+pub(super) struct InspectReviewState {
+    pub(super) categories: Vec<CategoryTree>,
+    #[serde(skip)]
+    pub(super) is_current: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum InspectReviewStateRepr {
+    Current {
+        categories: Vec<CategoryTree>,
+    },
+    LegacyReview {
+        #[serde(rename = "batch_categories")]
+        _batch_categories: Vec<Vec<CategoryTree>>,
+        #[serde(default, rename = "last_suggestion")]
+        _last_suggestion: Option<String>,
+    },
+    Legacy {
+        #[serde(rename = "is_empty")]
+        _is_empty: bool,
+        #[serde(rename = "existing_folders")]
+        _existing_folders: Vec<String>,
+        #[serde(rename = "tree_map")]
+        _tree_map: String,
+    },
+}
+
+impl From<InspectReviewStateRepr> for InspectReviewState {
+    fn from(value: InspectReviewStateRepr) -> Self {
+        match value {
+            InspectReviewStateRepr::Current { categories } => Self {
+                categories,
+                is_current: true,
+            },
+            InspectReviewStateRepr::LegacyReview { .. } | InspectReviewStateRepr::Legacy { .. } => {
+                Self {
+                    categories: Vec::new(),
+                    is_current: false,
+                }
+            }
+        }
+    }
+}
+
 pub(super) fn inspect_output_stage(
-    config: &AppConfig,
+    categories: &[CategoryTree],
     workspace: &mut RunWorkspace,
     verbosity: Verbosity,
     stage_plan: &StagePlan,
-) -> Result<OutputSnapshot> {
+) -> Result<()> {
     stage_plan.announce(verbosity, RunStage::InspectOutput);
-    if let Some(saved) = workspace.load_stage::<OutputSnapshot>(RunStage::InspectOutput)? {
-        log_resume(verbosity, "inspect-output", workspace);
-        return Ok(saved);
+    if let Some(saved) = workspace.load_stage::<InspectReviewState>(RunStage::InspectOutput)? {
+        if saved.is_current {
+            log_resume(verbosity, "inspect-output", workspace);
+            return Ok(());
+        }
+        verbosity.stage_line(
+            "inspect-output",
+            "legacy inspect-output state detected; rerendering merged taxonomy".to_string(),
+        );
     }
 
     let stage_started = Instant::now();
     log_stage(
         verbosity,
         "inspect-output",
-        format!("reading output tree at {}", config.output.display()),
-    );
-    let snapshot = inspect_output(Path::new(&config.output))?;
-    workspace.save_stage(RunStage::InspectOutput, &snapshot)?;
-    log_stage(
-        verbosity,
-        "inspect-output",
         format!(
-            "output snapshot: empty={} folders={}",
-            snapshot.is_empty,
-            snapshot.existing_folders.len()
+            "reviewing merged taxonomy with {} top-level categor(ies)",
+            categories.len()
         ),
     );
+    if !verbosity.quiet() {
+        report::print_category_tree(categories, verbosity);
+    }
+    workspace.save_stage(
+        RunStage::InspectOutput,
+        &InspectReviewState {
+            categories: categories.to_vec(),
+            is_current: true,
+        },
+    )?;
     log_timing(verbosity, "inspect-output", stage_started.elapsed());
-    Ok(snapshot)
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -60,7 +122,6 @@ pub(super) async fn generate_placements_stage(
     keyword_sets: &[KeywordSet],
     preliminary_pairs: &[PreliminaryCategoryPair],
     categories: &[CategoryTree],
-    placement_snapshot: &OutputSnapshot,
     config: &AppConfig,
     report: &mut RunReport,
     workspace: &mut RunWorkspace,
@@ -69,6 +130,7 @@ pub(super) async fn generate_placements_stage(
 ) -> Result<Vec<PlacementDecision>> {
     stage_plan.announce(verbosity, RunStage::GeneratePlacements);
     if let Some(saved) = saved_placements {
+        workspace.remove_artifact(PLACEMENT_BATCH_PROGRESS_FILE)?;
         log_resume(verbosity, "generate-placements", workspace);
         return Ok(saved);
     }
@@ -83,13 +145,22 @@ pub(super) async fn generate_placements_stage(
             config.placement_mode
         ),
     );
-    let (placements, usage) = generate_placements(
+    let live_snapshot = inspect_output(Path::new(&config.output))?;
+    let placement_snapshot = pick_snapshot_for_mode(&live_snapshot, config.rebuild);
+    let saved_progress = workspace
+        .load_artifact::<PlacementBatchProgress>(PLACEMENT_BATCH_PROGRESS_FILE)?
+        .unwrap_or_default();
+    if !saved_progress.completed_batches.is_empty() {
+        report.llm_usage.placements = saved_progress.usage.clone();
+        workspace.save_report(report)?;
+    }
+    let (placements, usage) = generate_placements_with_progress(
         Arc::clone(require_llm_client(llm_client)?),
         &extract_state.papers,
         keyword_sets,
         preliminary_pairs,
         categories,
-        placement_snapshot,
+        &placement_snapshot,
         PlacementOptions {
             batch_size: config.placement_batch_size,
             batch_start_delay_ms: config.batch_start_delay_ms,
@@ -97,10 +168,17 @@ pub(super) async fn generate_placements_stage(
             category_depth: config.category_depth,
             verbosity,
         },
+        saved_progress,
+        |progress| {
+            report.llm_usage.placements = progress.usage.clone();
+            workspace.save_artifact(PLACEMENT_BATCH_PROGRESS_FILE, progress)?;
+            workspace.save_report(report)
+        },
     )
     .await?;
     report.llm_usage.placements = usage;
     workspace.save_stage(RunStage::GeneratePlacements, &placements)?;
+    workspace.remove_artifact(PLACEMENT_BATCH_PROGRESS_FILE)?;
     workspace.save_report(report)?;
     log_stage(
         verbosity,

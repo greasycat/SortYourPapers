@@ -720,6 +720,13 @@ async fn taxonomy_resume_skips_saved_batches() {
         completed_batches: vec![TaxonomyBatchResult {
             batch_index: 1,
             input_count: 2,
+            input_fingerprint: Some(
+                serde_json::to_string(&vec![
+                    ("AI/Transformers".to_string(), 1usize),
+                    ("AI/Vision".to_string(), 1usize),
+                ])
+                .expect("taxonomy fingerprint"),
+            ),
             categories: vec![CategoryTree {
                 name: "Saved".to_string(),
                 children: vec![],
@@ -756,6 +763,59 @@ async fn taxonomy_resume_skips_saved_batches() {
     assert!(captured[0].user_prompt.contains("Systems/Databases"));
     assert!(captured[1].user_prompt.contains("category_paths"));
     assert!(!captured[0].user_prompt.contains("AI/Vision"));
+}
+
+#[tokio::test]
+async fn taxonomy_resume_rejects_saved_batch_with_stale_inputs() {
+    let raw_client = Arc::new(JsonOnlySchemaProbeClient::default());
+    let client: Arc<dyn LlmClient> = raw_client;
+    let preliminary_pairs = vec![
+        PreliminaryCategoryPair {
+            file_id: "a".to_string(),
+            preliminary_categories_k_depth: "AI/Transformers".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "b".to_string(),
+            preliminary_categories_k_depth: "AI/Agents".to_string(),
+        },
+    ];
+    let saved_progress = TaxonomyBatchProgress {
+        completed_batches: vec![TaxonomyBatchResult {
+            batch_index: 1,
+            input_count: 2,
+            input_fingerprint: Some(
+                serde_json::to_string(&vec![
+                    ("AI/Transformers".to_string(), 1usize),
+                    ("AI/Vision".to_string(), 1usize),
+                ])
+                .expect("taxonomy fingerprint"),
+            ),
+            categories: vec![CategoryTree {
+                name: "Saved".to_string(),
+                children: vec![],
+            }],
+            elapsed_ms: 10,
+        }],
+        usage: LlmUsageSummary::default(),
+    };
+
+    let err = synthesize_categories_with_progress(
+        client.as_ref(),
+        &preliminary_pairs,
+        2,
+        2,
+        0,
+        saved_progress,
+        |_| Ok(()),
+        Verbosity::new(false, false, false),
+    )
+    .await
+    .expect_err("stale taxonomy resume should be rejected");
+
+    assert!(
+        err.to_string()
+            .contains("no longer matches the current input")
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -847,6 +907,41 @@ async fn keyword_resume_skips_saved_batches() {
         .expect("captured_calls lock");
     assert_eq!(captured.len(), 1);
     assert!(captured[0].user_prompt.contains("\"file_id\":\"b\""));
+}
+
+#[tokio::test]
+async fn keyword_resume_rejects_saved_batch_with_stale_file_ids() {
+    let raw_client = Arc::new(JsonOnlySchemaProbeClient::default());
+    let client: Arc<dyn LlmClient> = raw_client;
+    let papers = vec![make_paper("a"), make_paper("b")];
+    let saved_progress = KeywordBatchProgress {
+        completed_batches: vec![KeywordBatchResult {
+            batch_index: 1,
+            keyword_sets: vec![KeywordSet {
+                file_id: "b".to_string(),
+                keywords: vec!["saved".to_string()],
+            }],
+            preliminary_pairs: vec![PreliminaryCategoryPair {
+                file_id: "b".to_string(),
+                preliminary_categories_k_depth: "Saved/Category".to_string(),
+            }],
+        }],
+        usage: LlmUsageSummary::default(),
+    };
+
+    let err = extract_keywords_with_progress(
+        client,
+        &papers,
+        1,
+        0,
+        saved_progress,
+        |_| Ok(()),
+        Verbosity::new(false, false, false),
+    )
+    .await
+    .expect_err("stale keyword resume should be rejected");
+
+    assert!(err.to_string().contains("inconsistent file ids"));
 }
 
 fn make_paper(id: &str) -> PaperText {

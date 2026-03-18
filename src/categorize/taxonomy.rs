@@ -212,6 +212,9 @@ where
         progress_state.completed_batches.push(TaxonomyBatchResult {
             batch_index: batch.batch_index,
             input_count: batch.aggregated_preliminary_categories.len(),
+            input_fingerprint: Some(taxonomy_batch_fingerprint(
+                &batch.aggregated_preliminary_categories,
+            )?),
             categories,
             elapsed_ms,
         });
@@ -602,13 +605,17 @@ fn validate_saved_taxonomy_progress(
         .map(|batch| {
             (
                 batch.batch_index,
-                batch.aggregated_preliminary_categories.len(),
+                (
+                    batch.aggregated_preliminary_categories.len(),
+                    taxonomy_batch_fingerprint(&batch.aggregated_preliminary_categories),
+                ),
             )
         })
         .collect::<std::collections::HashMap<_, _>>();
 
     for batch in &progress.completed_batches {
-        let Some(expected_len) = expected_batches.get(&batch.batch_index) else {
+        let Some((expected_len, expected_fingerprint)) = expected_batches.get(&batch.batch_index)
+        else {
             return Err(AppError::Validation(format!(
                 "saved taxonomy batch {} no longer matches the current input",
                 batch.batch_index
@@ -620,12 +627,30 @@ fn validate_saved_taxonomy_progress(
                 batch.batch_index
             )));
         }
+        if let Some(saved_fingerprint) = batch.input_fingerprint.as_ref() {
+            let expected_fingerprint = expected_fingerprint.as_ref().map_err(|err| {
+                AppError::Execution(format!(
+                    "failed to fingerprint taxonomy batch {}: {err}",
+                    batch.batch_index
+                ))
+            })?;
+            if saved_fingerprint != expected_fingerprint {
+                return Err(AppError::Validation(format!(
+                    "saved taxonomy batch {} no longer matches the current input",
+                    batch.batch_index
+                )));
+            }
+        }
     }
 
     progress
         .completed_batches
         .sort_by_key(|batch| batch.batch_index);
     Ok(progress)
+}
+
+fn taxonomy_batch_fingerprint(batch: &[(String, usize)]) -> Result<String> {
+    serde_json::to_string(batch).map_err(AppError::from)
 }
 
 fn report_slowest_batch(

@@ -1,19 +1,11 @@
-use std::{
-    collections::VecDeque,
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use tokio::sync::Mutex;
-use tokio::time::sleep;
 
 use super::{
-    OutputSnapshot, PlacementOptions, generate_placements,
+    OutputSnapshot, PlacementBatchProgress, PlacementBatchResult, PlacementOptions,
+    generate_placements, generate_placements_with_progress,
     prompts::{
         build_allowed_targets, build_file_context, build_placement_prompt,
         format_placement_request_debug_message,
@@ -35,14 +27,6 @@ struct StubLlmClient {
     calls: Mutex<usize>,
 }
 
-struct ConcurrentProbeClient {
-    calls: AtomicUsize,
-    active_calls: AtomicUsize,
-    max_active_calls: AtomicUsize,
-    started_at: std::sync::Mutex<Vec<Instant>>,
-    delay: Duration,
-}
-
 #[async_trait]
 impl LlmClient for StubLlmClient {
     async fn chat(&self, _system_prompt: &str, _user_prompt: &str) -> Result<LlmResponse> {
@@ -55,76 +39,6 @@ impl LlmClient for StubLlmClient {
             .pop_front()
             .map(|content| llm_response(&content))
             .ok_or_else(|| AppError::Execution("stub client ran out of responses".to_string()))
-    }
-}
-
-#[async_trait]
-impl LlmClient for ConcurrentProbeClient {
-    async fn chat(&self, _system_prompt: &str, user_prompt: &str) -> Result<LlmResponse> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        self.started_at
-            .lock()
-            .expect("started_at lock")
-            .push(Instant::now());
-        let active = self.active_calls.fetch_add(1, Ordering::SeqCst) + 1;
-        let mut observed = self.max_active_calls.load(Ordering::SeqCst);
-        while active > observed {
-            match self.max_active_calls.compare_exchange(
-                observed,
-                active,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                Ok(_) => break,
-                Err(actual) => observed = actual,
-            }
-        }
-
-        sleep(self.delay).await;
-
-        let response = if user_prompt.contains("\"file_id\":\"f1\"") {
-            Ok(llm_response(
-                &serde_json::json!({
-                    "placements": [
-                        {
-                            "file_id": "f1",
-                            "target_rel_path": "."
-                        }
-                    ]
-                })
-                .to_string(),
-            ))
-        } else if user_prompt.contains("\"file_id\":\"f2\"") {
-            Ok(llm_response(
-                &serde_json::json!({
-                    "placements": [
-                        {
-                            "file_id": "f2",
-                            "target_rel_path": "."
-                        }
-                    ]
-                })
-                .to_string(),
-            ))
-        } else if user_prompt.contains("\"file_id\":\"f3\"") {
-            Ok(llm_response(
-                &serde_json::json!({
-                    "placements": [
-                        {
-                            "file_id": "f3",
-                            "target_rel_path": "."
-                        }
-                    ]
-                })
-                .to_string(),
-            ))
-        } else {
-            Err(AppError::Execution(
-                "probe client could not determine requested file_id".to_string(),
-            ))
-        };
-        self.active_calls.fetch_sub(1, Ordering::SeqCst);
-        response
     }
 }
 
@@ -357,16 +271,43 @@ async fn generate_placements_batches_requests() {
     assert_eq!(*client.calls.lock().await, 2);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn generate_placements_runs_batches_concurrently() {
-    let client = Arc::new(ConcurrentProbeClient {
-        calls: AtomicUsize::new(0),
-        active_calls: AtomicUsize::new(0),
-        max_active_calls: AtomicUsize::new(0),
-        started_at: std::sync::Mutex::new(Vec::new()),
-        delay: Duration::from_millis(150),
+#[tokio::test]
+async fn generate_placements_uses_stable_batch_order() {
+    let client = Arc::new(StubLlmClient {
+        responses: Mutex::new(VecDeque::from(vec![
+            serde_json::json!({
+                "placements": [
+                    {
+                        "file_id": "f1",
+                        "target_rel_path": "."
+                    },
+                    {
+                        "file_id": "f2",
+                        "target_rel_path": "."
+                    }
+                ]
+            })
+            .to_string(),
+            serde_json::json!({
+                "placements": [
+                    {
+                        "file_id": "f3",
+                        "target_rel_path": "."
+                    }
+                ]
+            })
+            .to_string(),
+        ])),
+        calls: Mutex::new(0),
     });
     let papers = vec![
+        PaperText {
+            file_id: "f3".to_string(),
+            path: PathBuf::from("/tmp/p3.pdf"),
+            extracted_text: "x".to_string(),
+            llm_ready_text: "x".to_string(),
+            pages_read: 1,
+        },
         PaperText {
             file_id: "f1".to_string(),
             path: PathBuf::from("/tmp/p1.pdf"),
@@ -377,13 +318,6 @@ async fn generate_placements_runs_batches_concurrently() {
         PaperText {
             file_id: "f2".to_string(),
             path: PathBuf::from("/tmp/p2.pdf"),
-            extracted_text: "x".to_string(),
-            llm_ready_text: "x".to_string(),
-            pages_read: 1,
-        },
-        PaperText {
-            file_id: "f3".to_string(),
-            path: PathBuf::from("/tmp/p3.pdf"),
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
@@ -435,7 +369,7 @@ async fn generate_placements_runs_batches_concurrently() {
         &categories,
         &snapshot,
         PlacementOptions {
-            batch_size: 1,
+            batch_size: 2,
             batch_start_delay_ms: 100,
             placement_mode: PlacementMode::AllowNew,
             category_depth: 2,
@@ -443,15 +377,139 @@ async fn generate_placements_runs_batches_concurrently() {
         },
     )
     .await
-    .expect("concurrent placement generation should succeed");
+    .expect("stable placement batching should succeed");
 
-    assert_eq!(usage.call_count, 3);
+    assert_eq!(usage.call_count, 2);
     assert_eq!(placements.len(), 3);
-    assert_eq!(client.calls.load(Ordering::SeqCst), 3);
-    assert!(client.max_active_calls.load(Ordering::SeqCst) > 1);
-    let started_at = client.started_at.lock().expect("started_at");
-    assert_eq!(started_at.len(), 3);
-    assert!(started_at[1].duration_since(started_at[0]) >= Duration::from_millis(80));
+    assert_eq!(placements[0].file_id, "f1");
+    assert_eq!(placements[1].file_id, "f2");
+    assert_eq!(placements[2].file_id, "f3");
+}
+
+#[tokio::test]
+async fn placement_resume_skips_saved_batches() {
+    let client = Arc::new(StubLlmClient {
+        responses: Mutex::new(VecDeque::from(vec![
+            serde_json::json!({
+                "placements": [
+                    {
+                        "file_id": "f3",
+                        "target_rel_path": "."
+                    }
+                ]
+            })
+            .to_string(),
+        ])),
+        calls: Mutex::new(0),
+    });
+    let papers = vec![
+        PaperText {
+            file_id: "f2".to_string(),
+            path: PathBuf::from("/tmp/p2.pdf"),
+            extracted_text: "x".to_string(),
+            llm_ready_text: "x".to_string(),
+            pages_read: 1,
+        },
+        PaperText {
+            file_id: "f3".to_string(),
+            path: PathBuf::from("/tmp/p3.pdf"),
+            extracted_text: "x".to_string(),
+            llm_ready_text: "x".to_string(),
+            pages_read: 1,
+        },
+        PaperText {
+            file_id: "f1".to_string(),
+            path: PathBuf::from("/tmp/p1.pdf"),
+            extracted_text: "x".to_string(),
+            llm_ready_text: "x".to_string(),
+            pages_read: 1,
+        },
+    ];
+    let keyword_sets = vec![
+        KeywordSet {
+            file_id: "f1".to_string(),
+            keywords: vec!["a".to_string()],
+        },
+        KeywordSet {
+            file_id: "f2".to_string(),
+            keywords: vec!["b".to_string()],
+        },
+        KeywordSet {
+            file_id: "f3".to_string(),
+            keywords: vec!["c".to_string()],
+        },
+    ];
+    let preliminary_pairs = vec![
+        PreliminaryCategoryPair {
+            file_id: "f1".to_string(),
+            preliminary_categories_k_depth: "Root/A".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "f2".to_string(),
+            preliminary_categories_k_depth: "Root/B".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "f3".to_string(),
+            preliminary_categories_k_depth: "Root/C".to_string(),
+        },
+    ];
+    let categories = vec![CategoryTree {
+        name: "Root".to_string(),
+        children: vec![],
+    }];
+    let snapshot = OutputSnapshot {
+        is_empty: true,
+        existing_folders: vec![".".to_string()],
+        tree_map: "<empty>".to_string(),
+    };
+    let saved_progress = PlacementBatchProgress {
+        completed_batches: vec![PlacementBatchResult {
+            batch_index: 1,
+            file_ids: vec!["f1".to_string(), "f2".to_string()],
+            placements: vec![
+                PlacementDecision {
+                    file_id: "f1".to_string(),
+                    target_rel_path: ".".to_string(),
+                },
+                PlacementDecision {
+                    file_id: "f2".to_string(),
+                    target_rel_path: ".".to_string(),
+                },
+            ],
+            elapsed_ms: 10,
+        }],
+        usage: crate::models::LlmUsageSummary {
+            call_count: 1,
+            ..crate::models::LlmUsageSummary::default()
+        },
+    };
+
+    let (placements, usage) = generate_placements_with_progress(
+        client.clone(),
+        &papers,
+        &keyword_sets,
+        &preliminary_pairs,
+        &categories,
+        &snapshot,
+        PlacementOptions {
+            batch_size: 2,
+            batch_start_delay_ms: 100,
+            placement_mode: PlacementMode::AllowNew,
+            category_depth: 2,
+            verbosity: Verbosity::new(false, false, true),
+        },
+        saved_progress,
+        |_| Ok(()),
+    )
+    .await
+    .expect("placement resume should succeed");
+
+    assert_eq!(usage.call_count, 2);
+    assert_eq!(placements.len(), 3);
+    assert_eq!(placements[0].file_id, "f1");
+    assert_eq!(placements[1].file_id, "f2");
+    assert_eq!(placements[2].file_id, "f3");
+    assert_eq!(*client.calls.lock().await, 1);
 }
 
 fn llm_response(content: &str) -> LlmResponse {

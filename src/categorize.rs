@@ -38,7 +38,24 @@ pub(crate) struct KeywordBatchProgress {
     pub(crate) usage: LlmUsageSummary,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct TaxonomyBatchResult {
+    pub(crate) batch_index: usize,
+    pub(crate) input_count: usize,
+    #[serde(default)]
+    pub(crate) input_fingerprint: Option<String>,
+    pub(crate) categories: Vec<crate::models::CategoryTree>,
+    pub(crate) elapsed_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct TaxonomyBatchProgress {
+    pub(crate) completed_batches: Vec<TaxonomyBatchResult>,
+    pub(crate) usage: LlmUsageSummary,
+}
+
 pub use keywords::extract_keywords;
 pub(crate) use keywords::extract_keywords_with_progress;
 pub use taxonomy::synthesize_categories;
+pub(crate) use taxonomy::synthesize_categories_with_progress;
 pub use validation::validate_category_depth;

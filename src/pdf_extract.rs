@@ -15,6 +15,7 @@ use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::{
     error::AppError,
+    logging::{ProgressTracker, Verbosity},
     models::{PaperText, PdfCandidate},
     text_preprocess::preprocess_for_llm,
 };
@@ -59,12 +60,14 @@ pub async fn extract_text_batch(
     mode: ExtractorMode,
     debug: bool,
     workers: usize,
+    verbosity: Verbosity,
 ) -> (Vec<PaperText>, Vec<(std::path::PathBuf, String)>) {
     let max_workers = workers.max(1);
     let semaphore = Arc::new(Semaphore::new(max_workers));
     let mut join_set = JoinSet::new();
     let mut papers = Vec::new();
     let mut failures = Vec::new();
+    let mut progress = ProgressTracker::new(verbosity, candidates.len(), "preprocessing", true);
 
     for (index, candidate) in candidates.iter().cloned().enumerate() {
         let permit = semaphore
@@ -99,10 +102,13 @@ pub async fn extract_text_batch(
                 format!("pdf extraction join failed: {err}"),
             )),
         }
+        progress.inc(1);
     }
 
     papers.sort_by_key(|(index, _)| *index);
     failures.sort_by_key(|(index, _, _)| *index);
+
+    progress.finish();
 
     (
         papers.into_iter().map(|(_, paper)| paper).collect(),

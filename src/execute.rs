@@ -2,19 +2,22 @@ use std::fs;
 
 use crate::{
     error::{AppError, Result},
+    logging::{ProgressTracker, Verbosity},
     models::{FileAction, PlanAction},
 };
 
-pub fn execute_plan(actions: &[PlanAction], dry_run: bool) -> Result<usize> {
+pub fn execute_plan(actions: &[PlanAction], dry_run: bool, verbosity: Verbosity) -> Result<usize> {
     if dry_run {
         return Ok(0);
     }
 
     let mut moved = 0usize;
+    let mut progress = ProgressTracker::new(verbosity, actions.len(), "applying moves", false);
 
     for action in actions {
         if !action.source.exists() {
             if action.destination.exists() {
+                progress.inc(1);
                 continue;
             }
             return Err(AppError::Execution(format!(
@@ -48,10 +51,12 @@ pub fn execute_plan(actions: &[PlanAction], dry_run: bool) -> Result<usize> {
                         }
                     }
                 }
+                progress.inc(1);
             }
         }
     }
 
+    progress.finish();
     Ok(moved)
 }
 
@@ -62,6 +67,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::execute_plan;
+    use crate::logging::Verbosity;
     use crate::models::{FileAction, PlanAction};
 
     #[test]
@@ -77,7 +83,8 @@ mod tests {
             action: FileAction::Move,
         }];
 
-        execute_plan(&actions, true).expect("dry-run execution should succeed");
+        execute_plan(&actions, true, Verbosity::new(false, false, false))
+            .expect("dry-run execution should succeed");
 
         assert!(source.exists());
         assert!(!dest.exists());
@@ -96,7 +103,8 @@ mod tests {
             action: FileAction::Move,
         }];
 
-        let moved = execute_plan(&actions, false).expect("apply execution should succeed");
+        let moved = execute_plan(&actions, false, Verbosity::new(false, false, false))
+            .expect("apply execution should succeed");
 
         assert_eq!(moved, 1);
         assert!(!source.exists());
@@ -117,7 +125,8 @@ mod tests {
             action: FileAction::Move,
         }];
 
-        let moved = execute_plan(&actions, false).expect("resume execution should succeed");
+        let moved = execute_plan(&actions, false, Verbosity::new(false, false, false))
+            .expect("resume execution should succeed");
 
         assert_eq!(moved, 0);
         assert!(dest.exists());

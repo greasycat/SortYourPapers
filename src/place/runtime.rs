@@ -2,12 +2,11 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::task::JoinSet;
 
 use crate::{
     error::{AppError, Result},
     llm::{JsonResponseSchema, LlmClient, call_json_with_retry},
-    logging::{ProgressTracker, Verbosity, format_duration},
+    logging::{ProgressTracker, format_duration},
     models::{
         CategoryTree, KeywordSet, LlmUsageSummary, PaperText, PlacementDecision,
         PreliminaryCategoryPair,
@@ -15,8 +14,8 @@ use crate::{
 };
 
 use super::{
-    MAX_CONCURRENT_PLACEMENT_BATCH_REQUESTS, MAX_JSON_ATTEMPTS, MAX_SEMANTIC_ATTEMPTS,
-    OutputSnapshot, PlacementBatchRuntime, PlacementOptions,
+    MAX_JSON_ATTEMPTS, MAX_SEMANTIC_ATTEMPTS, OutputSnapshot, PlacementBatchProgress,
+    PlacementBatchResult, PlacementBatchRuntime, PlacementOptions,
     batching::{batch_dispatch_spacing, wait_for_dispatch_slot},
     prompts::{
         build_allowed_targets, build_file_context, build_placement_prompt, format_paper_batch_span,
@@ -51,6 +50,34 @@ pub async fn generate_placements(
     snapshot: &OutputSnapshot,
     options: PlacementOptions,
 ) -> Result<(Vec<PlacementDecision>, LlmUsageSummary)> {
+    generate_placements_with_progress(
+        client,
+        papers,
+        keyword_sets,
+        preliminary_pairs,
+        categories,
+        snapshot,
+        options,
+        PlacementBatchProgress::default(),
+        |_| Ok(()),
+    )
+    .await
+}
+
+pub(crate) async fn generate_placements_with_progress<F>(
+    client: Arc<dyn LlmClient>,
+    papers: &[PaperText],
+    keyword_sets: &[KeywordSet],
+    preliminary_pairs: &[PreliminaryCategoryPair],
+    categories: &[CategoryTree],
+    snapshot: &OutputSnapshot,
+    options: PlacementOptions,
+    saved_progress: PlacementBatchProgress,
+    mut on_progress: F,
+) -> Result<(Vec<PlacementDecision>, LlmUsageSummary)>
+where
+    F: FnMut(&PlacementBatchProgress) -> Result<()>,
+{
     if papers.is_empty() {
         return Ok((Vec::new(), LlmUsageSummary::default()));
     }
@@ -73,18 +100,24 @@ pub async fn generate_placements(
             )
         })
         .collect();
-    let total_batches = papers.len().div_ceil(options.batch_size);
+    let mut ordered_papers = papers.to_vec();
+    ordered_papers.sort_by(|left, right| {
+        left.file_id
+            .cmp(&right.file_id)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    let total_batches = ordered_papers.len().div_ceil(options.batch_size);
     options.verbosity.stage_line(
         "placements",
         format!(
             "{} paper(s) ready; batching into {} request(s) of up to {} file(s)",
-            papers.len(),
+            ordered_papers.len(),
             total_batches,
             options.batch_size
         ),
     );
 
-    let prepared_batches = papers
+    let prepared_batches = ordered_papers
         .chunks(options.batch_size)
         .enumerate()
         .map(|(batch_index, batch)| PreparedPlacementBatch {
@@ -93,31 +126,109 @@ pub async fn generate_placements(
             file_context: build_file_context(batch, &keyword_map, &preliminary_map),
         })
         .collect::<Vec<_>>();
+    let mut progress_state = validate_saved_placement_progress(
+        &prepared_batches,
+        snapshot,
+        options.placement_mode,
+        options.category_depth,
+        saved_progress,
+    )?;
+    let resumed_batches = progress_state.completed_batches.len();
+    if resumed_batches > 0 {
+        options.verbosity.stage_line(
+            "placements",
+            format!("resuming {} saved placement batch(es)", resumed_batches),
+        );
+    }
     let runtime = PlacementBatchRuntime {
         categories: Arc::new(categories.to_vec()),
         snapshot: Arc::new(snapshot.clone()),
-        options: PlacementOptions {
-            verbosity: if options.verbosity.show_progress(total_batches, true) {
-                options.verbosity.stage_silenced()
-            } else {
-                options.verbosity
-            },
-            ..options
-        },
+        options,
         total_batches,
     };
-    let (batch_results, usage) = run_placement_batches_concurrently(
-        client,
-        prepared_batches,
-        runtime.clone(),
-        options.verbosity,
-    )
-    .await?;
-    let mut all_placements = Vec::with_capacity(papers.len());
-    for (_, placements) in batch_results {
-        all_placements.extend(placements);
-    }
+    let completed_indexes = progress_state
+        .completed_batches
+        .iter()
+        .map(|batch| batch.batch_index)
+        .collect::<std::collections::HashSet<_>>();
+    let mut usage = progress_state.usage.clone();
+    let mut next_dispatch_at = None;
+    let dispatch_spacing = batch_dispatch_spacing(runtime.options.batch_start_delay_ms);
+    let mut progress = ProgressTracker::new(
+        runtime.options.verbosity,
+        total_batches,
+        "placement batches",
+        true,
+    );
+    progress.inc(progress_state.completed_batches.len());
 
+    for batch in prepared_batches
+        .iter()
+        .filter(|batch| !completed_indexes.contains(&batch.batch_index))
+    {
+        wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
+        let started_at = Instant::now();
+        let batch_span = format_paper_batch_span(&batch.papers);
+        runtime.options.verbosity.stage_line(
+            "placements",
+            format!(
+                "batch {}/{} {}",
+                batch.batch_index, runtime.total_batches, batch_span
+            ),
+        );
+        let (placements, batch_usage) =
+            match generate_placement_batch(client.as_ref(), batch, &runtime).await {
+                Ok(result) => result,
+                Err(err) => {
+                    runtime.options.verbosity.error_line(
+                        "PLACEMENTS",
+                        format!(
+                            "batch {}/{} failed after {} {}: {}",
+                            batch.batch_index,
+                            runtime.total_batches,
+                            format_duration(started_at.elapsed()),
+                            batch_span,
+                            err
+                        ),
+                    );
+                    return Err(err);
+                }
+            };
+        let elapsed = started_at.elapsed();
+        runtime.options.verbosity.success_line(
+            "PLACEMENTS",
+            format!(
+                "batch {}/{} completed in {} {}",
+                batch.batch_index,
+                runtime.total_batches,
+                format_duration(elapsed),
+                batch_span
+            ),
+        );
+        usage.merge(&batch_usage);
+        progress_state.completed_batches.push(PlacementBatchResult {
+            batch_index: batch.batch_index,
+            file_ids: batch
+                .papers
+                .iter()
+                .map(|paper| paper.file_id.clone())
+                .collect(),
+            placements,
+            elapsed_ms: elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+        });
+        progress_state
+            .completed_batches
+            .sort_by_key(|saved_batch| saved_batch.batch_index);
+        progress_state.usage = usage.clone();
+        on_progress(&progress_state)?;
+        progress.inc(1);
+    }
+    progress.finish();
+
+    let mut all_placements = Vec::with_capacity(papers.len());
+    for batch in &progress_state.completed_batches {
+        all_placements.extend(batch.placements.clone());
+    }
     validate_placements(
         &all_placements,
         papers,
@@ -213,101 +324,67 @@ async fn generate_placement_batch(
     )))
 }
 
-async fn run_placement_batches_concurrently(
-    client: Arc<dyn LlmClient>,
-    prepared_batches: Vec<PreparedPlacementBatch>,
-    runtime: PlacementBatchRuntime,
-    verbosity: Verbosity,
-) -> Result<(Vec<(usize, Vec<PlacementDecision>)>, LlmUsageSummary)> {
-    let max_in_flight = MAX_CONCURRENT_PLACEMENT_BATCH_REQUESTS.max(1);
-    let dispatch_spacing = batch_dispatch_spacing(runtime.options.batch_start_delay_ms);
-    let mut pending_batches = prepared_batches.into_iter();
-    let mut in_flight = JoinSet::new();
-    let mut batch_results = Vec::with_capacity(runtime.total_batches);
-    let mut usage = LlmUsageSummary::default();
-    let mut next_dispatch_at = None;
-    let mut progress =
-        ProgressTracker::new(verbosity, runtime.total_batches, "placement batches", true);
-
-    for _ in 0..max_in_flight {
-        let Some(batch) = pending_batches.next() else {
-            break;
-        };
-        wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
-        spawn_placement_batch(&mut in_flight, Arc::clone(&client), batch, runtime.clone());
+fn validate_saved_placement_progress(
+    prepared_batches: &[PreparedPlacementBatch],
+    snapshot: &OutputSnapshot,
+    placement_mode: crate::models::PlacementMode,
+    category_depth: u8,
+    mut progress: PlacementBatchProgress,
+) -> Result<PlacementBatchProgress> {
+    if progress.completed_batches.is_empty() {
+        return Ok(progress);
     }
 
-    while let Some(join_result) = in_flight.join_next().await {
-        let (batch_index, placements, batch_usage) = match join_result {
-            Ok(Ok(result)) => result,
-            Ok(Err(err)) => return Err(err),
-            Err(err) => {
-                return Err(AppError::Execution(format!(
-                    "placement batch task failed: {err}"
-                )));
-            }
-        };
-        batch_results.push((batch_index, placements));
-        usage.merge(&batch_usage);
-        progress.inc(1);
-
-        if let Some(batch) = pending_batches.next() {
-            wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
-            spawn_placement_batch(&mut in_flight, Arc::clone(&client), batch, runtime.clone());
-        }
-    }
-
-    batch_results.sort_by_key(|(batch_index, _)| *batch_index);
-    progress.finish();
-    Ok((batch_results, usage))
-}
-
-fn spawn_placement_batch(
-    join_set: &mut JoinSet<Result<(usize, Vec<PlacementDecision>, LlmUsageSummary)>>,
-    client: Arc<dyn LlmClient>,
-    batch: PreparedPlacementBatch,
-    runtime: PlacementBatchRuntime,
-) {
-    join_set.spawn(async move {
-        let started_at = Instant::now();
-        let batch_span = format_paper_batch_span(&batch.papers);
-        runtime.options.verbosity.stage_line(
-            "placements",
-            format!(
-                "batch {}/{} {}",
-                batch.batch_index, runtime.total_batches, batch_span
-            ),
-        );
-        let (placements, usage) =
-            match generate_placement_batch(client.as_ref(), &batch, &runtime).await {
-                Ok(placements) => placements,
-                Err(err) => {
-                    runtime.options.verbosity.error_line(
-                        "PLACEMENTS",
-                        format!(
-                            "batch {}/{} failed after {} {}: {}",
-                            batch.batch_index,
-                            runtime.total_batches,
-                            format_duration(started_at.elapsed()),
-                            batch_span,
-                            err
-                        ),
-                    );
-                    return Err(err);
-                }
-            };
-        runtime.options.verbosity.success_line(
-            "PLACEMENTS",
-            format!(
-                "batch {}/{} completed in {} {}",
+    let expected_batches = prepared_batches
+        .iter()
+        .map(|batch| {
+            (
                 batch.batch_index,
-                runtime.total_batches,
-                format_duration(started_at.elapsed()),
-                batch_span
-            ),
-        );
-        Ok((batch.batch_index, placements, usage))
-    });
+                batch
+                    .papers
+                    .iter()
+                    .map(|paper| paper.file_id.clone())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    for batch in &progress.completed_batches {
+        let Some(expected_file_ids) = expected_batches.get(&batch.batch_index) else {
+            return Err(AppError::Validation(format!(
+                "saved placement batch {} no longer matches the current input",
+                batch.batch_index
+            )));
+        };
+        if &batch.file_ids != expected_file_ids {
+            return Err(AppError::Validation(format!(
+                "saved placement batch {} has inconsistent file ids",
+                batch.batch_index
+            )));
+        }
+        let batch_papers = prepared_batches
+            .iter()
+            .find(|prepared| prepared.batch_index == batch.batch_index)
+            .map(|prepared| prepared.papers.as_slice())
+            .ok_or_else(|| {
+                AppError::Validation(format!(
+                    "saved placement batch {} no longer matches the current input",
+                    batch.batch_index
+                ))
+            })?;
+        validate_placements(
+            &batch.placements,
+            batch_papers,
+            snapshot,
+            placement_mode,
+            category_depth,
+        )?;
+    }
+
+    progress
+        .completed_batches
+        .sort_by_key(|batch| batch.batch_index);
+    Ok(progress)
 }
 
 fn placement_response_schema() -> JsonResponseSchema {

@@ -74,7 +74,7 @@ All LLM steps must parse into typed structs; invalid JSON triggers bounded retry
 
 2. Category synthesis schema  
 `{ "categories": [ { "name": "...", "children": [...] } ] }`  
-Validator enforces max depth = `category_depth`.
+Validator enforces max depth = `category_depth` for global taxonomy synthesis and for the final merge stage in `batch-merge` mode.
 
 3. Placement schema  
 `{ "placements": [ { "file_id": "...", "target_rel_path": "...", "confidence": 0.0 } ] }`  

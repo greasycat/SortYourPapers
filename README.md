@@ -6,9 +6,12 @@ Use LLMs to sort papers.
 - Ignores files larger than a configurable limit (default `16MB`)
 - Extracts text from first `N` pages (default `1`)
 - Extracts file-keyword pairs plus a per-file preliminary `k`-depth category text in LLM batches (default `20` files per batch)
-- Builds the global taxonomy from the aggregated preliminary category texts and returns a linear path array that is rebuilt into a tree
-- Remaps papers to final destination folders in LLM batches (default `10` files per batch) using each file's keywords, preliminary category text, and the synthesized taxonomy
-- Keeps `taxonomy-mode` and `taxonomy-batch-size` for CLI/config compatibility, but both taxonomy modes now run the same aggregate taxonomy synthesis flow
+- Builds the global taxonomy from the aggregated preliminary category texts, batching those aggregated entries when needed, and returns a linear path array that is rebuilt into a tree
+- Displays the merged taxonomy immediately after synthesis, before placement generation begins
+- Remaps papers to final destination folders in stable LLM batches (default `10` files per batch) using each file's keywords, preliminary category text, and the synthesized taxonomy
+- Prints the final synthesized category tree at the end of a successful run
+- Keeps `taxonomy-mode` for CLI/config compatibility, and uses `taxonomy-batch-size` to control batching of aggregated preliminary-category entries during taxonomy synthesis
+- Saves completed taxonomy batches during synthesis so an interrupted run can resume without redoing finished batches
 - Uses an LLM to:
   - extract keywords per paper
   - suggest a preliminary category text per paper
@@ -130,6 +133,7 @@ cargo run --bin compare_taxonomy_modes -- \
 - `init [-f|--force]` create default XDG config file  
 - `extract-text [--page-cutoff <u8>] [--extractor <auto|pdf-oxide|pdftotext>] [-v|-vv] <PDF...>` extract text directly  
 - `session|ses resume [RUN_ID]` list saved sessions and prompt for a choice when `RUN_ID` is omitted, or resume a specific run id from the XDG cache state directory
+- `session|ses review [RUN_ID]` display the synthesized category tree for a completed saved session
 - `session|ses list|ls` print saved sessions for the current workspace
 - `session|ses remove|rm [RUN_ID ...]` delete one or more saved sessions, or prompt for one when omitted interactively
 - `session|ses clear|clr` delete incomplete saved sessions for the current workspace
@@ -144,8 +148,8 @@ cargo run --bin compare_taxonomy_modes -- \
 - `-p, --page-cutoff <u8>` default `1`  
 - `--pdf-extract-workers <usize>` default `8`
 - `-d, --category-depth <u8>` default `2` (used for per-file preliminary category suggestions and the final synthesized taxonomy)  
-- `--taxonomy-mode <global|batch-merge>` default `batch-merge` (compatibility flag; both values use the same aggregate taxonomy synthesis flow)
-- `--taxonomy-batch-size <usize>` default `4` (compatibility flag; retained for config/CLI stability)
+- `--taxonomy-mode <global|batch-merge>` default `batch-merge` (both values use the same preliminary-category batching + final merge flow)
+- `--taxonomy-batch-size <usize>` default `4` (aggregated preliminary-category entries per taxonomy batch before the final merge request)
 - `--placement-batch-size <usize>` default `10` (papers per placement request)
 - `-M, --placement-mode <existing-only|allow-new>` default `existing-only`  
 - `-R, --rebuild` default `false`  
@@ -161,8 +165,12 @@ Each normal sorting run creates a state directory under `$XDG_CACHE_HOME/sortyou
 Fallback when `XDG_CACHE_HOME` is unset: `~/.cache/sortyourpapers/resume/<cwd-hash>/runs/<run-id>`.
 Completed stage outputs are written as JSON files, and `latest_run` is stored alongside that workspace’s `runs/` directory.
 Interrupted keyword extraction also saves partial batch progress so resume can skip already completed `(file_id, keywords, preliminary_categories_k_depth)` work.
+Interrupted taxonomy synthesis also saves completed preliminary-category batches so resume can skip them and continue from the remaining batch plus final merge.
+Interrupted placement generation also saves completed placement batches so resume can skip them, preserving the same per-run batch membership.
+If a run resumes after taxonomy synthesis but before placement generation, the merged taxonomy is reloaded from `07-synthesize-categories.json` and the inspect stage can re-render it once before placements continue.
 `session resume` without a `RUN_ID` prints all saved sessions and asks which one to continue.
 `session resume <RUN_ID>` reloads the saved config and continues from the first missing stage instead of repeating earlier LLM calls.
+`session review` prints the synthesized category tree for a completed saved session.
 `session list` prints saved sessions without resuming.
 `session remove` deletes specific saved sessions, and `session clear` removes incomplete ones for the current workspace.
 Use `session resume --quiet` if you only want the exit status without the progress stream or final summary.
