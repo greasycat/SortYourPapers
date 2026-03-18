@@ -454,7 +454,7 @@ pub(crate) fn resolve_run_selection<'a>(
     }
 
     if let Ok(index) = selection.parse::<usize>() {
-        let Some(run) = runs.get(index.saturating_sub(1)) else {
+        let Some(run) = index.checked_sub(1).and_then(|position| runs.get(position)) else {
             return Err(AppError::Execution(format!(
                 "selection '{selection}' is out of range"
             )));
@@ -491,7 +491,10 @@ pub(crate) fn resolve_stage_selection(selection: &str, stages: &[RunStage]) -> R
     }
 
     if let Ok(index) = selection.parse::<usize>() {
-        let Some(stage) = stages.get(index.saturating_sub(1)) else {
+        let Some(stage) = index
+            .checked_sub(1)
+            .and_then(|position| stages.get(position))
+        else {
             return Err(AppError::Execution(format!(
                 "selection '{selection}' is out of range"
             )));

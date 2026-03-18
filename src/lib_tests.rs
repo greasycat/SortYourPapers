@@ -66,6 +66,15 @@ fn rejects_invalid_run_selection() {
 }
 
 #[test]
+fn rejects_zero_run_selection() {
+    let runs = selectable_runs(sample_runs(), false);
+
+    let err = resolve_run_selection("0", &runs).expect_err("zero selection should fail");
+
+    assert!(err.to_string().contains("out of range"));
+}
+
+#[test]
 fn resolves_rerun_stage_selection_by_index() {
     let stages = vec![
         RunStage::DiscoverInput,
@@ -90,6 +99,19 @@ fn resolves_rerun_stage_selection_by_name() {
         .expect("resolve stage by kebab-case name");
 
     assert_eq!(selected, RunStage::ExtractKeywords);
+}
+
+#[test]
+fn rejects_zero_stage_selection() {
+    let stages = vec![
+        RunStage::DiscoverInput,
+        RunStage::ExtractText,
+        RunStage::ExtractKeywords,
+    ];
+
+    let err = resolve_stage_selection("0", &stages).expect_err("zero stage should fail");
+
+    assert!(err.to_string().contains("out of range"));
 }
 
 #[test]
