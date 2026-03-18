@@ -128,14 +128,6 @@ cargo run -- extract-text \
   ./papers/sample.pdf
 ```
 
-Compare `batch-merge` and `global` taxonomy timing on the same corpus:
-```bash
-cargo run --bin compare_taxonomy_modes -- \
-  --input ./papers \
-  --taxonomy-batch-size 3 \
-  -v
-```
-
 ## Core Flags
 - `init [-f|--force]` create default XDG config file  
 - `extract-text [--page-cutoff <u8>] [--extractor <auto|pdf-oxide|pdftotext>] [-v|-vv] <PDF...>` extract text directly  
