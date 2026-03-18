@@ -296,6 +296,15 @@ impl RunWorkspace {
         Ok(Self { root_dir, manifest })
     }
 
+    #[cfg(test)]
+    pub(crate) fn create_with_cache_root_for_tests(
+        base_dir: &Path,
+        cache_root: &Path,
+        config: &AppConfig,
+    ) -> Result<Self> {
+        Self::create_with_cache_root(base_dir, cache_root, config)
+    }
+
     fn open_latest_in(base_dir: &Path) -> Result<Self> {
         let latest_path = latest_run_path_in(base_dir)?;
         let run_id = fs::read_to_string(&latest_path).map_err(|err| {
