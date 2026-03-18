@@ -69,11 +69,7 @@ impl Verbosity {
     }
 
     pub fn show_progress(self, total: usize, allow_single: bool) -> bool {
-        self.show_progress_with_terminal(
-            total,
-            allow_single,
-            current_backend().stderr_is_terminal(),
-        )
+        self.show_progress_with_terminal(total, allow_single, current_backend().supports_progress())
     }
 
     fn show_progress_with_terminal(

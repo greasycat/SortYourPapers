@@ -23,6 +23,7 @@ pub enum InspectReviewPrompt {
 pub trait TerminalBackend: Send + Sync {
     fn stdout_is_terminal(&self) -> bool;
     fn stderr_is_terminal(&self) -> bool;
+    fn supports_progress(&self) -> bool;
     fn is_interactive(&self) -> bool;
     fn write_stdout_line(&self, line: &str);
     fn write_stderr_line(&self, line: &str);
@@ -97,6 +98,10 @@ impl TerminalBackend for PlainTerminalBackend {
 
     fn is_interactive(&self) -> bool {
         io::stdin().is_terminal()
+    }
+
+    fn supports_progress(&self) -> bool {
+        self.stderr_is_terminal()
     }
 
     fn write_stdout_line(&self, line: &str) {
