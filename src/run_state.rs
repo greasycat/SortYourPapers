@@ -7,6 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
@@ -22,8 +23,9 @@ const MANIFEST_FILE: &str = "manifest.json";
 const CONFIG_FILE: &str = "config.json";
 const REPORT_FILE: &str = "report.json";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
 pub enum RunStage {
     DiscoverInput,
     DiscoverOutput,
@@ -37,6 +39,7 @@ pub enum RunStage {
     GeneratePlacements,
     BuildPlan,
     ExecutePlan,
+    #[value(skip)]
     Completed,
 }
 
@@ -51,7 +54,7 @@ impl RunStage {
             Self::BuildLlmClient => "Build LLM client",
             Self::ExtractKeywords => "Extract keywords",
             Self::SynthesizeCategories => "Synthesize categories",
-            Self::InspectOutput => "Inspect output tree",
+            Self::InspectOutput => "Inspect merged taxonomy",
             Self::GeneratePlacements => "Generate placements",
             Self::BuildPlan => "Build file move plan",
             Self::ExecutePlan => "Execute plan",
@@ -59,7 +62,7 @@ impl RunStage {
         }
     }
 
-    fn file_name(self) -> Option<&'static str> {
+    pub(crate) fn file_name(self) -> Option<&'static str> {
         match self {
             Self::DiscoverInput => Some("01-discover-input.json"),
             Self::DiscoverOutput => Some("02-discover-output.json"),
@@ -222,8 +225,24 @@ impl RunWorkspace {
         }
     }
 
+    pub fn remove_stage_file(&self, stage: RunStage) -> Result<()> {
+        let Some(file_name) = stage.file_name() else {
+            return Ok(());
+        };
+        match fs::remove_file(self.root_dir.join(file_name)) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(AppError::Io(err)),
+        }
+    }
+
     pub fn mark_stage(&mut self, stage: RunStage) -> Result<()> {
         self.manifest.last_completed_stage = Some(stage);
+        write_json(&self.root_dir.join(MANIFEST_FILE), &self.manifest)
+    }
+
+    pub fn set_last_completed_stage(&mut self, stage: Option<RunStage>) -> Result<()> {
+        self.manifest.last_completed_stage = stage;
         write_json(&self.root_dir.join(MANIFEST_FILE), &self.manifest)
     }
 

@@ -1,5 +1,5 @@
 use clap::Parser;
-use sortyourpapers::config::{Cli, Commands};
+use sortyourpapers::config::{Cli, Commands, SessionCommands};
 use sortyourpapers::error::AppError;
 
 #[tokio::main]
@@ -24,20 +24,34 @@ async fn main() {
                     std::process::exit(1);
                 }
             },
-            Commands::Resume(args) => {
-                match sortyourpapers::resume_run(
-                    args.run_id,
-                    args.apply,
-                    args.verbosity,
-                    args.quiet,
-                )
-                .await
-                {
-                    Ok(_) => {}
-                    Err(err) => {
-                        print_error_with_hints(&err);
-                        std::process::exit(1);
-                    }
+            Commands::Session(args) => {
+                let result = match args.command {
+                    SessionCommands::Resume(args) => sortyourpapers::resume_run(
+                        args.run_id,
+                        args.apply,
+                        args.verbosity,
+                        args.quiet,
+                    )
+                    .await
+                    .map(|_| ()),
+                    SessionCommands::Rerun(args) => sortyourpapers::rerun_run(
+                        args.run_id,
+                        args.stage,
+                        args.apply,
+                        args.verbosity,
+                        args.quiet,
+                    )
+                    .await
+                    .map(|_| ()),
+                    SessionCommands::Review(args) => sortyourpapers::review_session(args.run_id),
+                    SessionCommands::List => sortyourpapers::list_sessions(),
+                    SessionCommands::Remove(args) => sortyourpapers::remove_sessions(args.run_ids),
+                    SessionCommands::Clear => sortyourpapers::clear_sessions(),
+                };
+
+                if let Err(err) = result {
+                    print_error_with_hints(&err);
+                    std::process::exit(1);
                 }
             }
         }
