@@ -254,6 +254,18 @@ pub(crate) async fn merge_category_batches(
         ));
     }
 
+    if client.prefers_plain_text_taxonomy_merge() {
+        return request_plain_text_merged_categories(
+            client,
+            partial_categories,
+            category_depth,
+            user_suggestion,
+            verbosity,
+            GLOBAL_TAXONOMY_LABEL,
+        )
+        .await;
+    }
+
     merge_category_batches_with_timeout(
         client,
         partial_categories,
@@ -299,22 +311,41 @@ pub(super) async fn merge_category_batches_with_timeout(
                     format_duration(merge_timeout)
                 ),
             );
-            let fallback_user = build_merge_category_plain_text_prompt(
+            request_plain_text_merged_categories(
+                client,
                 partial_categories,
                 category_depth,
                 user_suggestion,
-            )?;
-            request_validated_categories_plain_text(
-                client,
-                "You merge partial folder taxonomies for academic PDFs into one final taxonomy. Return plain text only.",
-                &fallback_user,
-                category_depth,
                 verbosity,
                 GLOBAL_TAXONOMY_LABEL,
             )
             .await
         }
     }
+}
+
+async fn request_plain_text_merged_categories(
+    client: &dyn LlmClient,
+    partial_categories: &[Vec<CategoryTree>],
+    category_depth: u8,
+    user_suggestion: Option<&str>,
+    verbosity: Verbosity,
+    label: &str,
+) -> Result<(Vec<CategoryTree>, LlmUsageSummary)> {
+    let fallback_user = build_merge_category_plain_text_prompt(
+        partial_categories,
+        category_depth,
+        user_suggestion,
+    )?;
+    request_validated_categories_plain_text(
+        client,
+        "You merge partial folder taxonomies for academic PDFs into one final taxonomy. Return plain text only.",
+        &fallback_user,
+        category_depth,
+        verbosity,
+        label,
+    )
+    .await
 }
 
 async fn request_validated_categories(

@@ -52,6 +52,10 @@ impl JsonResponseSchema {
 pub trait LlmClient: Send + Sync {
     async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<LlmResponse>;
 
+    fn prefers_plain_text_taxonomy_merge(&self) -> bool {
+        false
+    }
+
     async fn chat_json(
         &self,
         system_prompt: &str,

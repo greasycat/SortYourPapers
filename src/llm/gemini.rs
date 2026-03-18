@@ -106,6 +106,10 @@ impl LlmClient for GeminiClient {
         self.send_chat(system_prompt, user_prompt, None, None).await
     }
 
+    fn prefers_plain_text_taxonomy_merge(&self) -> bool {
+        true
+    }
+
     async fn chat_json(
         &self,
         system_prompt: &str,

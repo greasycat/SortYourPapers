@@ -19,7 +19,10 @@ use super::{
         build_merge_category_prompt, format_llm_request_debug_message,
     },
     synthesize_categories, synthesize_categories_with_progress,
-    taxonomy::{merge_category_batches_with_timeout, parse_plain_text_category_paths},
+    taxonomy::{
+        merge_category_batches, merge_category_batches_with_timeout,
+        parse_plain_text_category_paths,
+    },
     validation::{
         aggregate_preliminary_categories, validate_category_depth, validate_keyword_batch_response,
     },
@@ -60,6 +63,12 @@ struct MergeTimeoutFallbackClient {
     chat_responses: Mutex<Vec<String>>,
 }
 
+struct PlainTextOnlyTaxonomyMergeClient {
+    chat_json_calls: AtomicUsize,
+    chat_calls: AtomicUsize,
+    chat_prompts: Mutex<Vec<String>>,
+}
+
 impl MergeTimeoutFallbackClient {
     fn new(chat_json_delay: Duration, chat_responses: Vec<String>) -> Self {
         Self {
@@ -69,6 +78,16 @@ impl MergeTimeoutFallbackClient {
             chat_json_prompts: Mutex::new(Vec::new()),
             chat_prompts: Mutex::new(Vec::new()),
             chat_responses: Mutex::new(chat_responses.into_iter().rev().collect()),
+        }
+    }
+}
+
+impl PlainTextOnlyTaxonomyMergeClient {
+    fn new() -> Self {
+        Self {
+            chat_json_calls: AtomicUsize::new(0),
+            chat_calls: AtomicUsize::new(0),
+            chat_prompts: Mutex::new(Vec::new()),
         }
     }
 }
@@ -242,6 +261,36 @@ impl LlmClient for MergeTimeoutFallbackClient {
                 ]
             })
             .to_string(),
+        ))
+    }
+}
+
+#[async_trait]
+impl LlmClient for PlainTextOnlyTaxonomyMergeClient {
+    async fn chat(&self, _system_prompt: &str, user_prompt: &str) -> Result<LlmResponse> {
+        self.chat_calls.fetch_add(1, Ordering::SeqCst);
+        self.chat_prompts
+            .lock()
+            .expect("chat_prompts lock")
+            .push(user_prompt.to_string());
+        Ok(llm_response(
+            "AI\nAI > Transformers\nSystems\nSystems > Databases",
+        ))
+    }
+
+    fn prefers_plain_text_taxonomy_merge(&self) -> bool {
+        true
+    }
+
+    async fn chat_json(
+        &self,
+        _system_prompt: &str,
+        _user_prompt: &str,
+        _schema: &JsonResponseSchema,
+    ) -> Result<LlmResponse> {
+        self.chat_json_calls.fetch_add(1, Ordering::SeqCst);
+        Err(crate::error::AppError::Execution(
+            "plain-text taxonomy merge client should not receive chat_json()".to_string(),
         ))
     }
 }
@@ -645,6 +694,47 @@ async fn taxonomy_merge_plain_text_retry_repairs_invalid_response() {
     assert_eq!(prompts.len(), 2);
     assert!(prompts[1].contains("Return corrected plain text"));
     assert!(prompts[1].contains("do not return JSON or markdown"));
+}
+
+#[tokio::test]
+async fn taxonomy_merge_uses_plain_text_directly_for_plain_text_clients() {
+    let client = PlainTextOnlyTaxonomyMergeClient::new();
+    let partial_categories = vec![
+        vec![CategoryTree {
+            name: "Systems".to_string(),
+            children: vec![CategoryTree {
+                name: "Databases".to_string(),
+                children: vec![],
+            }],
+        }],
+        vec![CategoryTree {
+            name: "AI".to_string(),
+            children: vec![CategoryTree {
+                name: "Transformers".to_string(),
+                children: vec![],
+            }],
+        }],
+    ];
+
+    let (categories, usage) = merge_category_batches(
+        &client,
+        &partial_categories,
+        2,
+        None,
+        Verbosity::new(false, false, false),
+    )
+    .await
+    .expect("plain-text-only merge should succeed");
+
+    assert_eq!(usage.call_count, 1);
+    assert_eq!(client.chat_json_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(client.chat_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(categories[0].name, "AI");
+
+    let prompts = client.chat_prompts.lock().expect("chat_prompts lock");
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].contains("return one full category path per line"));
+    assert!(prompts[0].contains("use ` > ` between path segments"));
 }
 
 #[tokio::test]
