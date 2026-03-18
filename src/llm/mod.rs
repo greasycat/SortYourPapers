@@ -1,12 +1,17 @@
+mod batch;
 mod client;
 pub mod providers;
 mod retry;
 mod schema;
 
+pub use batch::{
+    DEFAULT_REQUEST_DISPATCH_DELAY_MS, RequestBatchOptions, run_delayed_concurrent_requests,
+};
+pub(crate) use batch::{batch_dispatch_spacing, wait_for_dispatch_slot};
 pub use client::{LlmClient, LlmResponse, ParsedLlmResponse, build_client};
 pub use providers::{gemini, ollama, openai};
-pub use retry::{call_json_with_retry, call_text_with_retry};
 pub(crate) use retry::strip_code_fence;
+pub use retry::{call_json_with_retry, call_text_with_retry};
 pub use schema::JsonResponseSchema;
 
 #[cfg(test)]
