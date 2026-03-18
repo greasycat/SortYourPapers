@@ -374,23 +374,7 @@ impl App {
                         buffer: self.run_form.value(self.run_form.selected),
                     });
                 } else {
-                    let config = self.run_form.build_config()?;
-                    let op_tx = self.op_tx.clone();
-                    self.start_async_operation("Run Papers", move |_tx| async move {
-                        let outcome = match crate::run(config).await {
-                            Ok(_) => OperationOutcome::success(
-                                "Run Papers",
-                                "run completed".to_string(),
-                                OperationDetail::None,
-                            ),
-                            Err(err) => OperationOutcome::failure(
-                                "Run Papers",
-                                err.to_string(),
-                                OperationDetail::None,
-                            ),
-                        };
-                        let _ = op_tx.send(outcome);
-                    });
+                    self.run_form.toggle_selected();
                 }
             }
             _ => {}
@@ -435,27 +419,7 @@ impl App {
             }
             KeyCode::Enter => {
                 if self.extract_form.selected == 2 || self.extract_form.selected == 4 {
-                    let args = self.extract_form.build_args()?;
-                    let op_tx = self.op_tx.clone();
-                    self.start_async_operation("Extract Text", move |_tx| async move {
-                        let outcome = match collect_extract_preview(args).await {
-                            Ok(result) => OperationOutcome::success(
-                                "Extract Text",
-                                format!(
-                                    "processed {} file(s), {} failure(s)",
-                                    result.papers.len(),
-                                    result.failures.len()
-                                ),
-                                OperationDetail::Text(render_extract_result_lines(&result)),
-                            ),
-                            Err(err) => OperationOutcome::failure(
-                                "Extract Text",
-                                err.to_string(),
-                                OperationDetail::None,
-                            ),
-                        };
-                        let _ = op_tx.send(outcome);
-                    });
+                    self.extract_form.cycle_selected(1);
                 } else {
                     self.overlay = Some(Overlay::EditField {
                         label: EXTRACT_FIELD_LABELS[self.extract_form.selected].to_string(),
@@ -1333,7 +1297,7 @@ impl RunForm {
             )),
             Line::from(format!("verbosity: {}", self.verbosity.label())),
             Line::from(""),
-            Line::from("Press r or Enter on the current field to start the run."),
+            Line::from("Press r to start the run."),
         ]))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Help").borders(Borders::ALL));
@@ -1380,25 +1344,25 @@ impl RunForm {
     }
 
     fn editable(&self, index: usize) -> bool {
-        !matches!(index, 2 | 8 | 11 | 12 | 13 | 14 | 20 | 21)
+        !matches!(index, 2 | 7 | 10 | 11 | 12 | 13 | 19 | 20)
     }
 
     fn toggle_selected(&mut self) {
         match self.selected {
             2 => self.recursive = !self.recursive,
-            12 => self.rebuild = !self.rebuild,
-            13 => self.apply = !self.apply,
-            21 => self.quiet = !self.quiet,
+            11 => self.rebuild = !self.rebuild,
+            12 => self.apply = !self.apply,
+            20 => self.quiet = !self.quiet,
             _ => self.cycle_selected(1),
         }
     }
 
     fn cycle_selected(&mut self, direction: i8) {
         match self.selected {
-            8 => self.taxonomy_mode = cycle_taxonomy_mode(self.taxonomy_mode, direction),
-            11 => self.placement_mode = cycle_placement_mode(self.placement_mode, direction),
-            14 => self.llm_provider = cycle_provider(self.llm_provider, direction),
-            20 => {
+            7 => self.taxonomy_mode = cycle_taxonomy_mode(self.taxonomy_mode, direction),
+            10 => self.placement_mode = cycle_placement_mode(self.placement_mode, direction),
+            13 => self.llm_provider = cycle_provider(self.llm_provider, direction),
+            19 => {
                 self.verbosity = if direction >= 0 {
                     self.verbosity.next()
                 } else {
@@ -1417,13 +1381,13 @@ impl RunForm {
             4 => self.page_cutoff = value,
             5 => self.pdf_extract_workers = value,
             6 => self.category_depth = value,
-            7 => self.taxonomy_batch_size = value,
+            8 => self.taxonomy_batch_size = value,
             9 => self.placement_batch_size = value,
-            15 => self.llm_model = value,
-            16 => self.llm_base_url = value,
-            17 => self.api_key = value,
-            18 => self.keyword_batch_size = value,
-            19 => self.subcategories_suggestion_number = value,
+            14 => self.llm_model = value,
+            15 => self.llm_base_url = value,
+            16 => self.api_key = value,
+            17 => self.keyword_batch_size = value,
+            18 => self.subcategories_suggestion_number = value,
             _ => {}
         }
         Ok(())
@@ -1517,7 +1481,7 @@ impl ExtractForm {
             Line::from("Enter edits text fields."),
             Line::from("Left/Right cycles extractor and verbosity."),
             Line::from(""),
-            Line::from("Press r or Enter to run extraction."),
+            Line::from("Press r to run extraction."),
         ]))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Help").borders(Borders::ALL));
@@ -1964,4 +1928,50 @@ fn progress_bar(ratio: f64, width: usize) -> String {
         "#".repeat(filled),
         "-".repeat(width.saturating_sub(filled))
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PlacementMode, RunForm, TaxonomyMode, UiVerbosity};
+
+    #[test]
+    fn run_form_non_editable_fields_match_toggle_and_enum_fields() {
+        let form = RunForm::default();
+
+        assert!(!form.editable(2));
+        assert!(!form.editable(7));
+        assert!(!form.editable(10));
+        assert!(!form.editable(11));
+        assert!(!form.editable(12));
+        assert!(!form.editable(13));
+        assert!(!form.editable(19));
+        assert!(!form.editable(20));
+        assert!(form.editable(14));
+        assert!(form.editable(18));
+    }
+
+    #[test]
+    fn run_form_toggle_and_cycle_target_the_expected_fields() {
+        let mut form = RunForm::default();
+
+        form.selected = 7;
+        form.toggle_selected();
+        assert_eq!(form.taxonomy_mode, TaxonomyMode::Global);
+
+        form.selected = 10;
+        form.toggle_selected();
+        assert_eq!(form.placement_mode, PlacementMode::AllowNew);
+
+        form.selected = 19;
+        form.toggle_selected();
+        assert!(matches!(form.verbosity, UiVerbosity::Verbose));
+
+        form.selected = 11;
+        form.toggle_selected();
+        assert!(form.rebuild);
+
+        form.selected = 20;
+        form.toggle_selected();
+        assert!(form.quiet);
+    }
 }
