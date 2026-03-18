@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::time::Duration;
 
 use crate::error::{AppError, Result};
@@ -115,7 +116,7 @@ impl LlmClient for GeminiClient {
             system_prompt,
             user_prompt,
             Some("application/json".to_string()),
-            Some(schema.schema().clone()),
+            Some(gemini_response_schema(schema.schema())),
         )
         .await
     }
@@ -216,6 +217,42 @@ fn combine_prompts(system_prompt: &str, user_prompt: &str) -> String {
     format!("{system_prompt}\n\n{user_prompt}")
 }
 
+fn gemini_response_schema(schema: &Value) -> Value {
+    let Some(schema_object) = schema.as_object() else {
+        return schema.clone();
+    };
+
+    let mut converted = Map::new();
+
+    if let Some(schema_type) = schema_object.get("type").cloned() {
+        converted.insert("type".to_string(), schema_type);
+    }
+    if let Some(properties) = schema_object.get("properties").and_then(Value::as_object) {
+        let mut converted_properties = Map::new();
+        let mut property_ordering = Vec::with_capacity(properties.len());
+        for (key, value) in properties {
+            property_ordering.push(Value::String(key.clone()));
+            converted_properties.insert(key.clone(), gemini_response_schema(value));
+        }
+        converted.insert(
+            "properties".to_string(),
+            Value::Object(converted_properties),
+        );
+        converted.insert(
+            "propertyOrdering".to_string(),
+            Value::Array(property_ordering),
+        );
+    }
+    if let Some(items) = schema_object.get("items") {
+        converted.insert("items".to_string(), gemini_response_schema(items));
+    }
+    if let Some(enum_values) = schema_object.get("enum").cloned() {
+        converted.insert("enum".to_string(), enum_values);
+    }
+
+    Value::Object(converted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,7 +303,7 @@ mod tests {
         );
         assert_eq!(
             body["generationConfig"]["responseSchema"],
-            schema.schema().clone()
+            gemini_response_schema(schema.schema())
         );
         assert!(body["generationConfig"]["responseJsonSchema"].is_null());
         assert_eq!(
@@ -307,7 +344,7 @@ mod tests {
 
         assert_eq!(
             body["generationConfig"]["responseSchema"],
-            schema.schema().clone()
+            gemini_response_schema(schema.schema())
         );
         assert_eq!(
             body["generationConfig"]["responseSchema"]["properties"]["categories"]["items"]["type"],
@@ -379,7 +416,7 @@ mod tests {
         );
         assert_eq!(
             body["generationConfig"]["responseSchema"],
-            schema.schema().clone()
+            gemini_response_schema(schema.schema())
         );
         assert_eq!(
             body["generationConfig"]["responseSchema"]["properties"]["categories"]["items"]["type"],
