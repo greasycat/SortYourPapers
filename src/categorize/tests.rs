@@ -464,6 +464,7 @@ async fn taxonomy_synthesis_uses_aggregated_preliminary_categories() {
         2,
         10,
         0,
+        5,
         Verbosity::new(false, false, false),
     )
     .await
@@ -514,6 +515,7 @@ fn merge_prompt_flattens_and_sorts_category_paths() {
             }],
         ],
         2,
+        5,
         Some("Merge speech categories under one parent"),
     )
     .expect("prompt");
@@ -527,6 +529,7 @@ fn merge_prompt_flattens_and_sorts_category_paths() {
     assert!(!prompt.contains("\"children\""));
     assert!(prompt.contains("user_merge_suggestion"));
     assert!(prompt.contains("Merge speech categories under one parent"));
+    assert!(prompt.contains("try your best to keep the number of subcategories less than 5"));
 }
 
 #[test]
@@ -540,6 +543,7 @@ fn merge_plain_text_prompt_uses_line_format() {
             }],
         }]],
         2,
+        5,
         None,
     )
     .expect("plain-text prompt");
@@ -547,6 +551,7 @@ fn merge_plain_text_prompt_uses_line_format() {
     assert!(prompt.contains("Return plain text only."));
     assert!(prompt.contains("return one full category path per line"));
     assert!(prompt.contains("use ` > ` between path segments"));
+    assert!(prompt.contains("try your best to keep the number of subcategories less than 5"));
     assert!(prompt.contains("- no JSON"));
     assert!(!prompt.contains("Return JSON with schema"));
 }
@@ -590,6 +595,7 @@ async fn taxonomy_merge_keeps_structured_schema_before_timeout() {
         client.as_ref(),
         &partial_categories,
         2,
+        5,
         None,
         Verbosity::new(false, false, false),
         Duration::from_secs(1),
@@ -636,6 +642,7 @@ async fn taxonomy_merge_times_out_to_plain_text_paths() {
         &client,
         &partial_categories,
         2,
+        5,
         None,
         Verbosity::new(false, false, false),
         Duration::from_millis(5),
@@ -679,6 +686,7 @@ async fn taxonomy_merge_plain_text_retry_repairs_invalid_response() {
         &client,
         &partial_categories,
         2,
+        5,
         None,
         Verbosity::new(false, false, false),
         Duration::from_millis(5),
@@ -720,6 +728,7 @@ async fn taxonomy_merge_uses_plain_text_directly_for_plain_text_clients() {
         &client,
         &partial_categories,
         2,
+        5,
         None,
         Verbosity::new(false, false, false),
     )
@@ -762,6 +771,7 @@ async fn taxonomy_synthesis_batches_preliminary_categories_before_merge() {
         2,
         2,
         0,
+        5,
         Verbosity::new(false, false, false),
     )
     .await
@@ -835,6 +845,7 @@ async fn taxonomy_resume_skips_saved_batches() {
         2,
         2,
         0,
+        5,
         saved_progress,
         |_| Ok(()),
         Verbosity::new(false, false, false),
@@ -895,6 +906,7 @@ async fn taxonomy_resume_rejects_saved_batch_with_stale_inputs() {
         2,
         2,
         0,
+        5,
         saved_progress,
         |_| Ok(()),
         Verbosity::new(false, false, false),

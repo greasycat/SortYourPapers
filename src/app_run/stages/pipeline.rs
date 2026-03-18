@@ -478,6 +478,7 @@ async fn synthesize_categories_stage(
         require_llm_client(llm_client)?.as_ref(),
         &partial_categories,
         config.category_depth,
+        config.subcategories_suggestion_number,
         None,
         verbosity,
     )

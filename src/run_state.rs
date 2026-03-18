@@ -660,6 +660,7 @@ mod tests {
             api_key: Some("secret".to_string()),
             keyword_batch_size: 50,
             batch_start_delay_ms: 100,
+            subcategories_suggestion_number: 5,
             verbose: false,
             debug: false,
             quiet: false,

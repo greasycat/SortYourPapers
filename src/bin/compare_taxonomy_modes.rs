@@ -58,6 +58,9 @@ struct CompareArgs {
     #[arg(long)]
     keyword_batch_size: Option<usize>,
 
+    #[arg(long)]
+    subcategories_suggestion_number: Option<usize>,
+
     #[arg(long, default_value_t = 3)]
     taxonomy_batch_size: usize,
 
@@ -106,6 +109,7 @@ async fn run_compare(args: CompareArgs) -> Result<(), AppError> {
         llm_base_url: args.llm_base_url,
         api_key: args.api_key,
         keyword_batch_size: args.keyword_batch_size,
+        subcategories_suggestion_number: args.subcategories_suggestion_number,
         verbosity: args.verbosity,
         quiet: args.verbosity == 0,
     };

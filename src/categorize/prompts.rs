@@ -19,13 +19,14 @@ pub(super) fn build_category_prompt(
 pub(super) fn build_merge_category_prompt(
     batch_categories: &[Vec<CategoryTree>],
     category_depth: u8,
+    subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
 ) -> Result<String> {
     let category_paths = flatten_and_sort_category_paths(batch_categories);
     let suggestion_section = format_merge_suggestion_section(user_suggestion);
 
     Ok(format!(
-        "Return JSON with schema:\n{{\"categories\":[[\"Top Level\"],[\"Top Level\",\"Subcategory\"]]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below\n- each entry in `categories` must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy\n\ncategory_paths:\n{}{}",
+        "Return JSON with schema:\n{{\"categories\":[[\"Top Level\"],[\"Top Level\",\"Subcategory\"]]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below\n- each entry in `categories` must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy\n\ncategory_paths:\n{}{}",
         serde_json::to_string(&category_paths).map_err(AppError::from)?,
         suggestion_section
     ))
@@ -34,13 +35,14 @@ pub(super) fn build_merge_category_prompt(
 pub(super) fn build_merge_category_plain_text_prompt(
     batch_categories: &[Vec<CategoryTree>],
     category_depth: u8,
+    subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
 ) -> Result<String> {
     let category_paths = flatten_and_sort_category_paths(batch_categories);
     let suggestion_section = format_merge_suggestion_section(user_suggestion);
 
     Ok(format!(
-        "Return plain text only.\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below\n- return one full category path per line\n- use ` > ` between path segments\n- each line must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- no JSON\n- no markdown\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy\n\ncategory_paths:\n{}{}",
+        "Return plain text only.\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below\n- return one full category path per line\n- use ` > ` between path segments\n- each line must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- no JSON\n- no markdown\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy\n\ncategory_paths:\n{}{}",
         serde_json::to_string(&category_paths).map_err(AppError::from)?,
         suggestion_section
     ))

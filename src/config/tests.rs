@@ -70,6 +70,7 @@ fn cli_overrides_env_and_file() {
         api_key: Some("env-key".to_string()),
         keyword_batch_size: Some(30),
         batch_start_delay_ms: Some(250),
+        subcategories_suggestion_number: Some(9),
     };
 
     let file_cfg = FileConfig {
@@ -91,6 +92,7 @@ fn cli_overrides_env_and_file() {
         api_key: Some("file-key".to_string()),
         keyword_batch_size: Some(25),
         batch_start_delay_ms: Some(150),
+        subcategories_suggestion_number: Some(7),
     };
 
     let cfg = resolve_from_sources(cli, env_cfg, file_cfg).expect("config should resolve");
@@ -114,6 +116,7 @@ fn cli_overrides_env_and_file() {
     assert_eq!(cfg.api_key.as_deref(), Some("cli-key"));
     assert_eq!(cfg.keyword_batch_size, 12);
     assert_eq!(cfg.batch_start_delay_ms, 250);
+    assert_eq!(cfg.subcategories_suggestion_number, 9);
     assert!(cfg.verbose);
     assert!(cfg.debug);
 }
@@ -135,6 +138,7 @@ fn init_writes_default_config() {
     assert!(raw.contains("placement_batch_size = 10"));
     assert!(raw.contains("keyword_batch_size = 20"));
     assert!(raw.contains("batch_start_delay_ms = 100"));
+    assert!(raw.contains("subcategories_suggestion_number = 5"));
     assert!(!raw.contains("dry_run ="));
 }
 
@@ -182,6 +186,7 @@ fn defaults_to_gemini_and_working_model_when_missing() {
     assert_eq!(cfg.placement_batch_size, 10);
     assert_eq!(cfg.keyword_batch_size, 20);
     assert_eq!(cfg.batch_start_delay_ms, 100);
+    assert_eq!(cfg.subcategories_suggestion_number, 5);
     assert!(cfg.dry_run);
     assert!(!cfg.verbose);
     assert!(!cfg.debug);
@@ -224,6 +229,8 @@ fn supports_shorthand_flags() {
         "abc",
         "--keyword-batch-size",
         "64",
+        "--subcategories-suggestion-number",
+        "11",
         "-vv",
     ]);
 
@@ -252,6 +259,7 @@ fn supports_shorthand_flags() {
     assert_eq!(cfg.api_key.as_deref(), Some("abc"));
     assert_eq!(cfg.keyword_batch_size, 64);
     assert_eq!(cfg.batch_start_delay_ms, 100);
+    assert_eq!(cfg.subcategories_suggestion_number, 11);
     assert!(cfg.verbose);
     assert!(cfg.debug);
 }

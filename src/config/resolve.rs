@@ -9,7 +9,8 @@ use super::{
     CliArgs, DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT,
     DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_MAX_FILE_SIZE_MB,
     DEFAULT_OUTPUT, DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS, DEFAULT_PLACEMENT_BATCH_SIZE,
-    DEFAULT_REBUILD, DEFAULT_RECURSIVE, DEFAULT_TAXONOMY_BATCH_SIZE, EnvConfig, FileConfig,
+    DEFAULT_REBUILD, DEFAULT_RECURSIVE, DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER,
+    DEFAULT_TAXONOMY_BATCH_SIZE, EnvConfig, FileConfig,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -119,6 +120,11 @@ pub(super) fn resolve_from_sources(
         .batch_start_delay_ms
         .or(file_cfg.batch_start_delay_ms)
         .unwrap_or(DEFAULT_BATCH_START_DELAY_MS);
+    let subcategories_suggestion_number = cli
+        .subcategories_suggestion_number
+        .or(env_cfg.subcategories_suggestion_number)
+        .or(file_cfg.subcategories_suggestion_number)
+        .unwrap_or(DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER);
 
     validate_non_zero("max_file_size_mb", &max_file_size_mb)?;
     validate_non_zero("page_cutoff", &page_cutoff)?;
@@ -127,6 +133,10 @@ pub(super) fn resolve_from_sources(
     validate_non_zero("taxonomy_batch_size", &taxonomy_batch_size)?;
     validate_non_zero("placement_batch_size", &placement_batch_size)?;
     validate_non_zero("keyword_batch_size", &keyword_batch_size)?;
+    validate_non_zero(
+        "subcategories_suggestion_number",
+        &subcategories_suggestion_number,
+    )?;
 
     Ok(AppConfig {
         input,
@@ -148,6 +158,7 @@ pub(super) fn resolve_from_sources(
         api_key,
         keyword_batch_size,
         batch_start_delay_ms,
+        subcategories_suggestion_number,
         verbose: verbosity >= 1,
         debug: verbosity >= 2,
         quiet: cli.quiet,

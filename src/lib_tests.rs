@@ -246,6 +246,7 @@ fn sample_config() -> AppConfig {
         api_key: None,
         keyword_batch_size: 20,
         batch_start_delay_ms: 100,
+        subcategories_suggestion_number: 5,
         verbose: false,
         debug: false,
         quiet: false,

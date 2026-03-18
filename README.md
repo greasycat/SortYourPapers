@@ -150,6 +150,7 @@ cargo run --bin compare_taxonomy_modes -- \
 - `-d, --category-depth <u8>` default `2` (used for per-file preliminary category suggestions and the final synthesized taxonomy)  
 - `--taxonomy-mode <global|batch-merge>` default `batch-merge` (both values use the same preliminary-category batching + final merge flow)
 - `--taxonomy-batch-size <usize>` default `4` (aggregated preliminary-category entries per taxonomy batch before the final merge request)
+- `--subcategories-suggestion-number <usize>` default `5` (taxonomy merge prompt guidance: try to keep subcategory count below this number)
 - `--placement-batch-size <usize>` default `10` (papers per placement request)
 - `-M, --placement-mode <existing-only|allow-new>` default `existing-only`  
 - `-R, --rebuild` default `false`  
@@ -189,6 +190,7 @@ Use `session resume --quiet` if you only want the exit status without the progre
 - `SYP_PLACEMENT_MODE`
 - `SYP_REBUILD`
 - `SYP_BATCH_START_DELAY_MS`
+- `SYP_SUBCATEGORIES_SUGGESTION_NUMBER`
 - `SYP_LLM_PROVIDER`
 - `SYP_LLM_MODEL`
 - `SYP_LLM_BASE_URL`

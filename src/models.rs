@@ -48,6 +48,7 @@ pub struct AppConfig {
     pub api_key: Option<String>,
     pub keyword_batch_size: usize,
     pub batch_start_delay_ms: u64,
+    pub subcategories_suggestion_number: usize,
     #[serde(default)]
     pub verbose: bool,
     #[serde(default)]

@@ -89,6 +89,7 @@ pub(super) async fn inspect_output_stage(
 ) -> Result<Vec<CategoryTree>> {
     let review_client = llm_client.cloned();
     let review_category_depth = config.category_depth;
+    let review_subcategories_suggestion_number = config.subcategories_suggestion_number;
 
     inspect_output_stage_with_interaction(
         taxonomy_state,
@@ -111,6 +112,7 @@ pub(super) async fn inspect_output_stage(
                         .as_ref(),
                     &improvement_source,
                     review_category_depth,
+                    review_subcategories_suggestion_number,
                     Some(suggestion),
                     merge_verbosity,
                 )
@@ -760,6 +762,7 @@ mod tests {
             api_key: None,
             keyword_batch_size: 20,
             batch_start_delay_ms: 100,
+            subcategories_suggestion_number: 5,
             verbose: false,
             debug: false,
             quiet: false,

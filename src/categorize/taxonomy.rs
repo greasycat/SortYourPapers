@@ -53,6 +53,7 @@ pub async fn synthesize_categories(
     category_depth: u8,
     taxonomy_batch_size: usize,
     batch_start_delay_ms: u64,
+    subcategories_suggestion_number: usize,
     verbosity: Verbosity,
 ) -> Result<(Vec<CategoryTree>, LlmUsageSummary)> {
     let batch_progress = synthesize_category_batches_with_progress(
@@ -71,9 +72,15 @@ pub async fn synthesize_categories(
         .iter()
         .map(|batch| batch.categories.clone())
         .collect::<Vec<_>>();
-    let (categories, merge_usage) =
-        merge_category_batches(client, &partial_categories, category_depth, None, verbosity)
-            .await?;
+    let (categories, merge_usage) = merge_category_batches(
+        client,
+        &partial_categories,
+        category_depth,
+        subcategories_suggestion_number,
+        None,
+        verbosity,
+    )
+    .await?;
     let mut usage = batch_progress.usage;
     usage.merge(&merge_usage);
     Ok((categories, usage))
@@ -86,6 +93,7 @@ pub(crate) async fn synthesize_categories_with_progress<F>(
     category_depth: u8,
     taxonomy_batch_size: usize,
     batch_start_delay_ms: u64,
+    subcategories_suggestion_number: usize,
     saved_progress: TaxonomyBatchProgress,
     on_progress: F,
     verbosity: Verbosity,
@@ -109,9 +117,15 @@ where
         .iter()
         .map(|batch| batch.categories.clone())
         .collect::<Vec<_>>();
-    let (categories, merge_usage) =
-        merge_category_batches(client, &partial_categories, category_depth, None, verbosity)
-            .await?;
+    let (categories, merge_usage) = merge_category_batches(
+        client,
+        &partial_categories,
+        category_depth,
+        subcategories_suggestion_number,
+        None,
+        verbosity,
+    )
+    .await?;
     let mut usage = batch_progress.usage;
     usage.merge(&merge_usage);
     Ok((categories, usage))
@@ -240,6 +254,7 @@ pub(crate) async fn merge_category_batches(
     client: &dyn LlmClient,
     partial_categories: &[Vec<CategoryTree>],
     category_depth: u8,
+    subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
     verbosity: Verbosity,
 ) -> Result<(Vec<CategoryTree>, LlmUsageSummary)> {
@@ -259,6 +274,7 @@ pub(crate) async fn merge_category_batches(
             client,
             partial_categories,
             category_depth,
+            subcategories_suggestion_number,
             user_suggestion,
             verbosity,
             GLOBAL_TAXONOMY_LABEL,
@@ -270,6 +286,7 @@ pub(crate) async fn merge_category_batches(
         client,
         partial_categories,
         category_depth,
+        subcategories_suggestion_number,
         user_suggestion,
         verbosity,
         Duration::from_secs(TAXONOMY_MERGE_TIMEOUT_SECS),
@@ -282,12 +299,17 @@ pub(super) async fn merge_category_batches_with_timeout(
     client: &dyn LlmClient,
     partial_categories: &[Vec<CategoryTree>],
     category_depth: u8,
+    subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
     verbosity: Verbosity,
     merge_timeout: Duration,
 ) -> Result<(Vec<CategoryTree>, LlmUsageSummary)> {
-    let merge_user =
-        build_merge_category_prompt(partial_categories, category_depth, user_suggestion)?;
+    let merge_user = build_merge_category_prompt(
+        partial_categories,
+        category_depth,
+        subcategories_suggestion_number,
+        user_suggestion,
+    )?;
     match timeout(
         merge_timeout,
         request_validated_categories_json(
@@ -315,6 +337,7 @@ pub(super) async fn merge_category_batches_with_timeout(
                 client,
                 partial_categories,
                 category_depth,
+                subcategories_suggestion_number,
                 user_suggestion,
                 verbosity,
                 GLOBAL_TAXONOMY_LABEL,
@@ -328,6 +351,7 @@ async fn request_plain_text_merged_categories(
     client: &dyn LlmClient,
     partial_categories: &[Vec<CategoryTree>],
     category_depth: u8,
+    subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
     verbosity: Verbosity,
     label: &str,
@@ -335,6 +359,7 @@ async fn request_plain_text_merged_categories(
     let fallback_user = build_merge_category_plain_text_prompt(
         partial_categories,
         category_depth,
+        subcategories_suggestion_number,
         user_suggestion,
     )?;
     request_validated_categories_plain_text(

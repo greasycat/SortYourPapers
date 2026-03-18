@@ -28,6 +28,7 @@ const DEFAULT_KEYWORD_BATCH_SIZE: usize = 20;
 const DEFAULT_BATCH_START_DELAY_MS: u64 = 100;
 const DEFAULT_TAXONOMY_BATCH_SIZE: usize = 4;
 const DEFAULT_PLACEMENT_BATCH_SIZE: usize = 10;
+const DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER: usize = 5;
 
 const DEFAULT_RECURSIVE: bool = false;
 const DEFAULT_REBUILD: bool = false;
@@ -197,6 +198,9 @@ pub struct CliArgs {
     #[arg(long)]
     pub keyword_batch_size: Option<usize>,
 
+    #[arg(long)]
+    pub subcategories_suggestion_number: Option<usize>,
+
     #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
     pub verbosity: u8,
 
@@ -224,6 +228,7 @@ struct FileConfig {
     api_key: Option<String>,
     keyword_batch_size: Option<usize>,
     batch_start_delay_ms: Option<u64>,
+    subcategories_suggestion_number: Option<usize>,
 }
 
 #[derive(Debug, Default)]
@@ -246,6 +251,7 @@ struct EnvConfig {
     api_key: Option<String>,
     keyword_batch_size: Option<usize>,
     batch_start_delay_ms: Option<u64>,
+    subcategories_suggestion_number: Option<usize>,
 }
 
 /// Resolves the runtime configuration from CLI, environment, XDG config, and defaults.

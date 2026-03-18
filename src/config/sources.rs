@@ -27,6 +27,7 @@ pub(super) fn env_config_from_process() -> Result<EnvConfig> {
         api_key: env::var("SYP_API_KEY").ok(),
         keyword_batch_size: parse_env_usize("SYP_KEYWORD_BATCH_SIZE")?,
         batch_start_delay_ms: parse_env_u64("SYP_BATCH_START_DELAY_MS")?,
+        subcategories_suggestion_number: parse_env_usize("SYP_SUBCATEGORIES_SUGGESTION_NUMBER")?,
     })
 }
 
