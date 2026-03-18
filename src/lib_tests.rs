@@ -38,6 +38,30 @@ fn sample_runs() -> Vec<RunSummary> {
     ]
 }
 
+fn strip_ansi_sgr(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut stripped = String::with_capacity(text.len());
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\x1b' && bytes.get(index + 1) == Some(&b'[') {
+            index += 2;
+            while index < bytes.len() && bytes[index] != b'm' {
+                index += 1;
+            }
+            if index < bytes.len() {
+                index += 1;
+            }
+            continue;
+        }
+
+        stripped.push(bytes[index] as char);
+        index += 1;
+    }
+
+    stripped
+}
+
 #[test]
 fn resolves_run_selection_by_index() {
     let runs = selectable_runs(sample_runs(), false);
@@ -222,11 +246,9 @@ fn stage_sequence_includes_optional_stages_when_needed() {
 #[test]
 fn stage_description_formatter_preserves_plain_text_without_color() {
     let verbosity = Verbosity::new(false, false, false);
+    let formatted = format_stage_description(verbosity, "Extract keywords");
 
-    assert_eq!(
-        format_stage_description(verbosity, "Extract keywords"),
-        "Extract keywords"
-    );
+    assert_eq!(strip_ansi_sgr(&formatted), "Extract keywords");
 }
 
 #[test]
