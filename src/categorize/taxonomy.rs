@@ -247,7 +247,7 @@ pub(crate) async fn merge_category_batches(
         return Ok((Vec::new(), LlmUsageSummary::default()));
     }
 
-    if partial_categories.len() == 1 {
+    if partial_categories.len() == 1 && user_suggestion.is_none() {
         return Ok((
             partial_categories.first().cloned().unwrap_or_default(),
             LlmUsageSummary::default(),

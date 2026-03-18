@@ -9,7 +9,7 @@ use crate::{
     config,
     error::{AppError, Result},
     logging::Verbosity,
-    models::{AppConfig, CategoryTree, LlmUsageSummary, RunReport},
+    models::{AppConfig, LlmUsageSummary, RunReport, SynthesizeCategoriesState},
     report,
     run_state::{RunStage, RunSummary, RunWorkspace},
 };
@@ -152,7 +152,7 @@ pub fn review_session(run_id: Option<String>) -> Result<()> {
     }
 
     let categories = workspace
-        .load_stage::<Vec<CategoryTree>>(RunStage::SynthesizeCategories)?
+        .load_stage::<SynthesizeCategoriesState>(RunStage::SynthesizeCategories)?
         .ok_or_else(|| {
             AppError::Execution(format!(
                 "run '{}' has no saved synthesized categories",
@@ -165,7 +165,7 @@ pub fn review_session(run_id: Option<String>) -> Result<()> {
         workspace.run_id(),
         workspace.root_dir().display()
     );
-    report::print_category_tree(&categories, verbosity);
+    report::print_category_tree(&categories.categories, verbosity);
     Ok(())
 }
 

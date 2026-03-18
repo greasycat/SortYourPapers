@@ -57,5 +57,7 @@ pub(crate) struct TaxonomyBatchProgress {
 pub use keywords::extract_keywords;
 pub(crate) use keywords::extract_keywords_with_progress;
 pub use taxonomy::synthesize_categories;
+#[allow(unused_imports)]
 pub(crate) use taxonomy::synthesize_categories_with_progress;
+pub(crate) use taxonomy::{merge_category_batches, synthesize_category_batches_with_progress};
 pub use validation::validate_category_depth;

@@ -134,6 +134,43 @@ pub struct CategoryTree {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "SynthesizeCategoriesStateRepr")]
+pub struct SynthesizeCategoriesState {
+    pub categories: Vec<CategoryTree>,
+    #[serde(default)]
+    pub partial_categories: Vec<Vec<CategoryTree>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SynthesizeCategoriesStateRepr {
+    Current {
+        categories: Vec<CategoryTree>,
+        #[serde(default)]
+        partial_categories: Vec<Vec<CategoryTree>>,
+    },
+    Legacy(Vec<CategoryTree>),
+}
+
+impl From<SynthesizeCategoriesStateRepr> for SynthesizeCategoriesState {
+    fn from(value: SynthesizeCategoriesStateRepr) -> Self {
+        match value {
+            SynthesizeCategoriesStateRepr::Current {
+                categories,
+                partial_categories,
+            } => Self {
+                categories,
+                partial_categories,
+            },
+            SynthesizeCategoriesStateRepr::Legacy(categories) => Self {
+                categories,
+                partial_categories: Vec::new(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlacementDecision {
     pub file_id: String,
     pub target_rel_path: String,

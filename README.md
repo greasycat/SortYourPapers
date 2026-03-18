@@ -7,7 +7,7 @@ Use LLMs to sort papers.
 - Extracts text from first `N` pages (default `1`)
 - Extracts file-keyword pairs plus a per-file preliminary `k`-depth category text in LLM batches (default `20` files per batch)
 - Builds the global taxonomy from the aggregated preliminary category texts, batching those aggregated entries when needed, and returns a linear path array that is rebuilt into a tree
-- Displays the merged taxonomy immediately after synthesis and, in interactive terminals, waits for confirmation before placement generation begins
+- Displays the merged taxonomy immediately after synthesis and, in interactive terminals, lets you iteratively suggest improvements until you accept it before placement generation begins
 - Remaps papers to final destination folders in stable LLM batches (default `10` files per batch) using each file's keywords, preliminary category text, and the synthesized taxonomy
 - Prints the final synthesized category tree at the end of a successful run
 - Keeps `taxonomy-mode` for CLI/config compatibility, and uses `taxonomy-batch-size` to control batching of aggregated preliminary-category entries during taxonomy synthesis

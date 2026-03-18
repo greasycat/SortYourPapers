@@ -3,14 +3,15 @@ use std::{path::Path, sync::Arc, time::Instant};
 use crate::{
     categorize::{
         KeywordBatchProgress, TaxonomyBatchProgress, extract_keywords_with_progress,
-        synthesize_categories_with_progress,
+        merge_category_batches, synthesize_category_batches_with_progress,
     },
     discovery::{dedupe_candidates, discover_pdf_candidates, split_by_size},
     error::{AppError, Result},
     llm::{self, build_client},
     logging::Verbosity,
     models::{
-        AppConfig, CategoryTree, KeywordStageState, PdfCandidate, PlacementDecision, RunReport,
+        AppConfig, KeywordStageState, PdfCandidate, PlacementDecision, RunReport,
+        SynthesizeCategoriesState,
     },
     pdf_extract::{ExtractorMode, extract_text_batch, reset_debug_extract_log},
     report,
@@ -41,7 +42,7 @@ pub(crate) async fn run_with_workspace(
     let saved_keyword_state =
         workspace.load_stage::<KeywordStageState>(RunStage::ExtractKeywords)?;
     let saved_categories =
-        workspace.load_stage::<Vec<CategoryTree>>(RunStage::SynthesizeCategories)?;
+        workspace.load_stage::<SynthesizeCategoriesState>(RunStage::SynthesizeCategories)?;
     let saved_placements =
         workspace.load_stage::<Vec<PlacementDecision>>(RunStage::GeneratePlacements)?;
     let needs_llm =
@@ -90,7 +91,7 @@ pub(crate) async fn run_with_workspace(
         &stage_plan,
     )
     .await?;
-    let categories = if let Some(saved) = saved_categories {
+    let categories_state = if let Some(saved) = saved_categories {
         workspace.remove_artifact(TAXONOMY_BATCH_PROGRESS_FILE)?;
         saved
     } else {
@@ -105,7 +106,16 @@ pub(crate) async fn run_with_workspace(
         )
         .await?
     };
-    inspect_output_stage(&categories, workspace, verbosity, &stage_plan)?;
+    let categories = inspect_output_stage(
+        &categories_state,
+        llm_client.as_ref(),
+        &config,
+        &mut report,
+        workspace,
+        verbosity,
+        &stage_plan,
+    )
+    .await?;
     let placements = generate_placements_stage(
         saved_placements,
         llm_client.as_ref(),
@@ -434,7 +444,7 @@ async fn synthesize_categories_stage(
     workspace: &mut RunWorkspace,
     verbosity: Verbosity,
     stage_plan: &StagePlan,
-) -> Result<Vec<CategoryTree>> {
+) -> Result<SynthesizeCategoriesState> {
     stage_plan.announce(verbosity, RunStage::SynthesizeCategories);
     let stage_started = Instant::now();
     let saved_progress = workspace
@@ -444,7 +454,7 @@ async fn synthesize_categories_stage(
         report.llm_usage.taxonomy = saved_progress.usage.clone();
         workspace.save_report(report)?;
     }
-    let (categories, usage) = synthesize_categories_with_progress(
+    let batch_progress = synthesize_category_batches_with_progress(
         require_llm_client(llm_client)?.as_ref(),
         &keyword_state.preliminary_pairs,
         config.category_depth,
@@ -459,12 +469,31 @@ async fn synthesize_categories_stage(
         verbosity,
     )
     .await?;
+    let partial_categories = batch_progress
+        .completed_batches
+        .iter()
+        .map(|batch| batch.categories.clone())
+        .collect::<Vec<_>>();
+    let (categories, merge_usage) = merge_category_batches(
+        require_llm_client(llm_client)?.as_ref(),
+        &partial_categories,
+        config.category_depth,
+        None,
+        verbosity,
+    )
+    .await?;
+    let mut usage = batch_progress.usage;
+    usage.merge(&merge_usage);
     report.llm_usage.taxonomy = usage;
-    workspace.save_stage(RunStage::SynthesizeCategories, &categories)?;
+    let state = SynthesizeCategoriesState {
+        categories,
+        partial_categories,
+    };
+    workspace.save_stage(RunStage::SynthesizeCategories, &state)?;
     workspace.remove_artifact(TAXONOMY_BATCH_PROGRESS_FILE)?;
     workspace.save_report(report)?;
     log_timing(verbosity, "synthesize-categories", stage_started.elapsed());
-    Ok(categories)
+    Ok(state)
 }
 
 fn require_llm_client(

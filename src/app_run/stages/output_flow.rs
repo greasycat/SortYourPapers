@@ -1,6 +1,8 @@
 use std::{
+    future::Future,
     io::{self, BufRead, IsTerminal, Write},
     path::Path,
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -8,11 +10,13 @@ use std::{
 use serde::Deserialize;
 
 use crate::{
+    categorize::merge_category_batches,
     error::{AppError, Result},
     execute, llm,
     logging::Verbosity,
     models::{
-        AppConfig, CategoryTree, KeywordSet, PlacementDecision, PreliminaryCategoryPair, RunReport,
+        AppConfig, CategoryTree, KeywordSet, LlmUsageSummary, PlacementDecision,
+        PreliminaryCategoryPair, RunReport, SynthesizeCategoriesState,
     },
     place::{
         OutputSnapshot, PlacementBatchProgress, PlacementOptions,
@@ -74,32 +78,77 @@ impl From<InspectReviewStateRepr> for InspectReviewState {
     }
 }
 
-pub(super) fn inspect_output_stage(
-    categories: &[CategoryTree],
+pub(super) async fn inspect_output_stage(
+    taxonomy_state: &SynthesizeCategoriesState,
+    llm_client: Option<&Arc<dyn llm::LlmClient>>,
+    config: &AppConfig,
+    report: &mut RunReport,
     workspace: &mut RunWorkspace,
     verbosity: Verbosity,
     stage_plan: &StagePlan,
-) -> Result<()> {
-    inspect_output_stage_with_confirmation(categories, workspace, verbosity, stage_plan, || {
-        wait_for_inspect_confirmation(verbosity)
-    })
+) -> Result<Vec<CategoryTree>> {
+    let review_client = llm_client.cloned();
+    let review_category_depth = config.category_depth;
+
+    inspect_output_stage_with_interaction(
+        taxonomy_state,
+        report,
+        workspace,
+        verbosity,
+        stage_plan,
+        |categories, prompt_verbosity| {
+            prompt_for_inspect_review_action(categories, prompt_verbosity)
+        },
+        || prompt_for_continue_improving(),
+        |_partial_categories, suggestion, current_categories, merge_verbosity| {
+            let review_client = review_client.clone();
+            let improvement_source = vec![current_categories.to_vec()];
+            Box::pin(async move {
+                merge_category_batches(
+                    review_client
+                        .as_ref()
+                        .ok_or_else(|| AppError::Execution("missing llm client".to_string()))?
+                        .as_ref(),
+                    &improvement_source,
+                    review_category_depth,
+                    Some(suggestion),
+                    merge_verbosity,
+                )
+                .await
+            })
+        },
+    )
+    .await
 }
 
-fn inspect_output_stage_with_confirmation<F>(
-    categories: &[CategoryTree],
+type ImproveCategoriesFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<(Vec<CategoryTree>, LlmUsageSummary)>> + 'a>>;
+
+async fn inspect_output_stage_with_interaction<PA, PC, I>(
+    taxonomy_state: &SynthesizeCategoriesState,
+    report: &mut RunReport,
     workspace: &mut RunWorkspace,
     verbosity: Verbosity,
     stage_plan: &StagePlan,
-    mut confirm: F,
-) -> Result<()>
+    mut prompt_action: PA,
+    mut prompt_continue: PC,
+    mut improve_categories: I,
+) -> Result<Vec<CategoryTree>>
 where
-    F: FnMut() -> Result<()>,
+    PA: FnMut(&[CategoryTree], Verbosity) -> Result<InspectReviewAction>,
+    PC: FnMut() -> Result<bool>,
+    I: for<'a> FnMut(
+        &'a [Vec<CategoryTree>],
+        &'a str,
+        &'a [CategoryTree],
+        Verbosity,
+    ) -> ImproveCategoriesFuture<'a>,
 {
     stage_plan.announce(verbosity, RunStage::InspectOutput);
     if let Some(saved) = workspace.load_stage::<InspectReviewState>(RunStage::InspectOutput)? {
         if saved.is_current {
             log_resume(verbosity, "inspect-output", workspace);
-            return Ok(());
+            return Ok(saved.categories);
         }
         verbosity.stage_line(
             "inspect-output",
@@ -113,35 +162,80 @@ where
         "inspect-output",
         format!(
             "reviewing merged taxonomy with {} top-level categor(ies)",
-            categories.len()
+            taxonomy_state.categories.len()
         ),
     );
-    if !verbosity.quiet() {
-        report::print_category_tree(categories, verbosity);
+    let mut categories = taxonomy_state.categories.clone();
+    render_inspect_taxonomy(&categories, verbosity);
+
+    let partial_categories = if taxonomy_state.partial_categories.is_empty() {
+        vec![categories.clone()]
+    } else {
+        taxonomy_state.partial_categories.clone()
+    };
+
+    loop {
+        match prompt_action(&categories, verbosity)? {
+            InspectReviewAction::Accept => break,
+            InspectReviewAction::Cancel => {
+                return Err(AppError::Execution("inspect-output cancelled".to_string()));
+            }
+            InspectReviewAction::Suggest(suggestion) => {
+                let (improved_categories, usage) = improve_categories(
+                    &partial_categories,
+                    suggestion.as_str(),
+                    &categories,
+                    verbosity,
+                )
+                .await?;
+                categories = improved_categories;
+                report.llm_usage.taxonomy.merge(&usage);
+                workspace.save_report(report)?;
+                render_inspect_taxonomy(&categories, verbosity);
+
+                if !prompt_continue()? {
+                    break;
+                }
+            }
+        }
     }
-    confirm()?;
+
     workspace.save_stage(
         RunStage::InspectOutput,
         &InspectReviewState {
-            categories: categories.to_vec(),
+            categories: categories.clone(),
             is_current: true,
         },
     )?;
     log_timing(verbosity, "inspect-output", stage_started.elapsed());
-    Ok(())
+    Ok(categories)
 }
 
-fn wait_for_inspect_confirmation(verbosity: Verbosity) -> Result<()> {
-    if verbosity.quiet() || !io::stdin().is_terminal() {
-        return Ok(());
+fn render_inspect_taxonomy(categories: &[CategoryTree], verbosity: Verbosity) {
+    if !verbosity.quiet() || io::stdin().is_terminal() {
+        report::print_category_tree(categories, verbosity);
+    }
+}
+
+fn prompt_for_inspect_review_action(
+    categories: &[CategoryTree],
+    verbosity: Verbosity,
+) -> Result<InspectReviewAction> {
+    if !io::stdin().is_terminal() {
+        return Ok(InspectReviewAction::Accept);
     }
 
     let mut stdin = io::stdin().lock();
     let mut stderr = io::stderr();
-    prompt_for_inspect_confirmation(&mut stdin, &mut stderr)
+    prompt_for_inspect_review_action_with_io(categories, verbosity, &mut stdin, &mut stderr)
 }
 
-fn prompt_for_inspect_confirmation<R, W>(reader: &mut R, writer: &mut W) -> Result<()>
+fn prompt_for_inspect_review_action_with_io<R, W>(
+    _categories: &[CategoryTree],
+    _verbosity: Verbosity,
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<InspectReviewAction>
 where
     R: BufRead,
     W: Write,
@@ -150,7 +244,7 @@ where
     loop {
         write!(
             writer,
-            "Inspect merged taxonomy. Press Enter to continue, or type 'q' to cancel: "
+            "Enter a taxonomy improvement suggestion, press Enter to continue, or type 'q' to cancel: "
         )?;
         writer.flush()?;
 
@@ -158,13 +252,52 @@ where
         let bytes_read = reader.read_line(&mut input)?;
         if bytes_read == 0 {
             return Err(AppError::Execution(
-                "inspect-output cancelled before confirmation".to_string(),
+                "inspect-output cancelled before a review choice was made".to_string(),
             ));
         }
 
-        match resolve_inspect_confirmation(input.trim()) {
-            Ok(InspectConfirmation::Continue) => return Ok(()),
-            Ok(InspectConfirmation::Cancel) => {
+        match resolve_inspect_review_action(input.trim()) {
+            Ok(action) => return Ok(action),
+            Err(err) => writeln!(writer, "error: {err}")?,
+        }
+    }
+}
+
+fn prompt_for_continue_improving() -> Result<bool> {
+    if !io::stdin().is_terminal() {
+        return Ok(false);
+    }
+
+    let mut stdin = io::stdin().lock();
+    let mut stderr = io::stderr();
+    prompt_for_continue_improving_with_io(&mut stdin, &mut stderr)
+}
+
+fn prompt_for_continue_improving_with_io<R, W>(reader: &mut R, writer: &mut W) -> Result<bool>
+where
+    R: BufRead,
+    W: Write,
+{
+    let mut input = String::new();
+    loop {
+        write!(
+            writer,
+            "Continue improving this taxonomy? [y/N] (or 'q' to cancel): "
+        )?;
+        writer.flush()?;
+
+        input.clear();
+        let bytes_read = reader.read_line(&mut input)?;
+        if bytes_read == 0 {
+            return Err(AppError::Execution(
+                "inspect-output cancelled before a continuation choice was made".to_string(),
+            ));
+        }
+
+        match resolve_continue_improving(input.trim()) {
+            Ok(InspectLoopDecision::ContinueImproving) => return Ok(true),
+            Ok(InspectLoopDecision::Finish) => return Ok(false),
+            Ok(InspectLoopDecision::Cancel) => {
                 return Err(AppError::Execution("inspect-output cancelled".to_string()));
             }
             Err(err) => writeln!(writer, "error: {err}")?,
@@ -172,32 +305,47 @@ where
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InspectReviewAction {
+    Accept,
+    Cancel,
+    Suggest(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InspectConfirmation {
-    Continue,
+enum InspectLoopDecision {
+    ContinueImproving,
+    Finish,
     Cancel,
 }
 
-fn resolve_inspect_confirmation(input: &str) -> Result<InspectConfirmation> {
-    if input.is_empty()
-        || input.eq_ignore_ascii_case("c")
-        || input.eq_ignore_ascii_case("continue")
-        || input.eq_ignore_ascii_case("y")
-        || input.eq_ignore_ascii_case("yes")
-    {
-        return Ok(InspectConfirmation::Continue);
+fn resolve_inspect_review_action(input: &str) -> Result<InspectReviewAction> {
+    if input.is_empty() {
+        return Ok(InspectReviewAction::Accept);
     }
 
-    if input.eq_ignore_ascii_case("q")
-        || input.eq_ignore_ascii_case("quit")
-        || input.eq_ignore_ascii_case("n")
-        || input.eq_ignore_ascii_case("no")
-    {
-        return Ok(InspectConfirmation::Cancel);
+    if input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("quit") {
+        return Ok(InspectReviewAction::Cancel);
+    }
+
+    Ok(InspectReviewAction::Suggest(input.to_string()))
+}
+
+fn resolve_continue_improving(input: &str) -> Result<InspectLoopDecision> {
+    if input.is_empty() || input.eq_ignore_ascii_case("n") || input.eq_ignore_ascii_case("no") {
+        return Ok(InspectLoopDecision::Finish);
+    }
+
+    if input.eq_ignore_ascii_case("y") || input.eq_ignore_ascii_case("yes") {
+        return Ok(InspectLoopDecision::ContinueImproving);
+    }
+
+    if input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("quit") {
+        return Ok(InspectLoopDecision::Cancel);
     }
 
     Err(AppError::Execution(
-        "press Enter to continue, or type 'q' to cancel".to_string(),
+        "enter 'y' to keep improving, press Enter to continue, or type 'q' to cancel".to_string(),
     ))
 }
 
@@ -377,45 +525,71 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        InspectConfirmation, InspectReviewState, inspect_output_stage_with_confirmation,
-        prompt_for_inspect_confirmation, resolve_inspect_confirmation,
+        InspectLoopDecision, InspectReviewAction, InspectReviewState,
+        inspect_output_stage_with_interaction, prompt_for_continue_improving_with_io,
+        resolve_continue_improving, resolve_inspect_review_action,
     };
     use crate::{
         app_run::stages::planning::StagePlan,
         error::AppError,
         logging::Verbosity,
-        models::{AppConfig, CategoryTree, LlmProvider, PlacementMode, TaxonomyMode},
+        models::{
+            AppConfig, CategoryTree, LlmProvider, PlacementMode, RunReport,
+            SynthesizeCategoriesState, TaxonomyMode,
+        },
         run_state::{RunStage, RunWorkspace},
     };
 
     #[test]
-    fn inspect_confirmation_accepts_blank_input() {
+    fn inspect_review_action_accepts_blank_input() {
         assert_eq!(
-            resolve_inspect_confirmation("").expect("blank input should continue"),
-            InspectConfirmation::Continue
+            resolve_inspect_review_action("").expect("blank input should continue"),
+            InspectReviewAction::Accept
         );
     }
 
     #[test]
-    fn inspect_confirmation_rejects_invalid_input_until_valid_line() {
-        let mut input = b"maybe\n\n".as_slice();
+    fn inspect_review_action_treats_text_as_suggestion() {
+        assert_eq!(
+            resolve_inspect_review_action("merge speech categories")
+                .expect("suggestion should parse"),
+            InspectReviewAction::Suggest("merge speech categories".to_string())
+        );
+    }
+
+    #[test]
+    fn inspect_review_action_allows_cancel() {
+        assert_eq!(
+            resolve_inspect_review_action("q").expect("cancel should parse"),
+            InspectReviewAction::Cancel
+        );
+    }
+
+    #[test]
+    fn continue_improving_prompt_rejects_invalid_input_until_valid_line() {
+        let mut input = b"maybe\ny\n".as_slice();
         let mut output = Vec::new();
 
-        prompt_for_inspect_confirmation(&mut input, &mut output).expect("prompt should continue");
+        let keep_improving =
+            prompt_for_continue_improving_with_io(&mut input, &mut output).expect("prompt");
 
+        assert!(keep_improving);
         let rendered = String::from_utf8(output).expect("utf8");
-        assert!(rendered.contains("error: press Enter to continue, or type 'q' to cancel"));
+        assert!(rendered.contains(
+            "error: enter 'y' to keep improving, press Enter to continue, or type 'q' to cancel"
+        ));
     }
 
     #[test]
-    fn inspect_confirmation_allows_cancel() {
-        let err = resolve_inspect_confirmation("q").expect("cancel option should parse");
-
-        assert_eq!(err, InspectConfirmation::Cancel);
+    fn continue_improving_defaults_to_finish_on_blank_input() {
+        assert_eq!(
+            resolve_continue_improving("").expect("blank should finish"),
+            InspectLoopDecision::Finish
+        );
     }
 
-    #[test]
-    fn inspect_stage_saves_state_only_after_confirmation() {
+    #[tokio::test]
+    async fn inspect_stage_saves_state_only_after_acceptance() {
         let dir = tempdir().expect("tempdir");
         let cache_root = dir.path().join("cache");
         let config = sample_config(dir.path().join("sorted"));
@@ -423,15 +597,25 @@ mod tests {
             RunWorkspace::create_with_cache_root_for_tests(dir.path(), &cache_root, &config)
                 .expect("create workspace");
         let stage_plan = StagePlan::new(&config, true);
-        let categories = sample_categories();
+        let mut report = RunReport::new(true);
+        let taxonomy_state = sample_taxonomy_state();
 
-        let err = inspect_output_stage_with_confirmation(
-            &categories,
+        let err = inspect_output_stage_with_interaction(
+            &taxonomy_state,
+            &mut report,
             &mut workspace,
             Verbosity::new(false, false, false),
             &stage_plan,
-            || Err(AppError::Execution("inspect-output cancelled".to_string())),
+            |_categories, _verbosity| {
+                Err(AppError::Execution("inspect-output cancelled".to_string()))
+            },
+            || Ok(false),
+            |_partials, _suggestion, current_categories, _verbosity| {
+                let current_categories = current_categories.to_vec();
+                Box::pin(async move { Ok((current_categories, Default::default())) })
+            },
         )
+        .await
         .expect_err("stage should stop on cancellation");
 
         assert!(err.to_string().contains("inspect-output cancelled"));
@@ -443,8 +627,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn inspect_stage_skips_confirmation_when_current_state_exists() {
+    #[tokio::test]
+    async fn inspect_stage_applies_suggestions_until_user_finishes() {
         let dir = tempdir().expect("tempdir");
         let cache_root = dir.path().join("cache");
         let config = sample_config(dir.path().join("sorted"));
@@ -452,31 +636,107 @@ mod tests {
             RunWorkspace::create_with_cache_root_for_tests(dir.path(), &cache_root, &config)
                 .expect("create workspace");
         let stage_plan = StagePlan::new(&config, true);
-        let categories = sample_categories();
-        let confirm_calls = Cell::new(0_u8);
+        let mut report = RunReport::new(true);
+        let taxonomy_state = sample_taxonomy_state();
+        let prompt_calls = Cell::new(0_u8);
+        let continue_calls = Cell::new(0_u8);
 
-        inspect_output_stage_with_confirmation(
-            &categories,
+        let categories = inspect_output_stage_with_interaction(
+            &taxonomy_state,
+            &mut report,
             &mut workspace,
             Verbosity::new(false, false, false),
             &stage_plan,
-            || Ok(()),
-        )
-        .expect("initial inspect");
-
-        inspect_output_stage_with_confirmation(
-            &categories,
-            &mut workspace,
-            Verbosity::new(false, false, false),
-            &stage_plan,
-            || {
-                confirm_calls.set(confirm_calls.get() + 1);
-                Ok(())
+            |_categories, _verbosity| match prompt_calls.get() {
+                0 => {
+                    prompt_calls.set(1);
+                    Ok(InspectReviewAction::Suggest(
+                        "Merge speech categories".to_string(),
+                    ))
+                }
+                _ => Ok(InspectReviewAction::Accept),
+            },
+            || match continue_calls.get() {
+                0 => {
+                    continue_calls.set(1);
+                    Ok(true)
+                }
+                _ => Ok(false),
+            },
+            |_partials, suggestion, current_categories, _verbosity| {
+                let mut improved = current_categories.to_vec();
+                improved[0].name = format!("{} ({suggestion})", improved[0].name);
+                Box::pin(async move { Ok((improved, sample_usage())) })
             },
         )
+        .await
+        .expect("inspect review");
+
+        assert_eq!(categories[0].name, "AI (Merge speech categories)");
+        assert_eq!(report.llm_usage.taxonomy.call_count, 1);
+        assert_eq!(prompt_calls.get(), 1);
+        assert_eq!(continue_calls.get(), 1);
+        assert_eq!(
+            workspace
+                .load_stage::<InspectReviewState>(RunStage::InspectOutput)
+                .expect("load stage")
+                .expect("saved state")
+                .categories[0]
+                .name,
+            "AI (Merge speech categories)"
+        );
+    }
+
+    #[tokio::test]
+    async fn inspect_stage_skips_review_when_current_state_exists() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let config = sample_config(dir.path().join("sorted"));
+        let mut workspace =
+            RunWorkspace::create_with_cache_root_for_tests(dir.path(), &cache_root, &config)
+                .expect("create workspace");
+        let stage_plan = StagePlan::new(&config, true);
+        let mut report = RunReport::new(true);
+        let taxonomy_state = sample_taxonomy_state();
+        let prompt_calls = Cell::new(0_u8);
+
+        inspect_output_stage_with_interaction(
+            &taxonomy_state,
+            &mut report,
+            &mut workspace,
+            Verbosity::new(false, false, false),
+            &stage_plan,
+            |_categories, _verbosity| Ok(InspectReviewAction::Accept),
+            || Ok(false),
+            |_partials, _suggestion, current_categories, _verbosity| {
+                let current_categories = current_categories.to_vec();
+                Box::pin(async move { Ok((current_categories, Default::default())) })
+            },
+        )
+        .await
+        .expect("initial inspect");
+
+        let categories = inspect_output_stage_with_interaction(
+            &taxonomy_state,
+            &mut report,
+            &mut workspace,
+            Verbosity::new(false, false, false),
+            &stage_plan,
+            |_categories, _verbosity| {
+                prompt_calls.set(prompt_calls.get() + 1);
+                Ok(InspectReviewAction::Accept)
+            },
+            || Ok(false),
+            |_partials, _suggestion, current_categories, _verbosity| {
+                let current_categories = current_categories.to_vec();
+                Box::pin(async move { Ok((current_categories, Default::default())) })
+            },
+        )
+        .await
         .expect("resume inspect");
 
-        assert_eq!(confirm_calls.get(), 0);
+        assert_eq!(prompt_calls.get(), 0);
+        assert_eq!(categories[0].name, "AI");
     }
 
     fn sample_config(output: PathBuf) -> AppConfig {
@@ -506,13 +766,23 @@ mod tests {
         }
     }
 
-    fn sample_categories() -> Vec<CategoryTree> {
-        vec![CategoryTree {
+    fn sample_taxonomy_state() -> SynthesizeCategoriesState {
+        let categories = vec![CategoryTree {
             name: "AI".to_string(),
             children: vec![CategoryTree {
                 name: "Vision".to_string(),
                 children: Vec::new(),
             }],
-        }]
+        }];
+        SynthesizeCategoriesState {
+            categories: categories.clone(),
+            partial_categories: vec![categories],
+        }
+    }
+
+    fn sample_usage() -> crate::models::LlmUsageSummary {
+        let mut usage = crate::models::LlmUsageSummary::default();
+        usage.call_count = 1;
+        usage
     }
 }
