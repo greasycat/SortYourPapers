@@ -593,6 +593,17 @@ mod tests {
     }
 
     #[test]
+    fn run_form_header_capitalizes_space_key_name() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+
+        let lines = render_lines(&app, 140, 24);
+
+        assert!(lines.iter().any(|line| line.contains("Space: toggle")));
+        assert!(!lines.iter().any(|line| line.contains("space: toggle")));
+    }
+
+    #[test]
     fn confirm_overlay_renders_compact_popup() {
         let mut app = test_app();
         app.screen = Screen::Home;

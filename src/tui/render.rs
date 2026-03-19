@@ -493,7 +493,7 @@ impl App {
                 ("↑/↓ or j/k", "move"),
                 ("←/→ or h/l", "column"),
                 ("Enter", "edit"),
-                ("space", "toggle"),
+                ("Space", "toggle"),
                 ("Esc", "back"),
             ],
             Screen::Sessions => &[
