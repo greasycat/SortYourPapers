@@ -16,7 +16,9 @@ use crate::{
 };
 
 use super::forms::bool_label;
-use super::ui_widgets::{muted_style, render_selectable_list, render_tabs};
+use super::ui_widgets::{
+    muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum SessionFilter {
@@ -378,12 +380,13 @@ impl SessionView {
                 .map(Line::from)
                 .collect::<Vec<_>>()
         };
-        frame.render_widget(
-            Paragraph::new(preview_content)
-                .scroll((self.preview_scroll, 0))
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title(preview_title).borders(Borders::ALL)),
+        render_scrolled_paragraph(
+            frame,
             chunks[2],
+            Block::default().title(preview_title).borders(Borders::ALL),
+            preview_content,
+            self.preview_scroll,
+            true,
         );
     }
 

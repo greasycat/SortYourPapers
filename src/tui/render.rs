@@ -13,7 +13,7 @@ use super::{
     model::{OperationDetail, OperationState, OperationTab, Overlay, Screen},
     session_view::rerun_stage_name,
     taxonomy_review::ReviewPane,
-    ui_widgets::{muted_style, render_selectable_list, render_tabs},
+    ui_widgets::{muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs},
 };
 
 impl App {
@@ -1086,12 +1086,13 @@ fn draw_scrolled_panel(
     } else {
         lines.into_iter().map(Line::from).collect::<Vec<_>>()
     };
-    frame.render_widget(
-        Paragraph::new(content)
-            .scroll((scroll, 0))
-            .wrap(Wrap { trim: false })
-            .block(Block::default().title(title).borders(Borders::ALL)),
+    render_scrolled_paragraph(
+        frame,
         area,
+        Block::default().title(title).borders(Borders::ALL),
+        content,
+        scroll,
+        true,
     );
 }
 
@@ -1108,12 +1109,13 @@ fn draw_scrolled_panel_with_block(
     } else {
         lines.into_iter().map(Line::from).collect::<Vec<_>>()
     };
-    frame.render_widget(
-        Paragraph::new(content)
-            .scroll((scroll, 0))
-            .wrap(Wrap { trim: false })
-            .block(block),
+    render_scrolled_paragraph(
+        frame,
         area,
+        block,
+        content,
+        scroll,
+        true,
     );
 }
 

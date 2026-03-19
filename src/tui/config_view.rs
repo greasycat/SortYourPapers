@@ -2,13 +2,13 @@ use std::{env, fs};
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
+    prelude::{Color, Frame, Line, Modifier, Span, Style},
     widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
 use crate::{config, error::Result};
 
-use super::ui_widgets::render_selectable_list;
+use super::ui_widgets::{render_scrolled_paragraph, render_selectable_list};
 
 const ENV_KEYS: [(&str, bool); 14] = [
     ("SYP_INPUT", false),
@@ -151,18 +151,17 @@ impl ConfigView {
             left[1],
         );
 
-        frame.render_widget(
-            Paragraph::new(Text::from(
-                self.lines
-                    .iter()
-                    .cloned()
-                    .map(Line::from)
-                    .collect::<Vec<_>>(),
-            ))
-            .wrap(Wrap { trim: false })
-            .scroll((self.detail_scroll, 0))
-            .block(Block::default().title("Diagnostics").borders(Borders::ALL)),
+        render_scrolled_paragraph(
+            frame,
             chunks[1],
+            Block::default().title("Diagnostics").borders(Borders::ALL),
+            self.lines
+                .iter()
+                .cloned()
+                .map(Line::from)
+                .collect::<Vec<_>>(),
+            self.detail_scroll,
+            true,
         );
     }
 

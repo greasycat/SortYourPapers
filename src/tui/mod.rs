@@ -204,6 +204,12 @@ mod tests {
             .count()
     }
 
+    fn contains_scrollbar_glyph(lines: &[String]) -> bool {
+        lines
+            .iter()
+            .any(|line| line.contains('║') || line.contains('█'))
+    }
+
     fn test_runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1553,6 +1559,19 @@ mod tests {
 
         assert!(!lines.iter().any(|line| line.contains("log line 00")));
         assert!(lines.iter().any(|line| line.contains("log line 12")));
+    }
+
+    #[test]
+    fn operation_logs_tab_renders_scrollbar_for_overflowing_content() {
+        let mut app = test_app();
+        app.operation.active_tab = OperationTab::Logs;
+        app.logs = (0..80)
+            .map(|index| format!("log line {index:02}"))
+            .collect::<VecDeque<_>>();
+
+        let lines = render_lines(&app, 100, 20);
+
+        assert!(contains_scrollbar_glyph(&lines));
     }
 
     #[test]
