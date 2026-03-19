@@ -89,27 +89,13 @@ impl RunForm {
             .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
             .split(area);
 
-        let lines = RUN_FIELD_LABELS
-            .iter()
-            .enumerate()
-            .map(|(index, label)| {
-                let line = format!("{label}: {}", self.value(index));
-                if index == self.selected {
-                    Line::from(Span::styled(
-                        format!("> {line}"),
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ))
-                } else {
-                    Line::from(format!("  {line}"))
-                }
-            })
-            .collect::<Vec<_>>();
+        let lines = self.sectioned_lines();
         frame.render_widget(
-            Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Run Fields").borders(Borders::ALL)),
+            Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+                Block::default()
+                    .title("Run Configuration")
+                    .borders(Borders::ALL),
+            ),
             chunks[0],
         );
 
@@ -245,5 +231,46 @@ impl RunForm {
             20 => bool_label(self.quiet).to_string(),
             _ => String::new(),
         }
+    }
+
+    fn sectioned_lines(&self) -> Vec<Line<'static>> {
+        const FIELD_SECTIONS: [(&str, &[usize]); 6] = [
+            ("Paths & Scope", &[0, 1, 2]),
+            ("Extraction", &[3, 4, 5]),
+            ("Taxonomy", &[6, 7, 8, 17, 18]),
+            ("Placement & Run", &[9, 10, 11, 12]),
+            ("LLM & API", &[13, 14, 15, 16]),
+            ("Output & Logs", &[19, 20]),
+        ];
+
+        let mut lines = Vec::new();
+        for (section_index, (title, fields)) in FIELD_SECTIONS.iter().enumerate() {
+            if section_index > 0 {
+                lines.push(Line::from(""));
+            }
+            lines.push(Line::from(Span::styled(
+                (*title).to_string(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )));
+
+            for field_index in *fields {
+                let label = RUN_FIELD_LABELS[*field_index];
+                let line = format!("{label}: {}", self.value(*field_index));
+                if *field_index == self.selected {
+                    lines.push(Line::from(Span::styled(
+                        format!("> {line}"),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )));
+                } else {
+                    lines.push(Line::from(format!("  {line}")));
+                }
+            }
+        }
+
+        lines
     }
 }

@@ -192,6 +192,23 @@ mod tests {
     }
 
     #[test]
+    fn run_form_renders_grouped_sections() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+
+        let lines = render_lines(&app, 100, 56);
+
+        assert!(lines.iter().any(|line| line.contains("Run Configuration")));
+        assert!(lines.iter().any(|line| line.contains("Paths & Scope")));
+        assert!(lines.iter().any(|line| line.contains("Extraction")));
+        assert!(lines.iter().any(|line| line.contains("Taxonomy")));
+        assert!(lines.iter().any(|line| line.contains("Placement & Run")));
+        assert!(lines.iter().any(|line| line.contains("LLM & API")));
+        assert!(lines.iter().any(|line| line.contains("Output & Logs")));
+        assert!(lines.iter().any(|line| line.contains("> input: .")));
+    }
+
+    #[test]
     fn progress_events_add_advance_and_remove_entries() {
         let mut app = test_app();
 
