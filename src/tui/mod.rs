@@ -41,6 +41,8 @@ use crate::{
 
 use self::backend::{BackendEvent, TuiBackend};
 
+const DEBUG_TUI_PROGRESS_DELAY: Duration = Duration::from_secs(5);
+
 pub async fn run(debug_tui: bool) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
@@ -142,6 +144,9 @@ impl App {
                     self.push_log(line);
                 }
                 BackendEvent::ProgressStart { id, total, label } => {
+                    if self.debug_tui {
+                        thread::sleep(DEBUG_TUI_PROGRESS_DELAY);
+                    }
                     self.progress.push(ProgressEntry {
                         id,
                         label,
@@ -150,12 +155,18 @@ impl App {
                     });
                 }
                 BackendEvent::ProgressAdvance { id, delta } => {
+                    if self.debug_tui {
+                        thread::sleep(DEBUG_TUI_PROGRESS_DELAY);
+                    }
                     if let Some(progress) = self.progress.iter_mut().find(|entry| entry.id == id) {
                         progress.current =
                             progress.current.saturating_add(delta).min(progress.total);
                     }
                 }
                 BackendEvent::ProgressFinish { id } => {
+                    if self.debug_tui {
+                        thread::sleep(DEBUG_TUI_PROGRESS_DELAY);
+                    }
                     self.progress.retain(|entry| entry.id != id);
                 }
                 BackendEvent::Report(report) => {
