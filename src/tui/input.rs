@@ -10,8 +10,7 @@ use crate::{
 
 use super::{
     app::App,
-    extract::{collect_extract_preview, render_extract_result_lines},
-    forms::{EXTRACT_FIELD_LABELS, HOME_ITEMS, RUN_FIELD_LABELS},
+    forms::{HOME_ITEMS, RUN_FIELD_LABELS},
     model::{ConfirmAction, OperationDetail, OperationOutcome, Overlay, Screen},
     session_view::rerun_stage_name,
 };
@@ -26,8 +25,6 @@ impl App {
             Screen::Home => self.handle_home_key(key).await,
             Screen::RunForm => self.handle_run_form_key(key).await,
             Screen::Sessions => self.handle_sessions_key(key).await,
-            Screen::ExtractForm => self.handle_extract_form_key(key).await,
-            Screen::Init => self.handle_init_key(key).await,
             Screen::Operation => self.handle_operation_key(key),
         }
     }
@@ -48,8 +45,6 @@ impl App {
                         self.session_view.refresh()?;
                         Screen::Sessions
                     }
-                    2 => Screen::ExtractForm,
-                    3 => Screen::Init,
                     _ => {
                         self.open_quit_confirmation();
                         Screen::Home
@@ -199,76 +194,6 @@ impl App {
                 } else {
                     self.run_form.toggle_selected();
                 }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    async fn handle_extract_form_key(&mut self, key: KeyEvent) -> Result<()> {
-        match key.code {
-            KeyCode::Esc => self.screen = Screen::Home,
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.extract_form.selected =
-                    (self.extract_form.selected + 1).min(EXTRACT_FIELD_LABELS.len() - 1);
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.extract_form.selected = self.extract_form.selected.saturating_sub(1);
-            }
-            KeyCode::Left => self.extract_form.cycle_selected(-1),
-            KeyCode::Right => self.extract_form.cycle_selected(1),
-            KeyCode::Char('r') => {
-                let args = self.extract_form.build_args()?;
-                let op_tx = self.op_tx.clone();
-                self.start_async_operation("Extract Text", move |_tx| async move {
-                    let outcome = match collect_extract_preview(args).await {
-                        Ok(result) => OperationOutcome::success(
-                            "Extract Text",
-                            format!(
-                                "processed {} file(s), {} failure(s)",
-                                result.papers.len(),
-                                result.failures.len()
-                            ),
-                            OperationDetail::Text(render_extract_result_lines(&result)),
-                        ),
-                        Err(err) => OperationOutcome::failure(
-                            "Extract Text",
-                            err.to_string(),
-                            OperationDetail::None,
-                        ),
-                    };
-                    let _ = op_tx.send(outcome);
-                });
-            }
-            KeyCode::Enter => {
-                if self.extract_form.selected == 2 || self.extract_form.selected == 4 {
-                    self.extract_form.cycle_selected(1);
-                } else {
-                    self.overlay = Some(Overlay::EditField {
-                        label: EXTRACT_FIELD_LABELS[self.extract_form.selected].to_string(),
-                        buffer: self.extract_form.value(self.extract_form.selected),
-                    });
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    async fn handle_init_key(&mut self, key: KeyEvent) -> Result<()> {
-        match key.code {
-            KeyCode::Esc => self.screen = Screen::Home,
-            KeyCode::Char(' ') => self.init_force = !self.init_force,
-            KeyCode::Enter | KeyCode::Char('r') => {
-                let force = self.init_force;
-                self.start_blocking_operation("Init Config", move || {
-                    let path = crate::init_config(force)?;
-                    Ok(OperationOutcome::success(
-                        "Init Config",
-                        format!("wrote config to {}", path.display()),
-                        OperationDetail::None,
-                    ))
-                });
             }
             _ => {}
         }

@@ -4,7 +4,7 @@ use crate::error::Result;
 
 use super::{
     backend::BackendEvent,
-    forms::{ExtractForm, RunForm},
+    forms::RunForm,
     model::{OperationDetail, OperationOutcome, Overlay, ProgressEntry, Screen},
     session_view::SessionView,
 };
@@ -13,8 +13,6 @@ pub(super) struct App {
     pub(super) screen: Screen,
     pub(super) home_index: usize,
     pub(super) run_form: RunForm,
-    pub(super) extract_form: ExtractForm,
-    pub(super) init_force: bool,
     pub(super) session_view: SessionView,
     pub(super) overlay: Option<Overlay>,
     pub(super) operation: super::model::OperationView,
@@ -43,8 +41,6 @@ impl App {
             screen: Screen::Home,
             home_index: 0,
             run_form: RunForm::default(),
-            extract_form: ExtractForm::default(),
-            init_force: false,
             session_view,
             overlay: None,
             operation: super::model::OperationView::default(),
@@ -124,8 +120,7 @@ impl App {
     pub(super) fn apply_edit(&mut self, value: String) -> Result<()> {
         match self.screen {
             Screen::RunForm => self.run_form.apply_edit(value)?,
-            Screen::ExtractForm => self.extract_form.apply_edit(value)?,
-            Screen::Home | Screen::Sessions | Screen::Init | Screen::Operation => {}
+            Screen::Home | Screen::Sessions | Screen::Operation => {}
         }
         Ok(())
     }

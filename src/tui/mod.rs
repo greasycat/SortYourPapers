@@ -1,6 +1,5 @@
 mod app;
 mod backend;
-mod extract;
 mod forms;
 mod input;
 mod model;
@@ -27,7 +26,7 @@ use self::{app::App, backend::TuiBackend};
 #[cfg(test)]
 use self::{
     backend::BackendEvent,
-    forms::{ExtractForm, RunForm, UiVerbosity},
+    forms::{RunForm, UiVerbosity},
     model::{OperationDetail, OperationView, Overlay, ProgressEntry, Screen},
     session_view::SessionView,
 };
@@ -89,8 +88,8 @@ mod tests {
     use crate::{papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode};
 
     use super::{
-        App, BackendEvent, ExtractForm, OperationDetail, OperationView, Overlay, ProgressEntry,
-        RunForm, Screen, SessionView, UiVerbosity,
+        App, BackendEvent, OperationDetail, OperationView, Overlay, ProgressEntry, RunForm,
+        Screen, SessionView, UiVerbosity,
     };
 
     fn test_app() -> App {
@@ -100,8 +99,6 @@ mod tests {
             screen: Screen::Operation,
             home_index: 0,
             run_form: RunForm::default(),
-            extract_form: ExtractForm::default(),
-            init_force: false,
             session_view: SessionView::default(),
             overlay: None,
             operation: OperationView {
@@ -454,7 +451,7 @@ mod tests {
     fn selecting_quit_from_home_requires_confirmation() {
         let mut app = test_app();
         app.screen = Screen::Home;
-        app.home_index = 4;
+        app.home_index = 2;
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

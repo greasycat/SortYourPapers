@@ -29,8 +29,6 @@ impl App {
             Screen::Home => self.draw_home(frame, chunks[1]),
             Screen::RunForm => self.run_form.draw(frame, chunks[1]),
             Screen::Sessions => self.session_view.draw(frame, chunks[1]),
-            Screen::ExtractForm => self.extract_form.draw(frame, chunks[1]),
-            Screen::Init => self.draw_init(frame, chunks[1]),
             Screen::Operation => self.draw_operation(frame, chunks[1]),
         }
         self.draw_footer(frame, chunks[2]);
@@ -45,8 +43,6 @@ impl App {
             Screen::Home => "Home",
             Screen::RunForm => "Run Configuration",
             Screen::Sessions => "Sessions",
-            Screen::ExtractForm => "Extract Text",
-            Screen::Init => "Init Config",
             Screen::Operation => &self.operation.title,
         };
         let status = if self.operation.running {
@@ -110,30 +106,13 @@ impl App {
             Line::from(""),
             Line::from("Run: configure the full sorting workflow."),
             Line::from("Sessions: resume, rerun, review, remove, or clear saved runs."),
-            Line::from("Extract Text: preview manual extraction output."),
-            Line::from("Init Config: write the default XDG config file."),
+            Line::from("Quit: exit after confirmation."),
             Line::from(""),
             Line::from("Keys: ↑/↓ move, Enter open, Esc quit."),
         ]))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Overview").borders(Borders::ALL));
         frame.render_widget(help, chunks[1]);
-    }
-
-    fn draw_init(&self, frame: &mut Frame, area: Rect) {
-        let body = Paragraph::new(Text::from(vec![
-            Line::from("Create or overwrite the default XDG config file."),
-            Line::from(""),
-            Line::from(format!(
-                "force overwrite: {}",
-                if self.init_force { "yes" } else { "no" }
-            )),
-            Line::from(""),
-            Line::from("Keys: space toggle, Enter run, Esc back."),
-        ]))
-        .wrap(Wrap { trim: false })
-        .block(Block::default().title("Init Config").borders(Borders::ALL));
-        frame.render_widget(body, area);
     }
 
     fn draw_operation(&self, frame: &mut Frame, area: Rect) {
@@ -176,10 +155,6 @@ impl App {
     }
 
     fn operation_detail_lines(&self) -> Text<'static> {
-        if let OperationDetail::Text(lines) = &self.operation.detail {
-            return Text::from(lines.iter().cloned().map(Line::from).collect::<Vec<_>>());
-        }
-
         if let OperationDetail::Tree(categories) = &self.operation.detail {
             return Text::from(
                 crate::terminal::report::render_category_tree(categories)
@@ -263,8 +238,6 @@ impl App {
             Screen::Sessions => {
                 "↑/↓ select  p preview  a apply  r rerun  x rerun-apply  v review  d delete  c clear  g refresh  Esc back"
             }
-            Screen::ExtractForm => "↑/↓ select  Enter edit/run  ←/→ cycle  Esc back",
-            Screen::Init => "space toggle  Enter run  Esc back",
             Screen::Operation => "Esc back when idle",
         };
         frame.render_widget(

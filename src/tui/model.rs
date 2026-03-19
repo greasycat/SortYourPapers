@@ -9,8 +9,6 @@ pub(super) enum Screen {
     Home,
     RunForm,
     Sessions,
-    ExtractForm,
-    Init,
     Operation,
 }
 
@@ -27,7 +25,6 @@ pub(super) struct OperationView {
 pub(super) enum OperationDetail {
     #[default]
     None,
-    Text(Vec<String>),
     Tree(Vec<CategoryTree>),
 }
 

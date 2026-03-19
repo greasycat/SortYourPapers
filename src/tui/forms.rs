@@ -1,21 +1,17 @@
-mod extract_form;
 mod run_form;
 
 use crate::{
     error::{AppError, Result},
     llm::LlmProvider,
-    papers::extract::ExtractorMode,
     papers::placement::PlacementMode,
     papers::taxonomy::TaxonomyMode,
 };
 
-pub(super) use self::{extract_form::ExtractForm, run_form::RunForm};
+pub(super) use self::run_form::RunForm;
 
-pub(super) const HOME_ITEMS: [&str; 5] = [
+pub(super) const HOME_ITEMS: [&str; 3] = [
     "Run Papers",
     "Sessions",
-    "Extract Text",
-    "Init Config",
     "Quit",
 ];
 
@@ -43,14 +39,6 @@ pub(super) const RUN_FIELD_LABELS: [&str; 21] = [
     "quiet",
 ];
 
-pub(super) const EXTRACT_FIELD_LABELS: [&str; 5] = [
-    "files",
-    "page_cutoff",
-    "extractor",
-    "pdf_extract_workers",
-    "verbosity",
-];
-
 #[derive(Debug, Clone, Copy)]
 pub(super) enum UiVerbosity {
     Normal,
@@ -59,14 +47,6 @@ pub(super) enum UiVerbosity {
 }
 
 impl UiVerbosity {
-    pub(super) fn count(self) -> u8 {
-        match self {
-            Self::Normal => 0,
-            Self::Verbose => 1,
-            Self::Debug => 2,
-        }
-    }
-
     pub(super) fn next(self) -> Self {
         match self {
             Self::Normal => Self::Verbose,
@@ -131,14 +111,6 @@ fn placement_mode_label(value: PlacementMode) -> &'static str {
     }
 }
 
-fn extractor_label(value: ExtractorMode) -> &'static str {
-    match value {
-        ExtractorMode::Auto => "auto",
-        ExtractorMode::PdfOxide => "pdf-oxide",
-        ExtractorMode::Pdftotext => "pdftotext",
-    }
-}
-
 fn cycle_provider(value: LlmProvider, direction: i8) -> LlmProvider {
     let all = [
         LlmProvider::Openai,
@@ -155,15 +127,6 @@ fn cycle_taxonomy_mode(value: TaxonomyMode, direction: i8) -> TaxonomyMode {
 
 fn cycle_placement_mode(value: PlacementMode, direction: i8) -> PlacementMode {
     let all = [PlacementMode::ExistingOnly, PlacementMode::AllowNew];
-    cycle_enum(value, &all, direction)
-}
-
-fn cycle_extractor(value: ExtractorMode, direction: i8) -> ExtractorMode {
-    let all = [
-        ExtractorMode::Auto,
-        ExtractorMode::PdfOxide,
-        ExtractorMode::Pdftotext,
-    ];
     cycle_enum(value, &all, direction)
 }
 
