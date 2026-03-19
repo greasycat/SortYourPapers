@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    prelude::{Frame, Line, Text},
+    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
 use crate::{
@@ -16,6 +16,7 @@ use crate::{
 use super::{
     EXTRACT_FIELD_LABELS, UiVerbosity, cycle_extractor, extractor_label, parse_u8, parse_usize,
 };
+use crate::tui::ui_widgets::render_selectable_list;
 
 pub(crate) struct ExtractForm {
     pub(crate) selected: usize,
@@ -46,31 +47,21 @@ impl ExtractForm {
             .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
             .split(area);
 
-        let lines = EXTRACT_FIELD_LABELS
+        let items = EXTRACT_FIELD_LABELS
             .iter()
             .enumerate()
             .map(|(index, label)| {
-                let line = format!("{label}: {}", self.value(index));
-                if index == self.selected {
-                    Line::from(Span::styled(
-                        format!("> {line}"),
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    ))
-                } else {
-                    Line::from(format!("  {line}"))
-                }
+                ListItem::new(format!("{label}: {}", self.value(index)))
             })
             .collect::<Vec<_>>();
-        frame.render_widget(
-            Paragraph::new(lines).wrap(Wrap { trim: false }).block(
-                Block::default()
-                    .title("Extract Fields")
-                    .borders(Borders::ALL),
-            ),
+        render_selectable_list(
+            frame,
             chunks[0],
+            Block::default()
+                .title("Extract Fields")
+                .borders(Borders::ALL),
+            items,
+            Some(self.selected),
         );
 
         let help = Paragraph::new(Text::from(vec![

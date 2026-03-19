@@ -6,18 +6,17 @@ use std::{
 use chrono::{Local, TimeZone};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    prelude::{Color, Frame, Line, Modifier, Span, Style},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    prelude::{Color, Frame, Line, Style},
+    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
 use crate::{
-    session::{
-        RunStage, RunSummary, RunWorkspace, SessionDetails, SessionStatusSummary,
-    },
+    session::{RunStage, RunSummary, RunWorkspace, SessionDetails, SessionStatusSummary},
     terminal::{Verbosity, report::render_report_lines},
 };
 
 use super::forms::bool_label;
+use super::ui_widgets::{muted_style, render_selectable_list, render_tabs};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum SessionFilter {
@@ -78,6 +77,16 @@ impl SessionFilter {
             Self::Failed => "No failed-looking sessions match this filter",
         }
     }
+
+    fn index(self) -> usize {
+        match self {
+            Self::All => 0,
+            Self::Latest => 1,
+            Self::Completed => 2,
+            Self::Incomplete => 3,
+            Self::Failed => 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -133,8 +142,8 @@ impl SessionView {
             .runs
             .iter()
             .map(|run| {
-                let status = RunWorkspace::inspect_run_status(run)
-                    .unwrap_or_else(|_| fallback_status(run));
+                let status =
+                    RunWorkspace::inspect_run_status(run).unwrap_or_else(|_| fallback_status(run));
                 (run.run_id.clone(), status)
             })
             .collect();
@@ -176,11 +185,14 @@ impl SessionView {
     pub(super) fn scroll_preview(&mut self, delta: isize) {
         let max_offset = self.preview_lines().len().saturating_sub(1);
         self.preview_scroll = (self.preview_scroll as isize + delta)
-            .clamp(0, max_offset.min(u16::MAX as usize) as isize) as u16;
+            .clamp(0, max_offset.min(u16::MAX as usize) as isize)
+            as u16;
     }
 
     pub(super) fn selected_run_id(&self) -> Option<String> {
-        self.visible_runs.get(self.selected).map(|run| run.run_id.clone())
+        self.visible_runs
+            .get(self.selected)
+            .map(|run| run.run_id.clone())
     }
 
     pub(super) fn draw(&self, frame: &mut Frame, area: Rect) {
@@ -210,11 +222,7 @@ impl SessionView {
     }
 
     #[cfg(test)]
-    pub(super) fn set_status_for_tests(
-        &mut self,
-        run_id: &str,
-        status: SessionStatusSummary,
-    ) {
+    pub(super) fn set_status_for_tests(&mut self, run_id: &str, status: SessionStatusSummary) {
         self.statuses.insert(run_id.to_string(), status);
         self.apply_filter(self.selected_run_id().as_deref());
     }
@@ -249,7 +257,11 @@ impl SessionView {
             .collect();
 
         self.selected = preferred_run_id
-            .and_then(|run_id| self.visible_runs.iter().position(|run| run.run_id == run_id))
+            .and_then(|run_id| {
+                self.visible_runs
+                    .iter()
+                    .position(|run| run.run_id == run_id)
+            })
             .unwrap_or(0);
         if self.selected >= self.visible_runs.len() {
             self.selected = self.visible_runs.len().saturating_sub(1);
@@ -277,32 +289,23 @@ impl SessionView {
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(area);
 
-        let filter_spans = SessionFilter::ALL
+        let filter_titles = SessionFilter::ALL
             .iter()
             .enumerate()
-            .flat_map(|(index, filter)| {
-                let style = if *filter == self.filter {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Green)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Gray)
-                };
-                vec![
-                    Span::styled(format!(" {} {} ", index + 1, filter.label()), style),
-                    Span::raw(" "),
-                ]
+            .map(|(index, filter)| {
+                Line::styled(format!("{} {}", index + 1, filter.label()), muted_style())
             })
             .collect::<Vec<_>>();
-        frame.render_widget(
-            Paragraph::new(Line::from(filter_spans))
-                .block(Block::default().title("Filters").borders(Borders::ALL)),
+        render_tabs(
+            frame,
             chunks[0],
+            Block::default().title("Filters").borders(Borders::ALL),
+            filter_titles,
+            self.filter.index(),
         );
 
-        let lines = if self.visible_runs.is_empty() {
-            vec![Line::from(self.filter.empty_message())]
+        let items = if self.visible_runs.is_empty() {
+            vec![ListItem::new(self.filter.empty_message())]
         } else {
             self.visible_runs
                 .iter()
@@ -314,28 +317,19 @@ impl SessionView {
                         .cloned()
                         .unwrap_or_else(|| fallback_status(run));
                     let line = format_run_summary(index, run, &status, now_unix_ms);
-                    if index == self.selected {
-                        Line::from(Span::styled(
-                            format!("> {line}"),
-                            Style::default()
-                                .fg(Color::Black)
-                                .bg(Color::Green)
-                                .add_modifier(Modifier::BOLD),
-                        ))
-                    } else {
-                        Line::from(Span::styled(
-                            format!("  {line}"),
-                            Style::default().fg(run_status_color(run, &status)),
-                        ))
-                    }
+                    ListItem::new(Line::styled(
+                        line,
+                        Style::default().fg(run_status_color(run, &status)),
+                    ))
                 })
                 .collect::<Vec<_>>()
         };
-        frame.render_widget(
-            Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Saved Runs").borders(Borders::ALL)),
+        render_selectable_list(
+            frame,
             chunks[1],
+            Block::default().title("Saved Runs").borders(Borders::ALL),
+            items,
+            (!self.visible_runs.is_empty()).then_some(self.selected),
         );
     }
 
@@ -357,36 +351,32 @@ impl SessionView {
             chunks[0],
         );
 
-        let tab_spans = SessionPreviewTab::ALL
+        let tab_titles = SessionPreviewTab::ALL
             .iter()
             .enumerate()
-            .flat_map(|(index, tab)| {
-                let style = if *tab == self.preview_tab {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Green)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Gray)
-                };
-                vec![
-                    Span::styled(format!(" {} {} ", index + 1, tab.label()), style),
-                    Span::raw(" "),
-                ]
+            .map(|(index, tab)| {
+                Line::styled(format!("{} {}", index + 1, tab.label()), muted_style())
             })
             .collect::<Vec<_>>();
-        frame.render_widget(
-            Paragraph::new(Line::from(tab_spans))
-                .block(Block::default().title("Preview Tabs").borders(Borders::ALL)),
+        render_tabs(
+            frame,
             chunks[1],
+            Block::default().title("Preview Tabs").borders(Borders::ALL),
+            tab_titles,
+            self.preview_tab.index(),
         );
 
         let preview_title = format!("Preview: {}", self.preview_tab.label());
         let preview_lines = self.preview_lines();
         let preview_content = if preview_lines.is_empty() {
-            vec![Line::from("No preview is available for the selected session.")]
+            vec![Line::from(
+                "No preview is available for the selected session.",
+            )]
         } else {
-            preview_lines.into_iter().map(Line::from).collect::<Vec<_>>()
+            preview_lines
+                .into_iter()
+                .map(Line::from)
+                .collect::<Vec<_>>()
         };
         frame.render_widget(
             Paragraph::new(preview_content)
@@ -409,10 +399,7 @@ impl SessionView {
         let relative_age = format_relative_age(run.created_unix_ms, now_unix_ms);
         let mut lines = vec![
             Line::from(format!("run_id: {}", run.run_id)),
-            Line::from(format!(
-                "state: {}",
-                run_status_label(run, &status)
-            )),
+            Line::from(format!("state: {}", run_status_label(run, &status))),
             Line::from(format!(
                 "last stage: {}",
                 run.last_completed_stage.map_or_else(
@@ -420,7 +407,10 @@ impl SessionView {
                     |stage| stage.description().to_string()
                 )
             )),
-            Line::from(format!("started: {}", format_exact_time(run.created_unix_ms))),
+            Line::from(format!(
+                "started: {}",
+                format_exact_time(run.created_unix_ms)
+            )),
             Line::from(format!("age: {relative_age}")),
             Line::from(format!("latest: {}", bool_label(run.is_latest))),
         ];
@@ -476,9 +466,7 @@ impl SessionView {
                         .map(ToOwned::to_owned)
                         .collect()
                 })
-                .unwrap_or_else(|| {
-                    vec!["No saved taxonomy exists for this session.".to_string()]
-                }),
+                .unwrap_or_else(|| vec!["No saved taxonomy exists for this session.".to_string()]),
         }
     }
 
@@ -630,9 +618,7 @@ pub(super) fn rerun_stage_name(stage: RunStage) -> &'static str {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::session::{
-        RunSummary, SessionConfigSummary, SessionDetails, SessionStatusSummary,
-    };
+    use crate::session::{RunSummary, SessionConfigSummary, SessionDetails, SessionStatusSummary};
 
     use super::{
         SessionPreviewTab, format_exact_time, format_relative_age, format_run_summary,
@@ -651,7 +637,11 @@ mod tests {
         }
     }
 
-    fn sample_status(is_completed: bool, is_incomplete: bool, is_failed_looking: bool) -> SessionStatusSummary {
+    fn sample_status(
+        is_completed: bool,
+        is_incomplete: bool,
+        is_failed_looking: bool,
+    ) -> SessionStatusSummary {
         SessionStatusSummary {
             is_completed,
             is_incomplete,
@@ -718,8 +708,14 @@ mod tests {
 
     #[test]
     fn overview_preview_tab_index_round_trip_is_stable() {
-        assert_eq!(SessionPreviewTab::from_index(0), SessionPreviewTab::Overview);
-        assert_eq!(SessionPreviewTab::from_index(9), SessionPreviewTab::Taxonomy);
+        assert_eq!(
+            SessionPreviewTab::from_index(0),
+            SessionPreviewTab::Overview
+        );
+        assert_eq!(
+            SessionPreviewTab::from_index(9),
+            SessionPreviewTab::Taxonomy
+        );
     }
 
     #[test]

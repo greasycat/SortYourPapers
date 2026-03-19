@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
-    widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Gauge, ListItem, Paragraph, Wrap},
 };
 
 use crate::terminal;
@@ -13,6 +13,7 @@ use super::{
     model::{OperationDetail, OperationState, OperationTab, Overlay, Screen},
     session_view::rerun_stage_name,
     taxonomy_review::ReviewPane,
+    ui_widgets::{muted_style, render_selectable_list, render_tabs},
 };
 
 impl App {
@@ -96,27 +97,16 @@ impl App {
             .split(area);
 
         let actions = self.home_actions();
-        let menu_lines = actions
+        let menu_items = actions
             .iter()
-            .enumerate()
-            .map(|(index, item)| {
-                if index == self.home_index {
-                    Line::from(Span::styled(
-                        format!("> {}", item.label()),
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    ))
-                } else {
-                    Line::from(format!("  {}", item.label()))
-                }
-            })
+            .map(|item| ListItem::new(item.label()))
             .collect::<Vec<_>>();
-        frame.render_widget(
-            Paragraph::new(menu_lines)
-                .block(Block::default().title("Actions").borders(Borders::ALL)),
+        render_selectable_list(
+            frame,
             chunks[0],
+            Block::default().title("Actions").borders(Borders::ALL),
+            menu_items,
+            Some(self.home_index),
         );
 
         let help = Paragraph::new(Text::from(vec![
@@ -425,31 +415,22 @@ impl App {
     }
 
     fn draw_operation_tabs(&self, frame: &mut Frame, area: Rect) {
-        let spans = OperationTab::ALL
+        let titles = OperationTab::ALL
             .iter()
             .enumerate()
-            .flat_map(|(index, tab)| {
-                let style = if *tab == self.operation.active_tab {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Green)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Gray)
-                };
-                vec![
-                    Span::styled(
-                        format!(" {} {} ", index + 1, tab.label(&self.operation.detail)),
-                        style,
-                    ),
-                    Span::raw(" "),
-                ]
+            .map(|(index, tab)| {
+                Line::styled(
+                    format!("{} {}", index + 1, tab.label(&self.operation.detail)),
+                    muted_style(),
+                )
             })
             .collect::<Vec<_>>();
-        frame.render_widget(
-            Paragraph::new(Line::from(spans))
-                .block(Block::default().title("Views").borders(Borders::ALL)),
+        render_tabs(
+            frame,
             area,
+            Block::default().title("Views").borders(Borders::ALL),
+            titles,
+            self.operation.active_tab.index(),
         );
     }
 
@@ -765,29 +746,22 @@ impl App {
 
                 let lines = stages
                     .iter()
-                    .enumerate()
-                    .map(|(index, stage)| {
-                        let line = format!("{} {}", rerun_stage_name(*stage), stage.description());
-                        if index == *selected {
-                            Line::from(Span::styled(
-                                format!("> {line}"),
-                                Style::default()
-                                    .fg(Color::Black)
-                                    .bg(Color::Green)
-                                    .add_modifier(Modifier::BOLD),
-                            ))
-                        } else {
-                            Line::from(format!("  {line}"))
-                        }
+                    .map(|stage| {
+                        ListItem::new(format!(
+                            "{} {}",
+                            rerun_stage_name(*stage),
+                            stage.description()
+                        ))
                     })
                     .collect::<Vec<_>>();
-                frame.render_widget(
-                    Paragraph::new(lines).wrap(Wrap { trim: false }).block(
-                        Block::default()
-                            .title("Select Rerun Stage")
-                            .borders(Borders::ALL),
-                    ),
+                render_selectable_list(
+                    frame,
                     chunks[0],
+                    Block::default()
+                        .title("Select Rerun Stage")
+                        .borders(Borders::ALL),
+                    lines,
+                    Some(*selected),
                 );
 
                 let impact_lines = stages

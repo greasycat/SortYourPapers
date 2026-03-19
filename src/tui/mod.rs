@@ -8,6 +8,7 @@ mod model;
 mod render;
 mod session_view;
 mod taxonomy_review;
+mod ui_widgets;
 
 use std::{
     sync::{Arc, mpsc},

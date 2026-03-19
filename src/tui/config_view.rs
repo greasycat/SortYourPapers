@@ -3,10 +3,12 @@ use std::{env, fs};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
 use crate::{config, error::Result};
+
+use super::ui_widgets::render_selectable_list;
 
 const ENV_KEYS: [(&str, bool); 14] = [
     ("SYP_INPUT", false),
@@ -113,28 +115,16 @@ impl ConfigView {
             .constraints([Constraint::Length(8), Constraint::Min(8)])
             .split(chunks[0]);
 
-        let action_lines = Self::ACTIONS
+        let action_items = Self::ACTIONS
             .iter()
-            .enumerate()
-            .map(|(index, action)| {
-                if index == self.selected_action {
-                    Line::from(Span::styled(
-                        format!("> {}", action.label()),
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    ))
-                } else {
-                    Line::from(format!("  {}", action.label()))
-                }
-            })
+            .map(|action| ListItem::new(action.label()))
             .collect::<Vec<_>>();
-        frame.render_widget(
-            Paragraph::new(action_lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Actions").borders(Borders::ALL)),
+        render_selectable_list(
+            frame,
             left[0],
+            Block::default().title("Actions").borders(Borders::ALL),
+            action_items,
+            Some(self.selected_action),
         );
 
         let help_lines = vec![
