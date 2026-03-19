@@ -2,8 +2,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::{
     error::{AppError, Result},
+    papers::taxonomy::CategoryTree,
     papers::{KeywordSet, PaperText, PreliminaryCategoryPair},
-    taxonomy::CategoryTree,
 };
 
 use super::KeywordPair;

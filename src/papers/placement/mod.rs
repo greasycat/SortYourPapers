@@ -10,7 +10,7 @@ mod tests;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-use crate::{llm::LlmUsageSummary, taxonomy::CategoryTree, terminal::Verbosity};
+use crate::{llm::LlmUsageSummary, papers::taxonomy::CategoryTree, terminal::Verbosity};
 
 const MAX_JSON_ATTEMPTS: usize = 3;
 const MAX_SEMANTIC_ATTEMPTS: usize = 3;

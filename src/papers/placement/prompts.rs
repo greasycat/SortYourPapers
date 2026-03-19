@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::{
     error::{AppError, Result},
     papers::PaperText,
-    taxonomy::CategoryTree,
+    papers::taxonomy::CategoryTree,
 };
 
 use super::{OutputSnapshot, PLACEMENT_LABEL, PlacementMode};

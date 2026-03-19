@@ -9,18 +9,18 @@ use std::{
 use crate::{
     config::AppConfig,
     error::{AppError, Result},
-    fs_ops::{execute::execute_plan, planner::build_move_plan},
     llm,
     llm::LlmUsageSummary,
-    papers::{KeywordSet, PreliminaryCategoryPair, SynthesizeCategoriesState},
-    placement::PlacementDecision,
-    placement::{
+    papers::fs_ops::{execute::execute_plan, planner::build_move_plan},
+    papers::placement::PlacementDecision,
+    papers::placement::{
         OutputSnapshot, PlacementBatchProgress, PlacementOptions,
         generate_placements_with_progress, inspect_output,
     },
+    papers::taxonomy::{CategoryTree, merge_category_batches},
+    papers::{KeywordSet, PreliminaryCategoryPair, SynthesizeCategoriesState},
     report::{PlanAction, RunReport},
     session::{ExtractTextState, RunStage, RunWorkspace},
-    taxonomy::{CategoryTree, merge_category_batches},
     terminal::{self, InspectReviewPrompt, Verbosity},
 };
 
@@ -348,10 +348,10 @@ mod tests {
         error::AppError,
         llm::{LlmProvider, LlmUsageSummary},
         papers::SynthesizeCategoriesState,
-        placement::PlacementMode,
+        papers::placement::PlacementMode,
+        papers::taxonomy::{CategoryTree, TaxonomyMode},
         report::RunReport,
         session::{RunStage, RunWorkspace, runtime::StagePlan},
-        taxonomy::{CategoryTree, TaxonomyMode},
         terminal::InspectReviewPrompt,
         terminal::Verbosity,
     };

@@ -2,7 +2,7 @@ use std::sync::mpsc;
 
 use ratatui::prelude::{Color, Style};
 
-use crate::{session::RunStage, taxonomy::CategoryTree, terminal::InspectReviewPrompt};
+use crate::{papers::taxonomy::CategoryTree, session::RunStage, terminal::InspectReviewPrompt};
 
 #[derive(Clone, Copy)]
 pub(super) enum Screen {

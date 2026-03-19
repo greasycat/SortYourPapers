@@ -6,7 +6,7 @@ use std::{
 use crate::{
     error::{AppError, Result},
     papers::PaperText,
-    placement::PlacementDecision,
+    papers::placement::PlacementDecision,
     report::{FileAction, PlanAction},
 };
 

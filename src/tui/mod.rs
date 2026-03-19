@@ -81,7 +81,7 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
 
-    use crate::{placement::PlacementMode, taxonomy::TaxonomyMode};
+    use crate::{papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode};
 
     use super::{
         App, BackendEvent, ExtractForm, OperationDetail, OperationView, Overlay, ProgressEntry,

@@ -9,17 +9,17 @@ use crate::{
     error::{AppError, Result},
     llm::{self, build_client},
     papers::extract::{ExtractorMode, extract_text_batch, reset_debug_extract_log},
+    papers::placement::PlacementDecision,
+    papers::taxonomy::{
+        KeywordBatchProgress, TaxonomyBatchProgress, extract_keywords_with_progress,
+        merge_category_batches, synthesize_category_batches_with_progress,
+    },
     papers::{
         KeywordStageState, PdfCandidate, SynthesizeCategoriesState, discovery::dedupe_candidates,
         discovery::discover_pdf_candidates, discovery::split_by_size,
     },
-    placement::PlacementDecision,
     report::RunReport,
     session::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace, StageFailure},
-    taxonomy::{
-        KeywordBatchProgress, TaxonomyBatchProgress, extract_keywords_with_progress,
-        merge_category_batches, synthesize_category_batches_with_progress,
-    },
     terminal::{self, Verbosity},
 };
 

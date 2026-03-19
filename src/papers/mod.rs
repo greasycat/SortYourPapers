@@ -1,12 +1,15 @@
 pub mod discovery;
 pub mod extract;
+pub mod fs_ops;
+pub mod placement;
 pub mod preprocess;
+pub mod taxonomy;
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::taxonomy::CategoryTree;
+use crate::papers::taxonomy::CategoryTree;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfCandidate {

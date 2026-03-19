@@ -9,9 +9,9 @@ use super::{
 };
 use crate::llm::LlmProvider;
 use crate::papers::extract::ExtractorMode;
-use crate::placement::PlacementMode;
+use crate::papers::placement::PlacementMode;
+use crate::papers::taxonomy::TaxonomyMode;
 use crate::session::RunStage;
-use crate::taxonomy::TaxonomyMode;
 
 #[test]
 fn cli_overrides_env_and_file() {

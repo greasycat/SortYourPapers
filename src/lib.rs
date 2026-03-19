@@ -2,13 +2,10 @@ pub mod app;
 pub mod cli;
 pub mod config;
 pub mod error;
-pub mod fs_ops;
 pub mod llm;
 pub mod papers;
-pub mod placement;
 pub mod session;
 pub mod syp;
-pub mod taxonomy;
 pub mod terminal;
 pub mod tui;
 

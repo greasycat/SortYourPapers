@@ -1,7 +1,7 @@
 use crate::{
     error::{AppError, Result},
     papers::PaperText,
-    taxonomy::CategoryTree,
+    papers::taxonomy::CategoryTree,
 };
 
 use super::{MAX_SEMANTIC_ATTEMPTS, MAX_TEXT_CHARS_PER_FILE, MAX_TOTAL_BATCH_TEXT_CHARS};

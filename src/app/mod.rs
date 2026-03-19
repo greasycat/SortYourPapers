@@ -12,14 +12,14 @@ use crate::{
     config::AppConfig,
     error::{AppError, Result},
     papers::extract::{extract_text_batch, reset_debug_extract_log},
+    papers::placement::PlacementDecision,
+    papers::taxonomy::CategoryTree,
     papers::{
         KeywordSet, KeywordStageState, PaperText, PdfCandidate, PreliminaryCategoryPair,
         SynthesizeCategoriesState,
     },
-    placement::PlacementDecision,
     report::{FileAction, PlanAction, RunReport},
     session::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace, run_with_workspace},
-    taxonomy::CategoryTree,
     terminal::{self, Verbosity},
 };
 
@@ -417,9 +417,9 @@ mod tests {
     use crate::{
         config::AppConfig,
         llm::LlmProvider,
-        placement::PlacementMode,
+        papers::placement::PlacementMode,
+        papers::taxonomy::TaxonomyMode,
         session::{RunStage, RunWorkspace},
-        taxonomy::TaxonomyMode,
     };
 
     #[test]

@@ -13,7 +13,7 @@ use crate::{
         JsonResponseSchema, LlmClient, call_json_with_retry, call_text_with_retry, strip_code_fence,
     },
     papers::PreliminaryCategoryPair,
-    taxonomy::CategoryTree,
+    papers::taxonomy::CategoryTree,
     terminal::{ProgressTracker, Verbosity, format_duration},
 };
 

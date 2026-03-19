@@ -1,4 +1,6 @@
-use crate::{llm::LlmUsageSummary, report::RunReport, taxonomy::CategoryTree, terminal::Verbosity};
+use crate::{
+    llm::LlmUsageSummary, papers::taxonomy::CategoryTree, report::RunReport, terminal::Verbosity,
+};
 
 pub fn print_report(report: &RunReport, verbosity: Verbosity) {
     super::current_backend().show_report(report, verbosity);

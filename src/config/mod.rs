@@ -18,8 +18,8 @@ use crate::{
     },
     error::Result,
     llm::LlmProvider,
-    placement::PlacementMode,
-    taxonomy::TaxonomyMode,
+    papers::placement::PlacementMode,
+    papers::taxonomy::TaxonomyMode,
 };
 
 use std::path::PathBuf;

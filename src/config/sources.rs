@@ -3,8 +3,8 @@ use std::{env, path::PathBuf};
 use crate::{
     error::{AppError, Result},
     llm::LlmProvider,
-    placement::PlacementMode,
-    taxonomy::TaxonomyMode,
+    papers::placement::PlacementMode,
+    papers::taxonomy::TaxonomyMode,
 };
 
 use super::EnvConfig;

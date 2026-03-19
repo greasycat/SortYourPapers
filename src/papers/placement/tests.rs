@@ -16,8 +16,8 @@ use super::{PlacementDecision, PlacementMode};
 use crate::{
     error::{AppError, Result},
     llm::{LlmCallMetrics, LlmClient, LlmResponse},
+    papers::taxonomy::CategoryTree,
     papers::{KeywordSet, PaperText, PreliminaryCategoryPair},
-    taxonomy::CategoryTree,
     terminal::Verbosity,
 };
 

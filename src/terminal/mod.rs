@@ -208,7 +208,7 @@ pub fn terminal_is_interactive() -> bool {
 }
 
 pub fn prompt_inspect_review_action(
-    categories: &[crate::taxonomy::CategoryTree],
+    categories: &[crate::papers::taxonomy::CategoryTree],
     verbosity: Verbosity,
 ) -> crate::error::Result<InspectReviewPrompt> {
     current_backend().prompt_inspect_review_action(categories, verbosity)

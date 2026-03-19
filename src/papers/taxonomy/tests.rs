@@ -14,23 +14,21 @@ use tokio::time::sleep;
 use super::{
     KeywordBatchProgress, KeywordBatchResult, KeywordPair, TaxonomyBatchProgress,
     TaxonomyBatchResult, extract_keywords, extract_keywords_with_progress,
+    merge_category_batches,
     prompts::{
         build_batch_keyword_prompt, build_category_prompt, build_merge_category_plain_text_prompt,
         build_merge_category_prompt, format_llm_request_debug_message,
     },
     synthesize_categories, synthesize_categories_with_progress,
-    taxonomy::{
-        merge_category_batches, merge_category_batches_with_timeout,
-        parse_plain_text_category_paths,
-    },
+    taxonomy::{merge_category_batches_with_timeout, parse_plain_text_category_paths},
     validation::{
         aggregate_preliminary_categories, validate_category_depth, validate_keyword_batch_response,
     },
 };
 use crate::error::Result;
 use crate::llm::{JsonResponseSchema, LlmCallMetrics, LlmClient, LlmResponse, LlmUsageSummary};
+use crate::papers::taxonomy::CategoryTree;
 use crate::papers::{KeywordSet, PaperText, PreliminaryCategoryPair};
-use crate::taxonomy::CategoryTree;
 use crate::terminal::Verbosity;
 
 struct ConcurrentKeywordProbeClient {

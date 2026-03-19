@@ -3,13 +3,13 @@ use std::path::PathBuf;
 use crate::{
     config::AppConfig,
     llm::LlmProvider,
-    placement::PlacementMode,
+    papers::placement::PlacementMode,
+    papers::taxonomy::{CategoryTree, TaxonomyMode},
     session::commands::{
         apply_resume_overrides, completed_runs, resolve_run_selection, resolve_stage_selection,
         selectable_runs, validate_run_ids,
     },
     session::{RunStage, RunSummary, format_stage_description, stage_sequence},
-    taxonomy::{CategoryTree, TaxonomyMode},
     terminal::{Verbosity, report::render_category_tree},
 };
 

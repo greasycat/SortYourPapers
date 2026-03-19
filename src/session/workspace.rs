@@ -639,9 +639,9 @@ mod tests {
     use crate::config::AppConfig;
     use crate::llm::LlmProvider;
     use crate::papers::PdfCandidate;
-    use crate::placement::PlacementMode;
+    use crate::papers::placement::PlacementMode;
+    use crate::papers::taxonomy::{KeywordBatchProgress, TaxonomyMode};
     use crate::report::RunReport;
-    use crate::taxonomy::{KeywordBatchProgress, TaxonomyMode};
 
     fn sample_config() -> AppConfig {
         AppConfig {

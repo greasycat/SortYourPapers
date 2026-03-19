@@ -7,8 +7,8 @@ use crate::{
     error::{AppError, Result},
     llm::LlmUsageSummary,
     llm::{JsonResponseSchema, LlmClient, call_json_with_retry},
+    papers::taxonomy::CategoryTree,
     papers::{KeywordSet, PaperText, PreliminaryCategoryPair},
-    taxonomy::CategoryTree,
     terminal::{ProgressTracker, format_duration},
 };
 
@@ -326,7 +326,7 @@ async fn generate_placement_batch(
 fn validate_saved_placement_progress(
     prepared_batches: &[PreparedPlacementBatch],
     snapshot: &OutputSnapshot,
-    placement_mode: crate::placement::PlacementMode,
+    placement_mode: crate::papers::placement::PlacementMode,
     category_depth: u8,
     mut progress: PlacementBatchProgress,
 ) -> Result<PlacementBatchProgress> {
