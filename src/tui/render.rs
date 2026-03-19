@@ -392,23 +392,29 @@ impl App {
         }
 
         let visible = usize::from(chunks[1].height).min(timing_bars.len());
-        let timing_chunks = Layout::default()
+        let timing_rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Length(1); visible])
             .split(chunks[1]);
 
-        for (timing, chunk) in timing_bars
+        for (timing, row) in timing_bars
             .iter()
             .take(visible)
-            .zip(timing_chunks.iter().copied())
+            .zip(timing_rows.iter().copied())
         {
+            let columns = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(24), Constraint::Min(12)])
+                .split(row);
+
+            frame.render_widget(Paragraph::new(timing.stage.clone()), columns[0]);
             frame.render_widget(
                 Gauge::default()
                     .ratio(timing.ratio)
-                    .label(timing.label.clone())
+                    .label(timing.elapsed_label.clone())
                     .gauge_style(timing.style())
                     .use_unicode(true),
-                chunk,
+                columns[1],
             );
         }
     }
@@ -713,7 +719,8 @@ pub(super) struct StageTimingSnapshot {
 
 #[derive(Clone, Debug)]
 pub(super) struct StageTimingBar {
-    pub(super) label: String,
+    pub(super) stage: String,
+    pub(super) elapsed_label: String,
     pub(super) ratio: f64,
     running: bool,
 }
@@ -739,9 +746,9 @@ pub(super) fn stage_timing_bars(timings: Vec<StageTimingSnapshot>) -> Vec<StageT
     timings
         .into_iter()
         .map(|timing| StageTimingBar {
-            label: format!(
-                "{}: {}{}",
-                timing.stage,
+            stage: timing.stage,
+            elapsed_label: format!(
+                "{}{}",
                 terminal::format_duration(timing.elapsed),
                 if timing.running { " (running)" } else { "" }
             ),
