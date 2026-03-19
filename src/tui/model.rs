@@ -13,10 +13,38 @@ pub(super) enum Screen {
 }
 
 #[derive(Default)]
+pub(super) enum OperationState {
+    #[default]
+    Idle,
+    Running,
+    Success,
+    Failure,
+}
+
+impl OperationState {
+    pub(super) fn label(&self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Running => "running",
+            Self::Success => "success",
+            Self::Failure => "failure",
+        }
+    }
+
+    pub(super) fn color(&self) -> Color {
+        match self {
+            Self::Idle => Color::Blue,
+            Self::Running => Color::Yellow,
+            Self::Success => Color::Green,
+            Self::Failure => Color::Red,
+        }
+    }
+}
+
+#[derive(Default)]
 pub(super) struct OperationView {
     pub(super) title: String,
-    pub(super) running: bool,
-    pub(super) success: bool,
+    pub(super) state: OperationState,
     pub(super) summary: String,
     pub(super) detail: OperationDetail,
 }
@@ -79,6 +107,10 @@ pub(super) enum Overlay {
         title: String,
         message: String,
         action: ConfirmAction,
+    },
+    Notice {
+        title: String,
+        message: String,
     },
     SelectRerunStage {
         run_id: String,

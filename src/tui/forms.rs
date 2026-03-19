@@ -8,36 +8,136 @@ use crate::{
 };
 
 pub(super) use self::run_form::RunForm;
+#[cfg(test)]
+pub(super) use self::run_form::ValidationSeverity;
 
-pub(super) const HOME_ITEMS: [&str; 3] = [
-    "Run Papers",
-    "Sessions",
-    "Quit",
+pub(super) const HOME_ITEMS: [&str; 3] = ["Run Papers", "Sessions", "Quit"];
+
+struct RunFieldDescriptor {
+    key: &'static str,
+    label: &'static str,
+    help: &'static str,
+}
+
+const RUN_FIELDS: [RunFieldDescriptor; 21] = [
+    RunFieldDescriptor {
+        key: "input",
+        label: "Input Folder",
+        help: "Folder to scan for PDF files. This path must exist and be a directory before a run can start.",
+    },
+    RunFieldDescriptor {
+        key: "output",
+        label: "Output Folder",
+        help: "Destination root for sorted papers. A missing folder is allowed and will be created during apply-mode moves.",
+    },
+    RunFieldDescriptor {
+        key: "recursive",
+        label: "Recursive Scan",
+        help: "Include nested folders under the input directory when discovering candidate PDFs.",
+    },
+    RunFieldDescriptor {
+        key: "max_file_size_mb",
+        label: "Max File Size (MB)",
+        help: "Skip PDFs larger than this limit before extraction. Must be greater than zero.",
+    },
+    RunFieldDescriptor {
+        key: "page_cutoff",
+        label: "Pages Per PDF",
+        help: "Maximum number of pages to extract from each PDF. Must be greater than zero.",
+    },
+    RunFieldDescriptor {
+        key: "pdf_extract_workers",
+        label: "Extract Workers",
+        help: "Number of parallel PDF extraction workers. Higher values increase concurrency but may use more CPU.",
+    },
+    RunFieldDescriptor {
+        key: "category_depth",
+        label: "Category Depth",
+        help: "Target folder depth used for preliminary categories and the synthesized taxonomy.",
+    },
+    RunFieldDescriptor {
+        key: "taxonomy_mode",
+        label: "Taxonomy Strategy",
+        help: "Choose how taxonomy synthesis is framed. Batch merge is the current default workflow.",
+    },
+    RunFieldDescriptor {
+        key: "taxonomy_batch_size",
+        label: "Taxonomy Batch Size",
+        help: "Number of aggregated preliminary-category entries processed per taxonomy synthesis batch.",
+    },
+    RunFieldDescriptor {
+        key: "placement_batch_size",
+        label: "Placement Batch Size",
+        help: "Number of papers classified in each placement request.",
+    },
+    RunFieldDescriptor {
+        key: "placement_mode",
+        label: "Placement Policy",
+        help: "Choose whether placements must use existing folders only or may propose new folders.",
+    },
+    RunFieldDescriptor {
+        key: "rebuild",
+        label: "Rebuild Output",
+        help: "Ignore the current output tree and reclassify against a rebuilt taxonomy instead of existing folders.",
+    },
+    RunFieldDescriptor {
+        key: "apply",
+        label: "Apply Moves",
+        help: "Switch from preview mode to real file moves. Leave this off to inspect the plan without changing files.",
+    },
+    RunFieldDescriptor {
+        key: "llm_provider",
+        label: "LLM Provider",
+        help: "Backend used for keyword extraction, taxonomy synthesis, and placement decisions.",
+    },
+    RunFieldDescriptor {
+        key: "llm_model",
+        label: "Model",
+        help: "Model identifier sent to the selected provider. This field should not be blank.",
+    },
+    RunFieldDescriptor {
+        key: "llm_base_url",
+        label: "Base URL",
+        help: "Optional custom endpoint for provider requests. Leave blank to use the provider default.",
+    },
+    RunFieldDescriptor {
+        key: "api_key",
+        label: "API Key",
+        help: "Optional provider credential. Gemini and OpenAI typically require this unless credentials are supplied elsewhere.",
+    },
+    RunFieldDescriptor {
+        key: "keyword_batch_size",
+        label: "Keyword Batch Size",
+        help: "Number of papers included in each keyword extraction batch.",
+    },
+    RunFieldDescriptor {
+        key: "subcategories_suggestion_number",
+        label: "Target Subcategories",
+        help: "Prompt guidance for how many subcategories each taxonomy node should usually stay under.",
+    },
+    RunFieldDescriptor {
+        key: "verbosity",
+        label: "Verbosity",
+        help: "Controls how much runtime detail the CLI backend emits: normal, verbose, or debug.",
+    },
+    RunFieldDescriptor {
+        key: "quiet",
+        label: "Quiet Mode",
+        help: "Suppress most progress and summary output while still showing warnings and errors.",
+    },
 ];
 
-pub(super) const RUN_FIELD_LABELS: [&str; 21] = [
-    "input",
-    "output",
-    "recursive",
-    "max_file_size_mb",
-    "page_cutoff",
-    "pdf_extract_workers",
-    "category_depth",
-    "taxonomy_mode",
-    "taxonomy_batch_size",
-    "placement_batch_size",
-    "placement_mode",
-    "rebuild",
-    "apply",
-    "llm_provider",
-    "llm_model",
-    "llm_base_url",
-    "api_key",
-    "keyword_batch_size",
-    "subcategories_suggestion_number",
-    "verbosity",
-    "quiet",
-];
+pub(super) fn run_field_key(index: usize) -> &'static str {
+    RUN_FIELDS[index].key
+}
+
+pub(super) fn run_field_label(index: usize) -> &'static str {
+    RUN_FIELDS[index].label
+}
+
+pub(super) fn run_field_help(index: usize) -> &'static str {
+    RUN_FIELDS[index].help
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum UiVerbosity {
@@ -68,6 +168,14 @@ impl UiVerbosity {
             Self::Normal => "normal",
             Self::Verbose => "verbose",
             Self::Debug => "debug",
+        }
+    }
+
+    pub(super) fn raw(self) -> u8 {
+        match self {
+            Self::Normal => 0,
+            Self::Verbose => 1,
+            Self::Debug => 2,
         }
     }
 }

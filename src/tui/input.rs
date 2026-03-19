@@ -10,8 +10,8 @@ use crate::{
 
 use super::{
     app::App,
-    forms::{HOME_ITEMS, RUN_FIELD_LABELS},
-    model::{ConfirmAction, OperationDetail, OperationOutcome, Overlay, Screen},
+    forms::{HOME_ITEMS, run_field_label},
+    model::{ConfirmAction, OperationDetail, OperationOutcome, OperationState, Overlay, Screen},
     session_view::rerun_stage_name,
 };
 
@@ -162,7 +162,22 @@ impl App {
             KeyCode::Right | KeyCode::Char('l') => self.run_form.move_column_right(),
             KeyCode::Char(' ') => self.run_form.toggle_selected(),
             KeyCode::Char('r') => {
-                let config = self.run_form.build_config()?;
+                let analysis = self.run_form.analysis();
+                if analysis.has_errors() {
+                    self.overlay = Some(Overlay::Notice {
+                        title: "Fix Validation Errors".to_string(),
+                        message: analysis.blocking_message(),
+                    });
+                    return Ok(());
+                }
+
+                let Some(config) = analysis.config else {
+                    self.overlay = Some(Overlay::Notice {
+                        title: "Run Configuration".to_string(),
+                        message: "The run configuration is not ready yet.".to_string(),
+                    });
+                    return Ok(());
+                };
                 let use_debug_tui = self.debug_tui;
                 let op_tx = self.op_tx.clone();
                 self.start_async_operation("Run Papers", move |_tx| async move {
@@ -188,7 +203,7 @@ impl App {
             KeyCode::Enter => {
                 if self.run_form.editable(self.run_form.selected) {
                     self.overlay = Some(Overlay::EditField {
-                        label: RUN_FIELD_LABELS[self.run_form.selected].to_string(),
+                        label: run_field_label(self.run_form.selected).to_string(),
                         buffer: self.run_form.value(self.run_form.selected),
                     });
                 } else {
@@ -203,7 +218,7 @@ impl App {
     fn handle_operation_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
             KeyCode::Esc => {
-                if !self.operation.running {
+                if !matches!(self.operation.state, OperationState::Running) {
                     self.screen = Screen::Home;
                 }
             }
@@ -306,6 +321,13 @@ impl App {
                 }
                 false
             }
+            Overlay::Notice { .. } => match key.code {
+                KeyCode::Enter | KeyCode::Esc => false,
+                _ => {
+                    self.overlay = Some(overlay);
+                    return Ok(true);
+                }
+            },
             Overlay::SelectRerunStage {
                 stages,
                 selected,

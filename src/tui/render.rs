@@ -45,13 +45,6 @@ impl App {
             Screen::Sessions => "Sessions",
             Screen::Operation => &self.operation.title,
         };
-        let status = if self.operation.running {
-            "busy"
-        } else if self.operation.success {
-            "ready"
-        } else {
-            "idle"
-        };
         let header = Paragraph::new(Line::from(vec![
             Span::styled(
                 " SortYourPapers ",
@@ -60,12 +53,10 @@ impl App {
             Span::raw(format!(" {title}")),
             Span::raw(" "),
             Span::styled(
-                format!("[{status}]"),
-                Style::default().fg(if self.operation.running {
-                    Color::Yellow
-                } else {
-                    Color::Green
-                }),
+                format!("[{}]", self.operation.state.label()),
+                Style::default()
+                    .fg(self.operation.state.color())
+                    .add_modifier(Modifier::BOLD),
             ),
         ]))
         .block(Block::default().borders(Borders::ALL));
@@ -291,6 +282,16 @@ impl App {
                 .block(Block::default().title(title.clone()).borders(Borders::ALL));
                 frame.render_widget(widget, area);
             }
+            Overlay::Notice { title, message } => {
+                let widget = Paragraph::new(Text::from(vec![
+                    Line::from(message.clone()),
+                    Line::from(""),
+                    Line::from("Enter or Esc dismiss"),
+                ]))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title(title.clone()).borders(Borders::ALL));
+                frame.render_widget(widget, area);
+            }
             Overlay::SelectRerunStage {
                 stages, selected, ..
             } => {
@@ -391,7 +392,9 @@ impl App {
             Paragraph::new(Text::from(vec![
                 Line::from("Review the current taxonomy."),
                 Line::from(""),
-                Line::from("Type below, press Enter on an empty field to accept, or Esc to cancel."),
+                Line::from(
+                    "Type below, press Enter on an empty field to accept, or Esc to cancel.",
+                ),
             ]))
             .wrap(Wrap { trim: false }),
             chunks[0],

@@ -26,8 +26,8 @@ use self::{app::App, backend::TuiBackend};
 #[cfg(test)]
 use self::{
     backend::BackendEvent,
-    forms::{RunForm, UiVerbosity},
-    model::{OperationDetail, OperationView, Overlay, ProgressEntry, Screen},
+    forms::{RunForm, UiVerbosity, ValidationSeverity},
+    model::{OperationDetail, OperationState, OperationView, Overlay, ProgressEntry, Screen},
     session_view::SessionView,
 };
 
@@ -84,12 +84,13 @@ mod tests {
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend, layout::Position};
+    use tempfile::tempdir;
 
     use crate::{papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode};
 
     use super::{
-        App, BackendEvent, OperationDetail, OperationView, Overlay, ProgressEntry, RunForm,
-        Screen, SessionView, UiVerbosity,
+        App, BackendEvent, OperationDetail, OperationState, OperationView, Overlay, ProgressEntry,
+        RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
     };
 
     fn test_app() -> App {
@@ -103,8 +104,7 @@ mod tests {
             overlay: None,
             operation: OperationView {
                 title: "Operation".to_string(),
-                running: false,
-                success: true,
+                state: OperationState::Idle,
                 summary: "waiting for work".to_string(),
                 detail: OperationDetail::None,
             },
@@ -225,20 +225,20 @@ mod tests {
     fn run_form_column_navigation_clamps_to_shorter_columns() {
         let mut form = RunForm::default();
 
-        form.selected = 10;
-        form.move_column_right();
-        assert_eq!(form.selected, 12);
-
+        form.selected = 20;
         form.move_column_left();
-        assert_eq!(form.selected, 9);
+        assert_eq!(form.selected, 10);
+
+        form.move_column_right();
+        assert_eq!(form.selected, 19);
     }
 
     #[test]
-    fn run_form_renders_three_column_sections() {
+    fn run_form_renders_workspace_with_preview_and_selected_field_panels() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
 
-        let lines = render_lines(&app, 100, 56);
+        let lines = render_lines(&app, 140, 40);
 
         assert!(lines.iter().any(|line| line.contains("Paths & Scope")));
         assert!(lines.iter().any(|line| line.contains("Extraction")));
@@ -246,21 +246,22 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("Placement")));
         assert!(lines.iter().any(|line| line.contains("LLM & API")));
         assert!(lines.iter().any(|line| line.contains("Run")));
-        assert!(lines.iter().any(|line| line.contains("> input: .")));
-        assert!(!lines.iter().any(|line| line.contains("Output & Logs")));
-        assert!(!lines.iter().any(|line| line.contains("Help")));
+        assert!(lines.iter().any(|line| line.contains("Run Setup")));
+        assert!(lines.iter().any(|line| line.contains("Launch Preview")));
+        assert!(lines.iter().any(|line| line.contains("Selected Field")));
+        assert!(lines.iter().any(|line| line.contains("Input Folder")));
     }
 
     #[test]
     fn run_form_scrolls_to_keep_selected_field_visible() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
-        app.run_form.selected = 12;
+        app.run_form.selected = 20;
 
         let lines = render_lines(&app, 140, 24);
 
         assert!(lines.iter().any(|line| line.contains("Run")));
-        assert!(lines.iter().any(|line| line.contains("apply:")));
+        assert!(lines.iter().any(|line| line.contains("Quiet Mode")));
     }
 
     #[test]
@@ -509,5 +510,58 @@ mod tests {
 
         assert!(!app.should_quit);
         assert!(app.overlay.is_none());
+    }
+
+    #[test]
+    fn run_form_analysis_blocks_missing_input_directory() {
+        let temp = tempdir().expect("tempdir should build");
+        let mut form = RunForm::default();
+        form.input = temp.path().join("missing-input").display().to_string();
+        form.output = temp.path().join("sorted").display().to_string();
+
+        let analysis = form.analysis();
+
+        assert!(analysis.has_errors());
+        let issue = analysis
+            .field_issue(0)
+            .expect("missing input should create a field issue");
+        assert_eq!(issue.severity, ValidationSeverity::Error);
+    }
+
+    #[test]
+    fn run_form_analysis_allows_missing_output_directory_as_info() {
+        let temp = tempdir().expect("tempdir should build");
+        let mut form = RunForm::default();
+        form.input = temp.path().display().to_string();
+        form.output = temp.path().join("sorted").display().to_string();
+
+        let analysis = form.analysis();
+
+        assert!(!analysis.has_errors());
+        let issue = analysis
+            .field_issue(1)
+            .expect("missing output should surface as a note");
+        assert_eq!(issue.severity, ValidationSeverity::Info);
+        assert!(analysis.config.is_some());
+    }
+
+    #[test]
+    fn run_form_launch_with_errors_opens_notice_instead_of_starting() {
+        let temp = tempdir().expect("tempdir should build");
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.input = temp.path().join("missing-input").display().to_string();
+        app.run_form.output = temp.path().join("sorted").display().to_string();
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)))
+            .expect("run hotkey should be handled");
+
+        assert!(matches!(app.screen, Screen::RunForm));
+        assert!(matches!(app.overlay, Some(Overlay::Notice { .. })));
     }
 }

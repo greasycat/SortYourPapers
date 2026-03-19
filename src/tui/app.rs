@@ -5,7 +5,7 @@ use crate::error::Result;
 use super::{
     backend::BackendEvent,
     forms::RunForm,
-    model::{OperationDetail, OperationOutcome, Overlay, ProgressEntry, Screen},
+    model::{OperationDetail, OperationOutcome, OperationState, Overlay, ProgressEntry, Screen},
     session_view::SessionView,
 };
 
@@ -105,9 +105,12 @@ impl App {
     pub(super) fn drain_operation_events(&mut self) {
         while let Ok(outcome) = self.op_rx.try_recv() {
             self.operation.title = outcome.title;
-            self.operation.running = false;
+            self.operation.state = if outcome.success {
+                OperationState::Success
+            } else {
+                OperationState::Failure
+            };
             self.operation.summary = outcome.summary;
-            self.operation.success = outcome.success;
             self.operation.detail = outcome.detail;
             if let OperationDetail::Tree(categories) = &self.operation.detail {
                 self.last_category_tree =
@@ -164,8 +167,7 @@ impl App {
         self.overlay = None;
         self.operation = super::model::OperationView {
             title: title.to_string(),
-            running: true,
-            success: false,
+            state: OperationState::Running,
             summary: "running".to_string(),
             detail: OperationDetail::None,
         };

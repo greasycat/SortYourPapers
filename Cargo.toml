@@ -7,6 +7,7 @@ default-run = "sortyourpapers"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4.5", features = ["derive"] }
 crossterm = "0.28"
 directories = "5.0"
