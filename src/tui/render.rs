@@ -469,8 +469,16 @@ impl App {
                 frame.render_widget(widget, area);
             }
             Overlay::SelectRerunStage {
-                stages, selected, ..
+                stages,
+                selected,
+                config,
+                ..
             } => {
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+                    .split(area);
+
                 let lines = stages
                     .iter()
                     .enumerate()
@@ -495,7 +503,19 @@ impl App {
                             .title("Select Rerun Stage")
                             .borders(Borders::ALL),
                     ),
-                    area,
+                    chunks[0],
+                );
+
+                let impact_lines = stages
+                    .get(*selected)
+                    .and_then(|stage| crate::session::commands::describe_rerun_impact(config, *stage).ok())
+                    .map(|impact| impact.lines())
+                    .unwrap_or_else(|| vec!["Could not describe rerun impact.".to_string()]);
+                frame.render_widget(
+                    Paragraph::new(impact_lines.into_iter().map(Line::from).collect::<Vec<_>>())
+                        .wrap(Wrap { trim: false })
+                        .block(Block::default().title("Rerun Consequences").borders(Borders::ALL)),
+                    chunks[1],
                 );
             }
         }

@@ -127,6 +127,7 @@ impl App {
 
     pub(super) fn drain_operation_events(&mut self) {
         while let Ok(outcome) = self.op_rx.try_recv() {
+            let origin = self.operation.origin;
             self.operation.title = outcome.title;
             self.operation.state = if outcome.success {
                 OperationState::Success
@@ -138,6 +139,9 @@ impl App {
             if let OperationDetail::Tree(categories) = &self.operation.detail {
                 self.last_category_tree =
                     Some(crate::terminal::report::render_category_tree(categories));
+            }
+            if matches!(origin, Screen::Sessions) {
+                let _ = self.session_view.refresh();
             }
             self.screen = Screen::Operation;
         }

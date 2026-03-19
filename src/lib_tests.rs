@@ -6,8 +6,8 @@ use crate::{
     papers::placement::PlacementMode,
     papers::taxonomy::{CategoryTree, TaxonomyMode},
     session::commands::{
-        apply_resume_overrides, completed_runs, resolve_run_selection, resolve_stage_selection,
-        selectable_runs, validate_run_ids,
+        RerunArtifact, apply_resume_overrides, completed_runs, describe_rerun_impact,
+        resolve_run_selection, resolve_stage_selection, selectable_runs, validate_run_ids,
     },
     session::{RunStage, RunSummary, format_stage_description, stage_sequence},
     terminal::{Verbosity, report::render_category_tree},
@@ -268,6 +268,42 @@ fn category_tree_renderer_uses_ascii_tree_layout() {
     assert!(rendered.contains("AI"));
     assert!(rendered.contains("\\-- Vision"));
     assert!(rendered.contains("\\-- Segmentation"));
+}
+
+#[test]
+fn rerun_impact_describes_reset_scope_for_early_stage_restart() {
+    let impact =
+        describe_rerun_impact(&sample_config(), RunStage::ExtractText).expect("describe impact");
+
+    assert_eq!(impact.previous_last_completed_stage, Some(RunStage::FilterSize));
+    assert!(impact.cleared_stage_files.contains(&RunStage::ExtractText));
+    assert!(impact.cleared_stage_files.contains(&RunStage::BuildPlan));
+    assert!(impact
+        .cleared_artifacts
+        .contains(&RerunArtifact::KeywordBatchProgress));
+    assert!(impact
+        .cleared_artifacts
+        .contains(&RerunArtifact::TaxonomyBatchProgress));
+    assert!(impact
+        .cleared_artifacts
+        .contains(&RerunArtifact::PlacementBatchProgress));
+    assert!(impact
+        .report_reset_sections
+        .contains(&"scan and extraction counters"));
+}
+
+#[test]
+fn rerun_impact_keeps_placement_progress_when_restarting_at_build_plan() {
+    let impact =
+        describe_rerun_impact(&sample_config(), RunStage::BuildPlan).expect("describe impact");
+
+    assert_eq!(
+        impact.previous_last_completed_stage,
+        Some(RunStage::GeneratePlacements)
+    );
+    assert_eq!(impact.cleared_stage_files, vec![RunStage::BuildPlan]);
+    assert!(impact.cleared_artifacts.is_empty());
+    assert_eq!(impact.report_reset_sections, vec!["planned actions"]);
 }
 
 fn sample_config() -> AppConfig {

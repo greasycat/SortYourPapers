@@ -376,6 +376,7 @@ impl App {
                 selected,
                 run_id,
                 apply,
+                ..
             } => {
                 match key.code {
                     KeyCode::Down | KeyCode::Char('j') => {
@@ -484,6 +485,7 @@ impl App {
         self.overlay = Some(Overlay::SelectRerunStage {
             run_id,
             apply,
+            config,
             stages,
             selected: 0,
         });

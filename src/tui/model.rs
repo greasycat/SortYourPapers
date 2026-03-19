@@ -3,6 +3,7 @@ use std::{collections::VecDeque, sync::mpsc};
 use ratatui::prelude::{Color, Style};
 
 use crate::{
+    config::AppConfig,
     papers::taxonomy::CategoryTree,
     session::RunStage,
     terminal::{AlertSeverity, InspectReviewPrompt},
@@ -207,6 +208,7 @@ pub(super) enum Overlay {
     SelectRerunStage {
         run_id: String,
         apply: bool,
+        config: AppConfig,
         stages: Vec<RunStage>,
         selected: usize,
     },
