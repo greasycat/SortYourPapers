@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
     widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap},
 };
@@ -14,10 +14,9 @@ use super::{
 
 impl App {
     pub(super) fn draw(&self, frame: &mut Frame) {
-        let header_height = self.header_height(frame.area().width);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(header_height), Constraint::Min(10)])
+            .constraints([Constraint::Length(3), Constraint::Min(10)])
             .split(frame.area());
 
         self.draw_header(frame, chunks[0]);
@@ -38,13 +37,6 @@ impl App {
         }
     }
 
-    fn header_height(&self, width: u16) -> u16 {
-        let inner_width = width.saturating_sub(2).max(1) as usize;
-        let chips_line_width = shortcut_line_width(self.shortcut_actions());
-        let chip_lines = wrapped_line_count_for_width(chips_line_width, inner_width);
-        (chip_lines + 3) as u16
-    }
-
     fn draw_header(&self, frame: &mut Frame, area: Rect) {
         let title = match self.screen {
             Screen::Home => "Home",
@@ -53,8 +45,23 @@ impl App {
             Screen::Operation => &self.operation.title,
             Screen::TaxonomyReview => "Taxonomy Review",
         };
-        let header = Paragraph::new(Text::from(vec![
-            Line::from(vec![
+        let block = Block::default().borders(Borders::ALL);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if inner.width == 0 || inner.height == 0 {
+            return;
+        }
+
+        let left_width = (title.chars().count() + self.operation.state.label().chars().count() + 22)
+            .min(inner.width.saturating_sub(1) as usize) as u16;
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(left_width), Constraint::Min(1)])
+            .split(inner);
+
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
                 Span::styled(
                     " SortYourPapers ",
                     Style::default().fg(Color::Black).bg(Color::Cyan),
@@ -67,12 +74,14 @@ impl App {
                         .fg(self.operation.state.color())
                         .add_modifier(Modifier::BOLD),
                 ),
-            ]),
-            Line::from(shortcut_chip_spans(self.shortcut_actions())),
-        ]))
-        .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL));
-        frame.render_widget(header, area);
+            ])),
+            chunks[0],
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(shortcut_chip_spans(self.shortcut_actions())))
+                .alignment(Alignment::Right),
+            chunks[1],
+        );
     }
 
     fn draw_home(&self, frame: &mut Frame, area: Rect) {
@@ -797,24 +806,6 @@ fn shortcut_chip_spans(actions: &[(&str, &str)]) -> Vec<Span<'static>> {
     spans
 }
 
-fn shortcut_line_width(actions: &[(&str, &str)]) -> usize {
-    actions
-        .iter()
-        .enumerate()
-        .map(|(index, (key, action))| {
-            let spacer = usize::from(index > 0);
-            spacer + 4 + key.chars().count() + action.chars().count()
-        })
-        .sum()
-}
-
-fn wrapped_line_count_for_width(line_width: usize, width: usize) -> usize {
-    if width == 0 {
-        return 1;
-    }
-
-    line_width.max(1).div_ceil(width)
-}
 
 fn compact_overlay_rect(area: Rect, title: &str, lines: &[&str]) -> Rect {
     let max_width = area.width.saturating_sub(4).max(1);

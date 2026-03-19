@@ -572,11 +572,13 @@ mod tests {
         app.screen = Screen::Home;
 
         let lines = render_lines(&app, 80, 24);
-        let top_region = &lines[..6.min(lines.len())];
-        let bottom_region = &lines[lines.len().saturating_sub(6)..];
+        let header_line = lines
+            .iter()
+            .find(|line| line.contains("SortYourPapers"))
+            .expect("header line should exist");
 
-        assert!(top_region.iter().any(|line| line.contains("↑/↓: move")));
-        assert!(!bottom_region.iter().any(|line| line.contains("↑/↓: move")));
+        assert!(header_line.contains("↑/↓: move"));
+        assert!(!lines.iter().skip(3).any(|line| line.contains("↑/↓: move")));
     }
 
     #[test]
