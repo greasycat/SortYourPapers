@@ -3,6 +3,7 @@ pub(crate) mod stages;
 use std::{
     env,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use serde::Serialize;
@@ -13,14 +14,20 @@ use crate::{
     error::{AppError, Result},
     logging::Verbosity,
     models::{
-        AppConfig, CategoryTree, KeywordSet, KeywordStageState, PaperText, PdfCandidate,
-        PlacementDecision, PreliminaryCategoryPair, RunReport, SynthesizeCategoriesState,
+        AppConfig, CategoryTree, FileAction, KeywordSet, KeywordStageState, PaperText,
+        PdfCandidate, PlacementDecision, PlanAction, PreliminaryCategoryPair, RunReport,
+        SynthesizeCategoriesState,
     },
     pdf_extract::{extract_text_batch, reset_debug_extract_log},
+    report,
     run_state::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace},
+    terminal,
 };
 
 pub(crate) use stages::run_with_workspace;
+
+const DEBUG_TUI_PROGRESS_DELAY: Duration = Duration::from_secs(5);
+const DEBUG_TUI_PROGRESS_SETTLE_DELAY: Duration = Duration::from_millis(250);
 
 /// Resolves CLI arguments into an application config and runs the main workflow.
 ///
@@ -56,12 +63,19 @@ pub(crate) async fn run_debug_tui(config: AppConfig) -> Result<RunReport> {
     config.dry_run = true;
 
     let mut workspace = RunWorkspace::create(&config)?;
-    seed_debug_stages(&mut workspace, &config)?;
+    let verbosity = Verbosity::new(config.verbose, config.debug, config.quiet);
+    let debug_run = seed_debug_stages(&mut workspace, &config)?;
 
-    run_with_workspace(config, &mut workspace).await
+    simulate_debug_tui_run(&debug_run, verbosity).await;
+    report::print_report(&debug_run.report, verbosity);
+    report::print_category_tree(&debug_run.categories, verbosity);
+    workspace.save_report(&debug_run.report)?;
+    workspace.mark_completed()?;
+
+    Ok(debug_run.report)
 }
 
-fn seed_debug_stages(workspace: &mut RunWorkspace, config: &AppConfig) -> Result<()> {
+fn seed_debug_stages(workspace: &mut RunWorkspace, config: &AppConfig) -> Result<DebugRunData> {
     let candidates = vec![
         PdfCandidate {
             path: config.input.join("debug-paper-01.pdf"),
@@ -143,6 +157,16 @@ fn seed_debug_stages(workspace: &mut RunWorkspace, config: &AppConfig) -> Result
             },
         })
         .collect::<Vec<_>>();
+    let actions = build_debug_plan_actions(&papers, &placements, &config.output);
+    let report = RunReport {
+        scanned: papers.len() + skipped.len(),
+        processed: papers.len(),
+        skipped: skipped.len(),
+        failed: 0,
+        actions: actions.clone(),
+        dry_run: true,
+        llm_usage: Default::default(),
+    };
 
     workspace.save_stage(RunStage::DiscoverInput, &candidates)?;
     workspace.save_stage(RunStage::Dedupe, &candidates)?;
@@ -181,13 +205,122 @@ fn seed_debug_stages(workspace: &mut RunWorkspace, config: &AppConfig) -> Result
         },
     )?;
     workspace.save_stage(RunStage::GeneratePlacements, &placements)?;
+    workspace.save_stage(RunStage::BuildPlan, &actions)?;
+    workspace.save_report(&report)?;
 
-    Ok(())
+    Ok(DebugRunData { categories, report })
+}
+
+fn build_debug_plan_actions(
+    papers: &[PaperText],
+    placements: &[PlacementDecision],
+    output_root: &Path,
+) -> Vec<PlanAction> {
+    placements
+        .iter()
+        .filter_map(|placement| {
+            let paper = papers
+                .iter()
+                .find(|candidate| candidate.file_id == placement.file_id)?;
+            let filename = paper.path.file_name()?;
+            Some(PlanAction {
+                source: paper.path.clone(),
+                destination: output_root.join(&placement.target_rel_path).join(filename),
+                action: FileAction::Move,
+            })
+        })
+        .collect()
+}
+
+async fn simulate_debug_tui_run(debug_run: &DebugRunData, verbosity: Verbosity) {
+    verbosity.run_line(
+        "RUN",
+        format!(
+            "debug_tui preview scanned {} candidate PDF(s)",
+            debug_run.report.scanned
+        ),
+    );
+    verbosity.stage_line(
+        "discover-input",
+        format!("found {} candidate PDF(s)", debug_run.report.scanned),
+    );
+    verbosity.stage_line(
+        "filter-size",
+        format!(
+            "accepted {} PDF(s), skipped {} oversized PDF(s)",
+            debug_run.report.processed, debug_run.report.skipped
+        ),
+    );
+
+    let mut next_progress_id = 10_000_u64;
+    simulate_progress_bar(
+        &mut next_progress_id,
+        "preprocessing",
+        debug_run.report.processed,
+    )
+    .await;
+    verbosity.stage_line(
+        "extract-text",
+        format!("extracted text for {} PDF(s)", debug_run.report.processed),
+    );
+    simulate_progress_bar(&mut next_progress_id, "keyword batches", 2).await;
+    verbosity.stage_line("extract-keywords", "generated keyword batches".to_string());
+    simulate_progress_bar(&mut next_progress_id, "taxonomy", 2).await;
+    verbosity.stage_line(
+        "synthesize-categories",
+        format!(
+            "assembled {} top-level categor(ies)",
+            debug_run.categories.len()
+        ),
+    );
+    simulate_progress_bar(&mut next_progress_id, "placement batches", 2).await;
+    verbosity.stage_line(
+        "generate-placements",
+        format!(
+            "generated {} placement decision(s)",
+            debug_run.report.actions.len()
+        ),
+    );
+    verbosity.stage_line(
+        "build-plan",
+        format!(
+            "planned {} filesystem action(s)",
+            debug_run.report.actions.len()
+        ),
+    );
+    verbosity.stage_line(
+        "execute-plan",
+        "preview mode: no filesystem changes applied".to_string(),
+    );
+}
+
+async fn simulate_progress_bar(next_progress_id: &mut u64, label: &str, total: usize) {
+    if total == 0 {
+        return;
+    }
+
+    let id = *next_progress_id;
+    *next_progress_id += 1;
+    terminal::current_backend().start_progress(id, total, label);
+
+    let step_delay = DEBUG_TUI_PROGRESS_DELAY / total as u32;
+    for _ in 0..total {
+        tokio::time::sleep(step_delay).await;
+        terminal::current_backend().advance_progress(id, 1);
+    }
+
+    tokio::time::sleep(DEBUG_TUI_PROGRESS_SETTLE_DELAY).await;
+    terminal::current_backend().finish_progress(id);
 }
 
 #[derive(Debug, Serialize)]
 struct InspectableDebugState {
     categories: Vec<CategoryTree>,
+}
+
+struct DebugRunData {
+    categories: Vec<CategoryTree>,
+    report: RunReport,
 }
 
 /// Extracts and prints text for the provided PDFs without running the full workflow.
@@ -276,5 +409,63 @@ fn absolutize_path(cwd: &Path, path: &Path) -> PathBuf {
         path.to_path_buf()
     } else {
         cwd.join(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::seed_debug_stages;
+    use crate::{
+        domain::{AppConfig, LlmProvider, PlacementMode, TaxonomyMode},
+        run_state::{RunStage, RunWorkspace},
+    };
+
+    #[test]
+    fn seed_debug_stages_populates_preview_report_and_build_plan() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let config = AppConfig {
+            input: dir.path().join("input"),
+            output: dir.path().join("output"),
+            recursive: true,
+            max_file_size_mb: 64,
+            page_cutoff: 10,
+            pdf_extract_workers: 2,
+            category_depth: 2,
+            taxonomy_mode: TaxonomyMode::BatchMerge,
+            taxonomy_batch_size: 2,
+            placement_batch_size: 2,
+            placement_mode: PlacementMode::AllowNew,
+            rebuild: false,
+            dry_run: true,
+            llm_provider: LlmProvider::Gemini,
+            llm_model: "debug-model".to_string(),
+            llm_base_url: None,
+            api_key: None,
+            keyword_batch_size: 2,
+            batch_start_delay_ms: 0,
+            subcategories_suggestion_number: 4,
+            verbose: false,
+            debug: false,
+            quiet: false,
+        };
+        let mut workspace =
+            RunWorkspace::create_with_cache_root_for_tests(dir.path(), &cache_root, &config)
+                .expect("create workspace");
+
+        let debug_run = seed_debug_stages(&mut workspace, &config).expect("seed debug stages");
+        let saved_actions = workspace
+            .load_stage::<Vec<crate::models::PlanAction>>(RunStage::BuildPlan)
+            .expect("load build plan")
+            .expect("saved build plan");
+
+        assert!(debug_run.report.dry_run);
+        assert_eq!(debug_run.report.scanned, 4);
+        assert_eq!(debug_run.report.processed, 3);
+        assert_eq!(debug_run.report.skipped, 1);
+        assert_eq!(debug_run.report.actions.len(), 3);
+        assert_eq!(saved_actions.len(), 3);
     }
 }
