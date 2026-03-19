@@ -172,30 +172,19 @@ impl App {
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(chunks[1]);
-        let right = Layout::default()
+        let left = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(8),
                 Constraint::Min(8),
                 Constraint::Length(8),
             ])
-            .split(content[1]);
+            .split(content[0]);
 
+        let cursor = self.draw_taxonomy_review_suggestion_panel(frame, left[0]);
         draw_scrolled_panel_with_block(
             frame,
-            content[0],
-            focused_panel_block(
-                "Accepted Taxonomy",
-                review.focused_pane == ReviewPane::Accepted,
-            ),
-            review.accepted_lines(),
-            review.accepted_scroll,
-            "No accepted taxonomy is available.",
-        );
-        let cursor = self.draw_taxonomy_review_suggestion_panel(frame, right[0]);
-        draw_scrolled_panel_with_block(
-            frame,
-            right[1],
+            left[1],
             focused_panel_block(
                 "Suggested Taxonomy",
                 review.focused_pane == ReviewPane::Candidate,
@@ -206,11 +195,22 @@ impl App {
         );
         draw_scrolled_panel_with_block(
             frame,
-            right[2],
+            left[2],
             focused_panel_block("History", review.focused_pane == ReviewPane::History),
             review.history_lines(),
             review.history_scroll,
             "No suggestions submitted yet.",
+        );
+        draw_scrolled_panel_with_block(
+            frame,
+            content[1],
+            focused_panel_block(
+                "Accepted Taxonomy",
+                review.focused_pane == ReviewPane::Accepted,
+            ),
+            review.accepted_lines(),
+            review.accepted_scroll,
+            "No accepted taxonomy is available.",
         );
 
         cursor

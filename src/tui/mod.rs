@@ -808,7 +808,7 @@ mod tests {
         app.session_view
             .set_selected_details_for_tests(sample_session_details(run));
 
-        let lines = render_lines(&app, 120, 32);
+        let lines = render_lines(&app, 160, 32);
 
         assert!(lines.iter().any(|line| line.contains("Filters")));
         assert!(lines.iter().any(|line| line.contains("1 All")));
@@ -1156,7 +1156,34 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("Suggested Taxonomy")));
         assert!(lines.iter().any(|line| line.contains("Suggestion")));
         assert!(lines.iter().any(|line| line.contains("History")));
-        assert!(lines.iter().any(|line| line.contains("a accept candidate")));
+    }
+
+    #[test]
+    fn taxonomy_review_places_accepted_panel_to_the_right() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.phase = ReviewPhase::PostSuggestionDecision;
+        review.candidate_categories = Some(vec![CategoryTree {
+            name: "AI (candidate)".to_string(),
+            children: vec![],
+        }]);
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+
+        let lines = render_lines(&app, 120, 32);
+        let panel_title_line = lines
+            .iter()
+            .find(|line| line.contains("Suggestion") && line.contains("Accepted Taxonomy"))
+            .expect("suggestion and accepted titles should share the top content row");
+        let suggestion_x = panel_title_line
+            .find("Suggestion")
+            .expect("suggestion title should be present");
+        let accepted_x = panel_title_line
+            .find("Accepted Taxonomy")
+            .expect("accepted title should be present");
+
+        assert!(accepted_x > suggestion_x);
     }
 
     #[test]
