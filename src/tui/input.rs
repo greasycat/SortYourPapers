@@ -11,7 +11,10 @@ use crate::{
 use super::{
     app::App,
     forms::{HOME_ITEMS, run_field_label},
-    model::{ConfirmAction, OperationDetail, OperationOutcome, OperationState, Overlay, Screen},
+    model::{
+        ConfirmAction, OperationDetail, OperationOutcome, OperationState, OperationTab, Overlay,
+        Screen,
+    },
     session_view::rerun_stage_name,
 };
 
@@ -217,9 +220,32 @@ impl App {
 
     fn handle_operation_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => self.switch_operation_tab(1),
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                self.switch_operation_tab(-1);
+            }
+            KeyCode::Char('1') => self.set_operation_tab(OperationTab::Summary),
+            KeyCode::Char('2') => self.set_operation_tab(OperationTab::Logs),
+            KeyCode::Char('3') => self.set_operation_tab(OperationTab::Taxonomy),
+            KeyCode::Char('4') => self.set_operation_tab(OperationTab::Report),
+            KeyCode::Down | KeyCode::Char('j') => self.scroll_active_operation_tab(1),
+            KeyCode::Up | KeyCode::Char('k') => self.scroll_active_operation_tab(-1),
+            KeyCode::PageDown => self.scroll_active_operation_tab(10),
+            KeyCode::PageUp => self.scroll_active_operation_tab(-10),
+            KeyCode::Char('g') => self.jump_active_operation_tab(false),
+            KeyCode::Char('G') => self.jump_active_operation_tab(true),
+            KeyCode::Char('s') => {
+                if !matches!(self.operation.state, OperationState::Running) {
+                    self.session_view.refresh()?;
+                    self.screen = Screen::Sessions;
+                }
+            }
             KeyCode::Esc => {
                 if !matches!(self.operation.state, OperationState::Running) {
-                    self.screen = Screen::Home;
+                    if matches!(self.operation.origin, Screen::Sessions) {
+                        self.session_view.refresh()?;
+                    }
+                    self.screen = self.operation.origin;
                 }
             }
             _ => {}

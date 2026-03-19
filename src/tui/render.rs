@@ -4,23 +4,25 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap},
 };
 
-use crate::terminal;
-
 use super::{
     app::App,
     forms::HOME_ITEMS,
-    model::{OperationDetail, Overlay, Screen},
+    model::{OperationState, OperationTab, Overlay, Screen},
     session_view::rerun_stage_name,
 };
 
 impl App {
     pub(super) fn draw(&self, frame: &mut Frame) {
+        let footer_height = match self.screen {
+            Screen::Operation => 3,
+            _ => 11,
+        };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3),
                 Constraint::Min(10),
-                Constraint::Length(11),
+                Constraint::Length(footer_height),
             ])
             .split(frame.area());
 
@@ -112,83 +114,17 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(status_height),
-                Constraint::Percentage(45),
-                Constraint::Percentage(55),
+                Constraint::Length(3),
+                Constraint::Min(0),
             ])
             .split(area);
 
         self.draw_operation_status(frame, chunks[0]);
-
-        let detail_lines = self.operation_detail_lines();
-        frame.render_widget(
-            Paragraph::new(detail_lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Details").borders(Borders::ALL)),
-            chunks[1],
-        );
-
-        let log_lines = self
-            .logs
-            .iter()
-            .rev()
-            .take(18)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .map(|line| Line::from(line.clone()))
-            .collect::<Vec<_>>();
-        frame.render_widget(
-            Paragraph::new(log_lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Logs").borders(Borders::ALL)),
-            chunks[2],
-        );
-    }
-
-    fn operation_detail_lines(&self) -> Text<'static> {
-        if let OperationDetail::Tree(categories) = &self.operation.detail {
-            return Text::from(
-                crate::terminal::report::render_category_tree(categories)
-                    .lines()
-                    .map(|line| Line::from(line.to_string()))
-                    .collect::<Vec<_>>(),
-            );
-        }
-
-        if let Some(report) = &self.last_report {
-            return Text::from(
-                crate::terminal::report::render_report_lines(
-                    report,
-                    terminal::Verbosity::new(false, false, false),
-                )
-                .into_iter()
-                .map(Line::from)
-                .collect::<Vec<_>>(),
-            );
-        }
-
-        if let Some(tree) = &self.last_category_tree {
-            return Text::from(
-                tree.lines()
-                    .map(|line| Line::from(line.to_string()))
-                    .collect::<Vec<_>>(),
-            );
-        }
-
-        Text::from(vec![Line::from(self.operation.summary.clone())])
+        self.draw_operation_tabs(frame, chunks[1]);
+        self.draw_operation_content(frame, chunks[2]);
     }
 
     fn draw_operation_status(&self, frame: &mut Frame, area: Rect) {
-        if self.progress.is_empty() {
-            frame.render_widget(
-                Paragraph::new(vec![Line::from(self.operation.summary.clone())])
-                    .wrap(Wrap { trim: false })
-                    .block(Block::default().title("Status").borders(Borders::ALL)),
-                area,
-            );
-            return;
-        }
-
         let block = Block::default().title("Status").borders(Borders::ALL);
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -197,11 +133,55 @@ impl App {
             return;
         }
 
-        let visible = usize::from(inner.height).min(self.progress.len());
+        let top_height = inner.height.min(3);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(top_height), Constraint::Min(0)])
+            .split(inner);
+
+        let stage_label = if self.operation.stage_label.is_empty() {
+            "waiting".to_string()
+        } else {
+            self.operation.stage_label.clone()
+        };
+        let stage_message = if self.operation.stage_message.is_empty() {
+            self.operation.summary.clone()
+        } else {
+            self.operation.stage_message.clone()
+        };
+        let summary_lines = vec![
+            Line::from(vec![
+                Span::styled(
+                    "stage ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(stage_label),
+            ]),
+            Line::from(stage_message),
+            Line::from(format!(
+                "progress {}  alerts {}",
+                self.progress.len(),
+                self.operation.alerts.len()
+            )),
+        ];
+        frame.render_widget(
+            Paragraph::new(summary_lines)
+                .wrap(Wrap { trim: false })
+                .scroll((0, 0)),
+            chunks[0],
+        );
+
+        if self.progress.is_empty() || chunks[1].height == 0 {
+            return;
+        }
+
+        let visible = usize::from(chunks[1].height).min(self.progress.len());
         let progress_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Length(1); visible])
-            .split(inner);
+            .split(chunks[1]);
 
         for (progress, chunk) in self
             .progress
@@ -220,6 +200,200 @@ impl App {
         }
     }
 
+    fn draw_operation_tabs(&self, frame: &mut Frame, area: Rect) {
+        let spans = OperationTab::ALL
+            .iter()
+            .enumerate()
+            .flat_map(|(index, tab)| {
+                let style = if *tab == self.operation.active_tab {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                vec![
+                    Span::styled(format!(" {} {} ", index + 1, tab.label()), style),
+                    Span::raw(" "),
+                ]
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(
+            Paragraph::new(Line::from(spans))
+                .block(Block::default().title("Views").borders(Borders::ALL)),
+            area,
+        );
+    }
+
+    fn draw_operation_content(&self, frame: &mut Frame, area: Rect) {
+        match self.operation.active_tab {
+            OperationTab::Summary => self.draw_operation_summary_tab(frame, area),
+            OperationTab::Logs => self.draw_operation_logs_tab(frame, area),
+            OperationTab::Taxonomy => self.draw_operation_taxonomy_tab(frame, area),
+            OperationTab::Report => self.draw_operation_report_tab(frame, area),
+        }
+    }
+
+    fn draw_operation_summary_tab(&self, frame: &mut Frame, area: Rect) {
+        let alerts_visible = self.operation.alerts.len().min(5);
+        let alert_height =
+            (alerts_visible as u16 + 2).clamp(4, area.height.saturating_sub(8).max(4));
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(6),
+                Constraint::Length(alert_height),
+                Constraint::Min(6),
+            ])
+            .split(area);
+
+        let progress_summary = if self.progress.is_empty() {
+            "none".to_string()
+        } else {
+            self.progress
+                .iter()
+                .take(4)
+                .map(|entry| entry.label())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+        let highlight_lines = vec![
+            Line::from(format!("state: {}", self.operation.state.label())),
+            Line::from(format!("summary: {}", self.operation.summary)),
+            Line::from(format!(
+                "stage: {}",
+                if self.operation.stage_label.is_empty() {
+                    "waiting".to_string()
+                } else {
+                    self.operation.stage_label.clone()
+                }
+            )),
+            Line::from(format!(
+                "stage detail: {}",
+                if self.operation.stage_message.is_empty() {
+                    "No live stage detail yet.".to_string()
+                } else {
+                    self.operation.stage_message.clone()
+                }
+            )),
+            Line::from(format!("active batches: {progress_summary}")),
+            Line::from(format!(
+                "artifacts: taxonomy={} report={}",
+                yes_no(!self.operation_taxonomy_lines().is_empty()),
+                yes_no(!self.operation_report_lines().is_empty())
+            )),
+        ];
+        frame.render_widget(
+            Paragraph::new(highlight_lines)
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title("Highlights").borders(Borders::ALL)),
+            chunks[0],
+        );
+
+        let alert_lines = if self.operation.alerts.is_empty() {
+            vec![Line::from("No pinned warnings or errors yet.")]
+        } else {
+            self.operation
+                .alerts
+                .iter()
+                .rev()
+                .take(5)
+                .rev()
+                .map(|alert| {
+                    Line::from(Span::styled(
+                        alert.line(),
+                        Style::default().fg(alert.color()),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        };
+        frame.render_widget(
+            Paragraph::new(alert_lines)
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title("Pinned Alerts")
+                        .borders(Borders::ALL),
+                ),
+            chunks[1],
+        );
+
+        let (title, body) = match self.operation.state {
+            OperationState::Running => (
+                "Live Run",
+                vec![
+                    Line::from("Use 2 Logs for raw output and retries."),
+                    Line::from("Use 3 Taxonomy after category data appears."),
+                    Line::from("Use 4 Report after a run report is emitted."),
+                    Line::from("Esc returns after the run becomes idle."),
+                ],
+            ),
+            OperationState::Success => (
+                "Success",
+                vec![
+                    Line::from(self.operation.summary.clone()),
+                    Line::from("Next actions: 3 Taxonomy, 4 Report, s Sessions."),
+                    Line::from("Esc returns to the screen that launched this operation."),
+                ],
+            ),
+            OperationState::Failure => (
+                "Failure",
+                vec![
+                    Line::from(self.operation.summary.clone()),
+                    Line::from("Review pinned alerts and the Logs tab first."),
+                    Line::from("Next actions: 2 Logs, s Sessions, Esc back."),
+                ],
+            ),
+            OperationState::Idle => (
+                "Ready",
+                vec![
+                    Line::from(self.operation.summary.clone()),
+                    Line::from("No active operation is running."),
+                ],
+            ),
+        };
+        frame.render_widget(
+            Paragraph::new(body)
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title(title).borders(Borders::ALL)),
+            chunks[2],
+        );
+    }
+
+    fn draw_operation_logs_tab(&self, frame: &mut Frame, area: Rect) {
+        draw_scrolled_panel(
+            frame,
+            area,
+            &format!("Logs ({})", self.logs.len()),
+            self.operation_log_lines(),
+            self.operation.log_scroll,
+            "No logs yet. Output will appear here while the operation runs.",
+        );
+    }
+
+    fn draw_operation_taxonomy_tab(&self, frame: &mut Frame, area: Rect) {
+        draw_scrolled_panel(
+            frame,
+            area,
+            "Taxonomy",
+            self.operation_taxonomy_lines(),
+            self.operation.taxonomy_scroll,
+            "Taxonomy not available yet. It appears after taxonomy synthesis or review.",
+        );
+    }
+
+    fn draw_operation_report_tab(&self, frame: &mut Frame, area: Rect) {
+        draw_scrolled_panel(
+            frame,
+            area,
+            "Report",
+            self.operation_report_lines(),
+            self.operation.report_scroll,
+            "Report not available yet. It appears after report data is emitted.",
+        );
+    }
+
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let help = match self.screen {
             Screen::Home => "↑/↓ move  Enter open  Esc quit",
@@ -229,7 +403,9 @@ impl App {
             Screen::Sessions => {
                 "↑/↓ select  p preview  a apply  r rerun  x rerun-apply  v review  d delete  c clear  g refresh  Esc back"
             }
-            Screen::Operation => "Esc back when idle",
+            Screen::Operation => {
+                "Tab/h/l switch  1-4 jump tab  j/k scroll  PgUp/PgDn page  g/G start/end  s sessions  Esc back when idle"
+            }
         };
         frame.render_widget(
             Paragraph::new(help).block(Block::default().borders(Borders::ALL)),
@@ -474,10 +650,36 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 fn operation_status_height(area_height: u16, progress_count: usize) -> u16 {
     let preferred = if progress_count == 0 {
-        5
+        6
     } else {
-        progress_count as u16 + 2
+        progress_count as u16 + 5
     };
-    let max_height = area_height.saturating_sub(6).max(3);
-    preferred.clamp(3, max_height)
+    let max_height = area_height.saturating_sub(6).max(4);
+    preferred.clamp(4, max_height)
+}
+
+fn draw_scrolled_panel(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    lines: Vec<String>,
+    scroll: u16,
+    empty_message: &str,
+) {
+    let content = if lines.is_empty() {
+        vec![Line::from(empty_message.to_string())]
+    } else {
+        lines.into_iter().map(Line::from).collect::<Vec<_>>()
+    };
+    frame.render_widget(
+        Paragraph::new(content)
+            .scroll((scroll, 0))
+            .wrap(Wrap { trim: false })
+            .block(Block::default().title(title).borders(Borders::ALL)),
+        area,
+    );
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }

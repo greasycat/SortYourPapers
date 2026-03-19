@@ -151,6 +151,95 @@ impl App {
         Ok(())
     }
 
+    pub(super) fn switch_operation_tab(&mut self, delta: i8) {
+        let current = self.operation.active_tab.index();
+        let target = if delta < 0 {
+            current.saturating_sub(1)
+        } else {
+            (current + 1).min(OperationTab::ALL.len() - 1)
+        };
+        self.operation.active_tab = OperationTab::from_index(target);
+    }
+
+    pub(super) fn set_operation_tab(&mut self, tab: OperationTab) {
+        self.operation.active_tab = tab;
+    }
+
+    pub(super) fn scroll_active_operation_tab(&mut self, delta: isize) {
+        let active_tab = self.operation.active_tab;
+        let max_offset = self.operation_content_len(active_tab).saturating_sub(1);
+        let next = match active_tab {
+            OperationTab::Summary => return,
+            OperationTab::Logs => self.operation.log_scroll as isize + delta,
+            OperationTab::Taxonomy => self.operation.taxonomy_scroll as isize + delta,
+            OperationTab::Report => self.operation.report_scroll as isize + delta,
+        }
+        .clamp(0, max_offset.min(u16::MAX as usize) as isize) as u16;
+
+        match active_tab {
+            OperationTab::Summary => {}
+            OperationTab::Logs => self.operation.log_scroll = next,
+            OperationTab::Taxonomy => self.operation.taxonomy_scroll = next,
+            OperationTab::Report => self.operation.report_scroll = next,
+        }
+    }
+
+    pub(super) fn jump_active_operation_tab(&mut self, to_end: bool) {
+        let active_tab = self.operation.active_tab;
+        let target = if to_end {
+            self.operation_content_len(active_tab).saturating_sub(1)
+        } else {
+            0
+        }
+        .min(u16::MAX as usize) as u16;
+
+        match active_tab {
+            OperationTab::Summary => {}
+            OperationTab::Logs => self.operation.log_scroll = target,
+            OperationTab::Taxonomy => self.operation.taxonomy_scroll = target,
+            OperationTab::Report => self.operation.report_scroll = target,
+        }
+    }
+
+    pub(super) fn operation_log_lines(&self) -> Vec<String> {
+        self.logs.iter().cloned().collect()
+    }
+
+    pub(super) fn operation_report_lines(&self) -> Vec<String> {
+        self.last_report
+            .as_ref()
+            .map(|report| {
+                crate::terminal::report::render_report_lines(
+                    report,
+                    crate::terminal::Verbosity::new(false, false, false),
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    pub(super) fn operation_taxonomy_lines(&self) -> Vec<String> {
+        if let OperationDetail::Tree(categories) = &self.operation.detail {
+            return crate::terminal::report::render_category_tree(categories)
+                .lines()
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
+        self.last_category_tree
+            .as_ref()
+            .map(|tree| tree.lines().map(ToOwned::to_owned).collect())
+            .unwrap_or_default()
+    }
+
+    fn operation_content_len(&self, tab: OperationTab) -> usize {
+        match tab {
+            OperationTab::Summary => 0,
+            OperationTab::Logs => self.operation_log_lines().len(),
+            OperationTab::Taxonomy => self.operation_taxonomy_lines().len(),
+            OperationTab::Report => self.operation_report_lines().len(),
+        }
+    }
+
     pub(super) fn start_async_operation<Fut, F>(&mut self, title: &str, build: F)
     where
         Fut: std::future::Future<Output = ()> + 'static,
@@ -210,11 +299,14 @@ impl App {
     }
 
     fn push_log(&mut self, line: String) {
+        let previous_bottom = self.logs.len().saturating_sub(LOG_FOLLOW_WINDOW);
         self.logs.push_back(line);
         while self.logs.len() > MAX_LOG_LINES {
             self.logs.pop_front();
         }
-        if matches!(self.operation.active_tab, OperationTab::Logs) {
+        if matches!(self.operation.active_tab, OperationTab::Logs)
+            && self.operation.log_scroll as usize >= previous_bottom.saturating_sub(1)
+        {
             self.operation.log_scroll = self
                 .logs
                 .len()
