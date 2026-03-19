@@ -84,7 +84,7 @@ mod tests {
     use std::{collections::VecDeque, sync::mpsc};
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui::{Terminal, backend::TestBackend, layout::Position, style::Modifier};
+    use ratatui::{Terminal, backend::TestBackend, layout::Position};
 
     use crate::{papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode};
 
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn edit_overlay_renders_underlined_input_and_places_cursor_at_buffer_end() {
+    fn edit_overlay_renders_input_box_and_places_cursor_at_buffer_end() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
         app.overlay = Some(Overlay::EditField {
@@ -345,13 +345,8 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(lines.iter().any(|line| line.contains("Edit Field")));
-        assert!(lines.iter().any(|line| line.contains("────────")));
-        assert!(
-            buffer
-                .content()
-                .iter()
-                .any(|cell| cell.modifier.contains(Modifier::UNDERLINED))
-        );
+        assert!(lines.iter().any(|line| line.contains("┌Input")));
+        assert!(lines.iter().any(|line| line.contains("papers")));
         terminal
             .backend_mut()
             .assert_cursor_position(Position::new(20, 10));

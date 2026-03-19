@@ -447,18 +447,12 @@ fn draw_text_field(frame: &mut Frame, area: Rect, title: &str, buffer: &str) -> 
 
     let (display, cursor_offset) = input_window(buffer, inner.width as usize);
     frame.render_widget(
-        Paragraph::new(Text::from(vec![
-            Line::from(Span::styled(
-                display,
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-            )),
-            Line::from(Span::styled(
-                "─".repeat(inner.width as usize),
-                Style::default().fg(Color::Cyan),
-            )),
-        ])),
+        Paragraph::new(Line::from(Span::styled(
+            display,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ))),
         inner,
     );
 
