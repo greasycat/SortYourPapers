@@ -11,4 +11,7 @@ pub use commands::{
 pub(crate) use runtime::format_stage_description;
 pub(crate) use runtime::{run_with_workspace, stage_sequence};
 pub use workspace::RunStage;
-pub use workspace::{ExtractTextState, FilterSizeState, RunSummary, RunWorkspace, StageFailure};
+pub use workspace::{
+    ExtractTextState, FilterSizeState, RunSummary, RunWorkspace, SessionConfigSummary,
+    SessionDetails, SessionStatusSummary, StageFailure,
+};

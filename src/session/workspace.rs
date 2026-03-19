@@ -14,7 +14,9 @@ use crate::{
     config,
     config::AppConfig,
     error::{AppError, Result},
+    llm::LlmProvider,
     papers::{PaperText, PdfCandidate},
+    papers::taxonomy::CategoryTree,
     report::RunReport,
 };
 
@@ -118,6 +120,30 @@ pub struct RunSummary {
     pub is_latest: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionConfigSummary {
+    pub dry_run: bool,
+    pub llm_provider: String,
+    pub llm_model: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionStatusSummary {
+    pub is_completed: bool,
+    pub is_incomplete: bool,
+    pub is_failed_looking: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionDetails {
+    pub run: RunSummary,
+    pub config: SessionConfigSummary,
+    pub status: SessionStatusSummary,
+    pub report: Option<RunReport>,
+    pub taxonomy: Option<Vec<CategoryTree>>,
+    pub available_stage_artifacts: Vec<RunStage>,
+}
+
 #[derive(Debug, Clone)]
 pub struct RunWorkspace {
     root_dir: PathBuf,
@@ -158,6 +184,11 @@ impl RunWorkspace {
     pub fn runs_root() -> Result<PathBuf> {
         let cwd = env::current_dir()?;
         runs_root_in(&cwd)
+    }
+
+    pub fn inspect_run(run: &RunSummary) -> Result<SessionDetails> {
+        let workspace = Self::open_in(&run.cwd, &run.run_id)?;
+        workspace.inspect_with_summary(run.clone())
     }
 
     pub fn load_config(&self) -> Result<AppConfig> {
@@ -264,6 +295,10 @@ impl RunWorkspace {
         &self.manifest.run_id
     }
 
+    pub fn inspect(&self) -> Result<SessionDetails> {
+        self.inspect_with_summary(self.summary(false))
+    }
+
     fn create_in(base_dir: &Path, config: &AppConfig) -> Result<Self> {
         let cache_root = resume_workspace_root(base_dir)?;
         Self::create_with_cache_root(base_dir, &cache_root, config)
@@ -349,6 +384,44 @@ impl RunWorkspace {
         }
         let manifest: RunManifest = read_json(&root_dir.join(MANIFEST_FILE))?;
         Ok(Self { root_dir, manifest })
+    }
+
+    fn inspect_with_summary(&self, run: RunSummary) -> Result<SessionDetails> {
+        let config = self.load_config()?;
+        let report = self.load_report()?;
+        let taxonomy = self
+            .load_stage::<crate::papers::SynthesizeCategoriesState>(RunStage::SynthesizeCategories)?
+            .map(|state| state.categories);
+
+        let status = SessionStatusSummary {
+            is_completed: run.last_completed_stage == Some(RunStage::Completed),
+            is_incomplete: run.last_completed_stage != Some(RunStage::Completed),
+            is_failed_looking: run.last_completed_stage != Some(RunStage::Completed)
+                || report.as_ref().is_some_and(|saved| saved.failed > 0),
+        };
+
+        Ok(SessionDetails {
+            run,
+            config: SessionConfigSummary {
+                dry_run: config.dry_run,
+                llm_provider: llm_provider_label(config.llm_provider).to_string(),
+                llm_model: config.llm_model,
+            },
+            status,
+            report,
+            taxonomy,
+            available_stage_artifacts: available_stage_artifacts(&self.root_dir),
+        })
+    }
+
+    fn summary(&self, is_latest: bool) -> RunSummary {
+        RunSummary {
+            run_id: self.manifest.run_id.clone(),
+            created_unix_ms: self.manifest.created_unix_ms,
+            cwd: self.manifest.cwd.clone(),
+            last_completed_stage: self.manifest.last_completed_stage,
+            is_latest,
+        }
     }
 
     fn list_runs_in(base_dir: &Path) -> Result<Vec<RunSummary>> {
@@ -536,6 +609,43 @@ fn list_runs_from_cache_root(base_dir: &Path, cache_root: &Path) -> Result<Vec<R
     Ok(runs)
 }
 
+fn available_stage_artifacts(root_dir: &Path) -> Vec<RunStage> {
+    persisted_run_stages()
+        .iter()
+        .copied()
+        .filter(|stage| {
+            stage
+                .file_name()
+                .is_some_and(|file_name| root_dir.join(file_name).exists())
+        })
+        .collect()
+}
+
+fn persisted_run_stages() -> &'static [RunStage] {
+    const PERSISTED_STAGES: [RunStage; 10] = [
+        RunStage::DiscoverInput,
+        RunStage::DiscoverOutput,
+        RunStage::Dedupe,
+        RunStage::FilterSize,
+        RunStage::ExtractText,
+        RunStage::ExtractKeywords,
+        RunStage::SynthesizeCategories,
+        RunStage::InspectOutput,
+        RunStage::GeneratePlacements,
+        RunStage::BuildPlan,
+    ];
+
+    &PERSISTED_STAGES
+}
+
+fn llm_provider_label(provider: LlmProvider) -> &'static str {
+    match provider {
+        LlmProvider::Openai => "openai",
+        LlmProvider::Ollama => "ollama",
+        LlmProvider::Gemini => "gemini",
+    }
+}
+
 fn refresh_latest_run(base_dir: &Path) -> Result<()> {
     let cache_root = resume_workspace_root(base_dir)?;
     let latest_path = cache_root.join(LATEST_RUN_FILE);
@@ -635,12 +745,15 @@ where
 mod tests {
     use tempfile::tempdir;
 
-    use super::{FilterSizeState, RunStage, RunWorkspace, StageFailure};
+    use super::{
+        ExtractTextState, FilterSizeState, RunStage, RunWorkspace, SessionConfigSummary,
+        SessionStatusSummary, StageFailure,
+    };
     use crate::config::AppConfig;
     use crate::llm::LlmProvider;
-    use crate::papers::PdfCandidate;
     use crate::papers::placement::PlacementMode;
-    use crate::papers::taxonomy::{KeywordBatchProgress, TaxonomyMode};
+    use crate::papers::taxonomy::{CategoryTree, KeywordBatchProgress, TaxonomyMode};
+    use crate::papers::{PdfCandidate, SynthesizeCategoriesState};
     use crate::report::RunReport;
 
     fn sample_config() -> AppConfig {
@@ -884,5 +997,106 @@ mod tests {
         assert_eq!(runs[0].run_id, completed.run_id());
         assert_eq!(runs[0].last_completed_stage, Some(RunStage::Completed));
         assert!(runs[0].is_latest);
+    }
+
+    #[test]
+    fn inspect_run_loads_saved_report_taxonomy_and_stage_artifacts() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+        let mut workspace = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create workspace");
+
+        workspace
+            .save_stage(
+                RunStage::ExtractText,
+                &ExtractTextState {
+                    papers: Vec::new(),
+                    failures: Vec::new(),
+                },
+            )
+            .expect("save extract state");
+        workspace
+            .save_stage(
+                RunStage::SynthesizeCategories,
+                &SynthesizeCategoriesState {
+                    categories: vec![CategoryTree {
+                        name: "AI".to_string(),
+                        children: vec![],
+                    }],
+                    partial_categories: Vec::new(),
+                },
+            )
+            .expect("save taxonomy");
+        let mut report = RunReport::new(true);
+        report.scanned = 4;
+        workspace.save_report(&report).expect("save report");
+
+        let details = workspace.inspect().expect("inspect run");
+
+        assert_eq!(
+            details.config,
+            SessionConfigSummary {
+                dry_run: true,
+                llm_provider: "gemini".to_string(),
+                llm_model: "gemini-3-flash-preview".to_string(),
+            }
+        );
+        assert_eq!(details.report.expect("report").scanned, 4);
+        assert_eq!(
+            details.taxonomy.expect("taxonomy")[0].name,
+            "AI"
+        );
+        assert_eq!(
+            details.available_stage_artifacts,
+            vec![RunStage::ExtractText, RunStage::SynthesizeCategories]
+        );
+    }
+
+    #[test]
+    fn inspect_run_marks_incomplete_runs_as_failed_looking() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+        let mut workspace = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create workspace");
+        workspace
+            .mark_stage(RunStage::ExtractText)
+            .expect("mark stage");
+
+        let details = workspace.inspect().expect("inspect run");
+
+        assert_eq!(
+            details.status,
+            SessionStatusSummary {
+                is_completed: false,
+                is_incomplete: true,
+                is_failed_looking: true,
+            }
+        );
+    }
+
+    #[test]
+    fn inspect_run_marks_completed_runs_with_failed_report_as_failed_looking() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+        let mut workspace = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create workspace");
+        workspace.mark_completed().expect("mark completed");
+        let mut report = RunReport::new(true);
+        report.failed = 2;
+        workspace.save_report(&report).expect("save report");
+
+        let details = workspace.inspect().expect("inspect run");
+
+        assert_eq!(
+            details.status,
+            SessionStatusSummary {
+                is_completed: true,
+                is_incomplete: false,
+                is_failed_looking: true,
+            }
+        );
     }
 }
