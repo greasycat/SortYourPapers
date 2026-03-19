@@ -192,32 +192,48 @@ mod tests {
     }
 
     #[test]
-    fn run_form_renders_grouped_sections() {
+    fn run_form_navigation_skips_hidden_output_fields() {
+        let mut form = RunForm::default();
+
+        form.selected = 16;
+        form.select_next();
+        assert_eq!(form.selected, 11);
+
+        form.select_next();
+        assert_eq!(form.selected, 12);
+
+        form.select_previous();
+        assert_eq!(form.selected, 11);
+    }
+
+    #[test]
+    fn run_form_renders_three_column_sections() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
 
         let lines = render_lines(&app, 100, 56);
 
-        assert!(lines.iter().any(|line| line.contains("Run Configuration")));
         assert!(lines.iter().any(|line| line.contains("Paths & Scope")));
         assert!(lines.iter().any(|line| line.contains("Extraction")));
         assert!(lines.iter().any(|line| line.contains("Taxonomy")));
-        assert!(lines.iter().any(|line| line.contains("Placement & Run")));
+        assert!(lines.iter().any(|line| line.contains("Placement")));
         assert!(lines.iter().any(|line| line.contains("LLM & API")));
-        assert!(lines.iter().any(|line| line.contains("Output & Logs")));
+        assert!(lines.iter().any(|line| line.contains("Run")));
         assert!(lines.iter().any(|line| line.contains("> input: .")));
+        assert!(!lines.iter().any(|line| line.contains("Output & Logs")));
+        assert!(!lines.iter().any(|line| line.contains("Help")));
     }
 
     #[test]
     fn run_form_scrolls_to_keep_selected_field_visible() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
-        app.run_form.selected = 20;
+        app.run_form.selected = 12;
 
-        let lines = render_lines(&app, 100, 24);
+        let lines = render_lines(&app, 140, 24);
 
-        assert!(lines.iter().any(|line| line.contains("Output & Logs")));
-        assert!(lines.iter().any(|line| line.contains("> quiet: no")));
+        assert!(lines.iter().any(|line| line.contains("Run")));
+        assert!(lines.iter().any(|line| line.contains("apply:")));
     }
 
     #[test]

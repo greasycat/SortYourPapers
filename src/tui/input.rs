@@ -158,11 +158,10 @@ impl App {
         match key.code {
             KeyCode::Esc => self.screen = Screen::Home,
             KeyCode::Down | KeyCode::Char('j') => {
-                self.run_form.selected =
-                    (self.run_form.selected + 1).min(RUN_FIELD_LABELS.len() - 1);
+                self.run_form.select_next();
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                self.run_form.selected = self.run_form.selected.saturating_sub(1);
+                self.run_form.select_previous();
             }
             KeyCode::Left => self.run_form.cycle_selected(-1),
             KeyCode::Right => self.run_form.cycle_selected(1),

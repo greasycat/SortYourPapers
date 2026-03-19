@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
+    prelude::{Color, Frame, Line, Modifier, Span, Style},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
@@ -86,39 +86,22 @@ impl RunForm {
     pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .constraints([
+                Constraint::Percentage(34),
+                Constraint::Percentage(33),
+                Constraint::Percentage(33),
+            ])
             .split(area);
 
-        let block = Block::default()
-            .title("Run Configuration")
-            .borders(Borders::ALL);
-        let inner = block.inner(chunks[0]);
-        let (lines, selected_line) = self.sectioned_lines();
-        let scroll = selected_line.saturating_sub(usize::from(inner.height.saturating_sub(1)));
-        frame.render_widget(
-            Paragraph::new(lines)
-                .scroll((scroll as u16, 0))
-                .wrap(Wrap { trim: false })
-                .block(block),
-            chunks[0],
-        );
+        const COLUMN_SECTIONS: [[(&str, &[usize]); 2]; 3] = [
+            [("Paths & Scope", &[0, 1, 2]), ("Extraction", &[3, 4, 5])],
+            [("Taxonomy", &[6, 7, 8, 17, 18]), ("Placement", &[9, 10])],
+            [("LLM & API", &[13, 14, 15, 16]), ("Run", &[11, 12])],
+        ];
 
-        let help = Paragraph::new(Text::from(vec![
-            Line::from("Enter edits text/number/path fields."),
-            Line::from("Left/Right cycles enum fields."),
-            Line::from("Space toggles booleans."),
-            Line::from(""),
-            Line::from(format!(
-                "mode: {}",
-                if self.apply { "apply" } else { "preview" }
-            )),
-            Line::from(format!("verbosity: {}", self.verbosity.label())),
-            Line::from(""),
-            Line::from("Press r to start the run."),
-        ]))
-        .wrap(Wrap { trim: false })
-        .block(Block::default().title("Help").borders(Borders::ALL));
-        frame.render_widget(help, chunks[1]);
+        for (column, sections) in chunks.iter().zip(COLUMN_SECTIONS.iter()) {
+            self.draw_column(frame, *column, sections);
+        }
     }
 
     pub(crate) fn build_config(&self) -> Result<AppConfig> {
@@ -154,10 +137,38 @@ impl RunForm {
                 "subcategories_suggestion_number",
                 &self.subcategories_suggestion_number,
             )?),
-            verbosity: self.verbosity.count(),
-            quiet: self.quiet,
+            verbosity: 0,
+            quiet: false,
         };
         config::resolve_config(cli)
+    }
+
+    pub(crate) fn select_next(&mut self) {
+        const VISIBLE_FIELDS: [usize; 19] = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 9, 10, 13, 14, 15, 16, 11, 12,
+        ];
+        if let Some(index) = VISIBLE_FIELDS
+            .iter()
+            .position(|field| *field == self.selected)
+        {
+            self.selected = VISIBLE_FIELDS[(index + 1).min(VISIBLE_FIELDS.len() - 1)];
+        } else {
+            self.selected = VISIBLE_FIELDS[0];
+        }
+    }
+
+    pub(crate) fn select_previous(&mut self) {
+        const VISIBLE_FIELDS: [usize; 19] = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 9, 10, 13, 14, 15, 16, 11, 12,
+        ];
+        if let Some(index) = VISIBLE_FIELDS
+            .iter()
+            .position(|field| *field == self.selected)
+        {
+            self.selected = VISIBLE_FIELDS[index.saturating_sub(1)];
+        } else {
+            self.selected = VISIBLE_FIELDS[0];
+        }
     }
 
     pub(crate) fn editable(&self, index: usize) -> bool {
@@ -237,19 +248,10 @@ impl RunForm {
         }
     }
 
-    fn sectioned_lines(&self) -> (Vec<Line<'static>>, usize) {
-        const FIELD_SECTIONS: [(&str, &[usize]); 6] = [
-            ("Paths & Scope", &[0, 1, 2]),
-            ("Extraction", &[3, 4, 5]),
-            ("Taxonomy", &[6, 7, 8, 17, 18]),
-            ("Placement & Run", &[9, 10, 11, 12]),
-            ("LLM & API", &[13, 14, 15, 16]),
-            ("Output & Logs", &[19, 20]),
-        ];
-
+    fn draw_column(&self, frame: &mut Frame, area: Rect, sections: &[(&str, &[usize])]) {
         let mut lines = Vec::new();
         let mut selected_line = 0;
-        for (section_index, (title, fields)) in FIELD_SECTIONS.iter().enumerate() {
+        for (section_index, (title, fields)) in sections.iter().enumerate() {
             if section_index > 0 {
                 lines.push(Line::from(""));
             }
@@ -277,6 +279,15 @@ impl RunForm {
             }
         }
 
-        (lines, selected_line)
+        let block = Block::default().borders(Borders::ALL);
+        let inner = block.inner(area);
+        let scroll = selected_line.saturating_sub(usize::from(inner.height.saturating_sub(1)));
+        frame.render_widget(
+            Paragraph::new(lines)
+                .scroll((scroll as u16, 0))
+                .wrap(Wrap { trim: false })
+                .block(block),
+            area,
+        );
     }
 }
