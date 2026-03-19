@@ -13,6 +13,7 @@ use std::{
 };
 
 use crossterm::{
+    cursor::SetCursorStyle,
     event::{self, Event, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -34,7 +35,7 @@ use self::{
 pub async fn run(debug_tui: bool) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, SetCursorStyle::BlinkingBar)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
@@ -47,7 +48,11 @@ pub async fn run(debug_tui: bool) -> Result<()> {
     let run_result = run_loop(&mut terminal, &mut app).await;
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        SetCursorStyle::DefaultUserShape
+    )?;
     terminal.show_cursor()?;
     run_result
 }
@@ -79,7 +84,7 @@ mod tests {
     use std::{collections::VecDeque, sync::mpsc};
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{Terminal, backend::TestBackend, layout::Position, style::Modifier};
 
     use crate::{papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode};
 
@@ -134,6 +139,15 @@ mod tests {
                     .collect::<String>()
             })
             .collect()
+    }
+
+    fn render_app(app: &App, width: u16, height: u16) -> Terminal<TestBackend> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test terminal should build");
+        terminal
+            .draw(|frame| app.draw(frame))
+            .expect("test frame should render");
+        terminal
     }
 
     #[test]
@@ -308,5 +322,38 @@ mod tests {
         assert!(matches!(app.screen, Screen::RunForm));
         assert!(app.overlay.is_none());
         assert_eq!(app.run_form.input, original_input);
+    }
+
+    #[test]
+    fn edit_overlay_renders_underlined_input_and_places_cursor_at_buffer_end() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.overlay = Some(Overlay::EditField {
+            label: "Input".to_string(),
+            buffer: "papers".to_string(),
+        });
+
+        let mut terminal = render_app(&app, 80, 24);
+        let buffer = terminal.backend().buffer();
+        let area = buffer.area();
+        let lines = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.iter().any(|line| line.contains("Edit Field")));
+        assert!(lines.iter().any(|line| line.contains("────────")));
+        assert!(
+            buffer
+                .content()
+                .iter()
+                .any(|cell| cell.modifier.contains(Modifier::UNDERLINED))
+        );
+        terminal
+            .backend_mut()
+            .assert_cursor_position(Position::new(20, 15));
     }
 }

@@ -276,33 +276,18 @@ impl App {
 
         match overlay {
             Overlay::EditField { label, buffer } => {
-                let widget = Paragraph::new(Text::from(vec![
-                    Line::from(format!("Editing {label}")),
-                    Line::from(""),
-                    Line::from(buffer.clone()),
-                    Line::from(""),
-                    Line::from("Enter save  Esc cancel"),
-                ]))
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Edit Field").borders(Borders::ALL));
-                frame.render_widget(widget, area);
+                if let Some((x, y)) = self.draw_edit_field_overlay(frame, area, label, buffer) {
+                    frame.set_cursor_position((x, y));
+                }
             }
             Overlay::InspectPrompt {
                 categories, input, ..
             } => {
-                let tree = crate::terminal::report::render_category_tree(categories);
-                let widget = Paragraph::new(Text::from(vec![
-                    Line::from("Review the current taxonomy."),
-                    Line::from(""),
-                    Line::from(tree),
-                    Line::from(""),
-                    Line::from("Enter suggestion text, press Enter to accept current taxonomy, or q to cancel."),
-                    Line::from(""),
-                    Line::from(format!("Suggestion: {input}")),
-                ]))
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Inspect Taxonomy").borders(Borders::ALL));
-                frame.render_widget(widget, area);
+                if let Some((x, y)) =
+                    self.draw_inspect_prompt_overlay(frame, area, categories, input)
+                {
+                    frame.set_cursor_position((x, y));
+                }
             }
             Overlay::ContinuePrompt { .. } => {
                 let widget = Paragraph::new(Text::from(vec![
@@ -361,6 +346,123 @@ impl App {
             }
         }
     }
+
+    fn draw_edit_field_overlay(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        label: &str,
+        buffer: &str,
+    ) -> Option<(u16, u16)> {
+        let block = Block::default().title("Edit Field").borders(Borders::ALL);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if inner.width == 0 || inner.height == 0 {
+            return None;
+        }
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(4)])
+            .split(inner);
+
+        frame.render_widget(
+            Paragraph::new(Text::from(vec![
+                Line::from(format!("Editing {label}")),
+                Line::from("Type a new value, then press Enter to save."),
+                Line::from("Esc cancels."),
+            ]))
+            .wrap(Wrap { trim: false }),
+            chunks[0],
+        );
+
+        draw_text_field(frame, chunks[1], label, buffer)
+    }
+
+    fn draw_inspect_prompt_overlay(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        categories: &[crate::papers::taxonomy::CategoryTree],
+        input: &str,
+    ) -> Option<(u16, u16)> {
+        let block = Block::default()
+            .title("Inspect Taxonomy")
+            .borders(Borders::ALL);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if inner.width == 0 || inner.height == 0 {
+            return None;
+        }
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(8), Constraint::Length(4)])
+            .split(inner);
+
+        let tree = crate::terminal::report::render_category_tree(categories);
+        frame.render_widget(
+            Paragraph::new(Text::from(vec![
+                Line::from("Review the current taxonomy."),
+                Line::from(""),
+                Line::from(tree),
+                Line::from(""),
+                Line::from("Type below, press Enter on an empty field to accept, or q to cancel."),
+            ]))
+            .wrap(Wrap { trim: false }),
+            chunks[0],
+        );
+
+        draw_text_field(frame, chunks[1], "Suggestion", input)
+    }
+}
+
+fn draw_text_field(frame: &mut Frame, area: Rect, title: &str, buffer: &str) -> Option<(u16, u16)> {
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return None;
+    }
+
+    let (display, cursor_offset) = input_window(buffer, inner.width as usize);
+    frame.render_widget(
+        Paragraph::new(Text::from(vec![
+            Line::from(Span::styled(
+                display,
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            )),
+            Line::from(Span::styled(
+                "─".repeat(inner.width as usize),
+                Style::default().fg(Color::Cyan),
+            )),
+        ])),
+        inner,
+    );
+
+    Some((inner.x + cursor_offset as u16, inner.y))
+}
+
+fn input_window(buffer: &str, width: usize) -> (String, usize) {
+    if width <= 1 {
+        return (String::new(), 0);
+    }
+
+    let visible_len = width - 1;
+    let total_len = buffer.chars().count();
+    let start = total_len.saturating_sub(visible_len);
+    let display = buffer.chars().skip(start).collect::<String>();
+    let cursor_offset = display.chars().count().min(width - 1);
+
+    (display, cursor_offset)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
