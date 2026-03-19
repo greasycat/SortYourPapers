@@ -1,8 +1,12 @@
+use std::time::Instant;
+
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
     widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap},
 };
+
+use crate::terminal;
 
 use super::{
     app::App,
@@ -313,54 +317,12 @@ impl App {
     }
 
     fn draw_operation_summary_tab(&self, frame: &mut Frame, area: Rect) {
-        let alerts_visible = self.operation.alerts.len().min(5);
-        let alert_height =
-            (alerts_visible as u16 + 2).clamp(4, area.height.saturating_sub(8).max(4));
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(6),
-                Constraint::Length(alert_height),
-                Constraint::Min(6),
-            ])
+            .constraints([Constraint::Min(6), Constraint::Length(5)])
             .split(area);
 
-        let progress_summary = if self.progress.is_empty() {
-            "none".to_string()
-        } else {
-            self.progress
-                .iter()
-                .take(4)
-                .map(|entry| entry.label())
-                .collect::<Vec<_>>()
-                .join(" | ")
-        };
-        let highlight_lines = vec![
-            Line::from(format!("state: {}", self.operation.state.label())),
-            Line::from(format!("summary: {}", self.operation.summary)),
-            Line::from(format!(
-                "stage: {}",
-                if self.operation.stage_label.is_empty() {
-                    "waiting".to_string()
-                } else {
-                    self.operation.stage_label.clone()
-                }
-            )),
-            Line::from(format!(
-                "stage detail: {}",
-                if self.operation.stage_message.is_empty() {
-                    "No live stage detail yet.".to_string()
-                } else {
-                    self.operation.stage_message.clone()
-                }
-            )),
-            Line::from(format!("active batches: {progress_summary}")),
-            Line::from(format!(
-                "artifacts: taxonomy={} report={}",
-                yes_no(!self.operation_taxonomy_lines().is_empty()),
-                yes_no(!self.operation_report_lines().is_empty())
-            )),
-        ];
+        let highlight_lines = self.operation_highlight_lines();
         frame.render_widget(
             Paragraph::new(highlight_lines)
                 .wrap(Wrap { trim: false })
@@ -368,74 +330,75 @@ impl App {
             chunks[0],
         );
 
-        let alert_lines = if self.operation.alerts.is_empty() {
-            vec![Line::from("No pinned warnings or errors yet.")]
-        } else {
-            self.operation
-                .alerts
-                .iter()
-                .rev()
-                .take(5)
-                .rev()
-                .map(|alert| {
-                    Line::from(Span::styled(
-                        alert.line(),
-                        Style::default().fg(alert.color()),
-                    ))
-                })
-                .collect::<Vec<_>>()
-        };
-        frame.render_widget(
-            Paragraph::new(alert_lines)
-                .wrap(Wrap { trim: false })
-                .block(
-                    Block::default()
-                        .title("Pinned Alerts")
-                        .borders(Borders::ALL),
-                ),
-            chunks[1],
-        );
-
-        let (title, body) = match self.operation.state {
-            OperationState::Running => (
-                "Live Run",
-                vec![
-                    Line::from("Use 2 Logs for raw output and retries."),
-                    Line::from("Use 3 Taxonomy after category data appears."),
-                    Line::from("Use 4 Report after a run report is emitted."),
-                    Line::from("Esc returns after the run becomes idle."),
-                ],
-            ),
-            OperationState::Success => (
-                "Success",
-                vec![
-                    Line::from(self.operation.summary.clone()),
-                    Line::from("Next actions: 3 Taxonomy, 4 Report, s Sessions."),
-                    Line::from("Esc returns to the screen that launched this operation."),
-                ],
-            ),
-            OperationState::Failure => (
-                "Failure",
-                vec![
-                    Line::from(self.operation.summary.clone()),
-                    Line::from("Review pinned alerts and the Logs tab first."),
-                    Line::from("Next actions: 2 Logs, s Sessions, Esc back."),
-                ],
-            ),
-            OperationState::Idle => (
-                "Ready",
-                vec![
-                    Line::from(self.operation.summary.clone()),
-                    Line::from("No active operation is running."),
-                ],
-            ),
+        let body = match self.operation.state {
+            OperationState::Running => vec![
+                Line::from(self.operation.summary.clone()),
+                Line::from("Use 2 Logs for raw output and retries."),
+                Line::from("Use 3 Taxonomy or 4 Report as artifacts arrive."),
+            ],
+            OperationState::Success => vec![
+                Line::from(self.operation.summary.clone()),
+                Line::from("Next actions: 3 Taxonomy, 4 Report, s Sessions."),
+                Line::from("Esc returns to the screen that launched this operation."),
+            ],
+            OperationState::Failure => vec![
+                Line::from(self.operation.summary.clone()),
+                Line::from("Use 2 Logs for details and s Sessions for follow-up."),
+                Line::from("Esc returns after the operation becomes idle."),
+            ],
+            OperationState::Idle => vec![
+                Line::from(self.operation.summary.clone()),
+                Line::from("No active operation is running."),
+                Line::from("Launch a run from the Run Configuration screen."),
+            ],
         };
         frame.render_widget(
             Paragraph::new(body)
                 .wrap(Wrap { trim: false })
-                .block(Block::default().title(title).borders(Borders::ALL)),
-            chunks[2],
+                .block(Block::default().title("Run Summary").borders(Borders::ALL)),
+            chunks[1],
         );
+    }
+
+    fn operation_highlight_lines(&self) -> Vec<Line<'static>> {
+        let mut lines = vec![Line::from(format!("summary: {}", self.operation.summary))];
+        let timing_lines = self.operation_stage_timing_lines();
+
+        if timing_lines.is_empty() {
+            lines.push(Line::from("No completed stage timings yet."));
+        } else {
+            lines.extend(timing_lines.into_iter().map(Line::from));
+        }
+
+        lines
+    }
+
+    fn operation_stage_timing_lines(&self) -> Vec<String> {
+        let mut lines = self
+            .operation
+            .stage_timings
+            .iter()
+            .map(|timing| {
+                format!(
+                    "{}: {}",
+                    timing.stage,
+                    terminal::format_duration(timing.elapsed)
+                )
+            })
+            .collect::<Vec<_>>();
+
+        if let (Some(started_at), false) = (
+            self.operation.stage_started_at,
+            self.operation.stage_label.is_empty(),
+        ) {
+            lines.push(format!(
+                "{}: {} (running)",
+                self.operation.stage_label,
+                terminal::format_duration(Instant::now().saturating_duration_since(started_at))
+            ));
+        }
+
+        lines
     }
 
     fn draw_operation_logs_tab(&self, frame: &mut Frame, area: Rect) {
@@ -890,8 +853,4 @@ fn focused_panel_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
         .title(title)
         .borders(Borders::ALL)
         .border_style(border_style)
-}
-
-fn yes_no(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
 }

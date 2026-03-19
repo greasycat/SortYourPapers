@@ -1,4 +1,7 @@
-use std::collections::VecDeque;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use ratatui::prelude::{Color, Style};
 
@@ -79,12 +82,14 @@ impl OperationState {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub(super) struct OperationAlert {
     pub(super) severity: AlertSeverity,
     pub(super) label: String,
     pub(super) message: String,
 }
 
+#[allow(dead_code)]
 impl OperationAlert {
     pub(super) fn new(severity: AlertSeverity, label: String, message: String) -> Self {
         Self {
@@ -118,6 +123,8 @@ pub(super) struct OperationView {
     pub(super) alerts: VecDeque<OperationAlert>,
     pub(super) stage_label: String,
     pub(super) stage_message: String,
+    pub(super) stage_started_at: Option<Instant>,
+    pub(super) stage_timings: Vec<StageTiming>,
     pub(super) origin: Screen,
 }
 
@@ -135,9 +142,16 @@ impl Default for OperationView {
             alerts: VecDeque::new(),
             stage_label: String::new(),
             stage_message: String::new(),
+            stage_started_at: None,
+            stage_timings: Vec::new(),
             origin: Screen::Home,
         }
     }
+}
+
+pub(super) struct StageTiming {
+    pub(super) stage: String,
+    pub(super) elapsed: Duration,
 }
 
 #[derive(Default)]

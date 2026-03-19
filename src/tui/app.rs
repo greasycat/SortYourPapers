@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::mpsc, thread};
+use std::{collections::VecDeque, sync::mpsc, thread, time::Instant};
 
 use crate::error::Result;
 
@@ -7,7 +7,7 @@ use super::{
     forms::RunForm,
     model::{
         OperationAlert, OperationDetail, OperationOutcome, OperationState, OperationTab, Overlay,
-        ProgressEntry, Screen,
+        ProgressEntry, Screen, StageTiming,
     },
     session_view::SessionView,
     taxonomy_review::TaxonomyReviewView,
@@ -90,8 +90,7 @@ impl App {
                     self.progress.retain(|entry| entry.id != id);
                 }
                 BackendEvent::StageStatus { stage, message } => {
-                    self.operation.stage_label = stage;
-                    self.operation.stage_message = message;
+                    self.record_stage_status(stage, message);
                 }
                 BackendEvent::Alert {
                     severity,
@@ -137,6 +136,7 @@ impl App {
 
     pub(super) fn drain_operation_events(&mut self) {
         while let Ok(outcome) = self.op_rx.try_recv() {
+            self.finish_current_stage_timing();
             let origin = self.operation.origin;
             self.taxonomy_review = None;
             self.operation.title = outcome.title;
@@ -306,6 +306,8 @@ impl App {
             alerts: VecDeque::new(),
             stage_label: String::new(),
             stage_message: String::new(),
+            stage_started_at: None,
+            stage_timings: Vec::new(),
             origin,
         };
         self.logs.clear();
@@ -334,5 +336,31 @@ impl App {
     pub(super) fn finish_taxonomy_review(&mut self) {
         self.taxonomy_review = None;
         self.screen = Screen::Operation;
+    }
+
+    fn record_stage_status(&mut self, stage: String, message: String) {
+        if self.operation.stage_label != stage {
+            self.finish_current_stage_timing();
+            self.operation.stage_started_at = Some(Instant::now());
+            self.operation.stage_label = stage;
+        } else if self.operation.stage_started_at.is_none() {
+            self.operation.stage_started_at = Some(Instant::now());
+        }
+
+        self.operation.stage_message = message;
+    }
+
+    fn finish_current_stage_timing(&mut self) {
+        let Some(started_at) = self.operation.stage_started_at.take() else {
+            return;
+        };
+        if self.operation.stage_label.is_empty() {
+            return;
+        }
+
+        self.operation.stage_timings.push(StageTiming {
+            stage: self.operation.stage_label.clone(),
+            elapsed: started_at.elapsed(),
+        });
     }
 }

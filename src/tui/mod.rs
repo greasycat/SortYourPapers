@@ -81,7 +81,7 @@ async fn run_loop(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::VecDeque, sync::mpsc};
+    use std::{collections::VecDeque, sync::mpsc, time::Duration};
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend, layout::Position, style::Color};
@@ -100,7 +100,7 @@ mod tests {
     use super::{
         App, BackendEvent, OperationDetail, OperationState, OperationView, Overlay, ProgressEntry,
         RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
-        model::OperationTab,
+        model::{OperationTab, StageTiming},
         taxonomy_review::{
             PendingReviewReply, ReviewIteration, ReviewPane, ReviewPhase, TaxonomyReviewView,
         },
@@ -921,6 +921,55 @@ mod tests {
             lines
                 .iter()
                 .any(|line| line.contains("running keyword extraction"))
+        );
+    }
+
+    #[test]
+    fn operation_summary_removes_pinned_alerts_and_failure_panel() {
+        let mut app = test_app();
+        app.operation.state = OperationState::Failure;
+        app.operation.summary = "run completed with one or more failures".to_string();
+        app.operation
+            .alerts
+            .push_back(super::model::OperationAlert::new(
+                AlertSeverity::Error,
+                "EXTRACT".to_string(),
+                "paper.pdf: extraction failed".to_string(),
+            ));
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(!lines.iter().any(|line| line.contains("Pinned Alerts")));
+        assert!(!lines.iter().any(|line| line.contains("┌Failure")));
+        assert!(lines.iter().any(|line| line.contains("Run Summary")));
+    }
+
+    #[test]
+    fn operation_summary_lists_stage_timings_on_separate_lines() {
+        let mut app = test_app();
+        app.operation.summary = "run completed".to_string();
+        app.operation.stage_timings = vec![
+            StageTiming {
+                stage: "discover-input".to_string(),
+                elapsed: Duration::from_millis(500),
+            },
+            StageTiming {
+                stage: "extract-text".to_string(),
+                elapsed: Duration::from_secs(2),
+            },
+        ];
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("discover-input: 500.0ms"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("extract-text: 2.000s"))
         );
     }
 
