@@ -1260,6 +1260,40 @@ mod tests {
     }
 
     #[test]
+    fn taxonomy_review_focus_order_matches_panel_order() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(TaxonomyReviewView::new(
+            sample_taxonomy_categories(),
+            inspect_tx,
+        ));
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)))
+            .expect("tab should move to history");
+        assert_eq!(
+            app.taxonomy_review
+                .as_ref()
+                .expect("review should stay open")
+                .focused_pane,
+            ReviewPane::History
+        );
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)))
+            .expect("tab should move to iteration taxonomy");
+        assert_eq!(
+            app.taxonomy_review
+                .as_ref()
+                .expect("review should stay open")
+                .focused_pane,
+            ReviewPane::IterationTaxonomy
+        );
+    }
+
+    #[test]
     fn operation_tab_hotkeys_switch_views_and_scroll_logs() {
         let mut app = test_app();
         app.logs = (0..40)

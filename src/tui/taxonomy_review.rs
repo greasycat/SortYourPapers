@@ -23,18 +23,18 @@ impl ReviewPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ReviewPane {
     Suggestion,
-    IterationTaxonomy,
     History,
+    IterationTaxonomy,
 }
 
 impl ReviewPane {
-    const ALL: [Self; 3] = [Self::Suggestion, Self::IterationTaxonomy, Self::History];
+    const ALL: [Self; 3] = [Self::Suggestion, Self::History, Self::IterationTaxonomy];
 
     pub(super) fn index(self) -> usize {
         match self {
             Self::Suggestion => 0,
-            Self::IterationTaxonomy => 1,
-            Self::History => 2,
+            Self::History => 1,
+            Self::IterationTaxonomy => 2,
         }
     }
 
