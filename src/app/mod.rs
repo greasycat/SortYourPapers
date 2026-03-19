@@ -23,7 +23,7 @@ use crate::{
     terminal::{self, InspectReviewPrompt, Verbosity},
 };
 
-const DEBUG_TUI_PROGRESS_DELAY: Duration = Duration::from_secs(1);
+const DEBUG_TUI_PROGRESS_DELAY: Duration = Duration::from_millis(200);
 const DEBUG_TUI_PROGRESS_SETTLE_DELAY: Duration = Duration::from_millis(250);
 
 /// Resolves CLI arguments into an application config and runs the main workflow.
