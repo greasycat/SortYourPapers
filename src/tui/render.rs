@@ -14,17 +14,10 @@ use super::{
 
 impl App {
     pub(super) fn draw(&self, frame: &mut Frame) {
-        let footer_height = match self.screen {
-            Screen::Operation | Screen::TaxonomyReview => 3,
-            _ => 11,
-        };
+        let header_height = self.header_height(frame.area().width);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Min(10),
-                Constraint::Length(footer_height),
-            ])
+            .constraints([Constraint::Length(header_height), Constraint::Min(10)])
             .split(frame.area());
 
         self.draw_header(frame, chunks[0]);
@@ -39,11 +32,17 @@ impl App {
                 }
             }
         }
-        self.draw_footer(frame, chunks[2]);
 
         if let Some(overlay) = &self.overlay {
             self.draw_overlay(frame, overlay);
         }
+    }
+
+    fn header_height(&self, width: u16) -> u16 {
+        let inner_width = width.saturating_sub(2).max(1) as usize;
+        let chips_line_width = shortcut_line_width(self.shortcut_actions());
+        let chip_lines = wrapped_line_count_for_width(chips_line_width, inner_width);
+        (chip_lines + 3) as u16
     }
 
     fn draw_header(&self, frame: &mut Frame, area: Rect) {
@@ -54,20 +53,24 @@ impl App {
             Screen::Operation => &self.operation.title,
             Screen::TaxonomyReview => "Taxonomy Review",
         };
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled(
-                " SortYourPapers ",
-                Style::default().fg(Color::Black).bg(Color::Cyan),
-            ),
-            Span::raw(format!(" {title}")),
-            Span::raw(" "),
-            Span::styled(
-                format!("[{}]", self.operation.state.label()),
-                Style::default()
-                    .fg(self.operation.state.color())
-                    .add_modifier(Modifier::BOLD),
-            ),
+        let header = Paragraph::new(Text::from(vec![
+            Line::from(vec![
+                Span::styled(
+                    " SortYourPapers ",
+                    Style::default().fg(Color::Black).bg(Color::Cyan),
+                ),
+                Span::raw(format!(" {title}")),
+                Span::raw(" "),
+                Span::styled(
+                    format!("[{}]", self.operation.state.label()),
+                    Style::default()
+                        .fg(self.operation.state.color())
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(shortcut_chip_spans(self.shortcut_actions())),
         ]))
+        .wrap(Wrap { trim: false })
         .block(Block::default().borders(Borders::ALL));
         frame.render_widget(header, area);
     }
@@ -474,17 +477,7 @@ impl App {
         );
     }
 
-    fn draw_footer(&self, frame: &mut Frame, area: Rect) {
-        let help = self.footer_actions();
-        frame.render_widget(
-            Paragraph::new(Line::from(footer_spans(help)))
-                .wrap(Wrap { trim: false })
-                .block(Block::default().borders(Borders::ALL)),
-            area,
-        );
-    }
-
-    fn footer_actions(&self) -> &'static [(&'static str, &'static str)] {
+    fn shortcut_actions(&self) -> &'static [(&'static str, &'static str)] {
         match self.screen {
             Screen::Home => &[("↑/↓", "move"), ("Enter", "open"), ("Esc", "quit")],
             Screen::RunForm => &[
@@ -519,7 +512,7 @@ impl App {
             Screen::TaxonomyReview => self
                 .taxonomy_review
                 .as_ref()
-                .map(|review| review.footer_actions())
+                .map(|review| review.shortcut_actions())
                 .unwrap_or(&[("Tab/h/l", "change pane"), ("j/k", "scroll")]),
         }
     }
@@ -776,7 +769,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn footer_spans(actions: &[(&str, &str)]) -> Vec<Span<'static>> {
+fn shortcut_chip_spans(actions: &[(&str, &str)]) -> Vec<Span<'static>> {
     let palette = [
         Color::LightCyan,
         Color::LightGreen,
@@ -802,6 +795,25 @@ fn footer_spans(actions: &[(&str, &str)]) -> Vec<Span<'static>> {
     }
 
     spans
+}
+
+fn shortcut_line_width(actions: &[(&str, &str)]) -> usize {
+    actions
+        .iter()
+        .enumerate()
+        .map(|(index, (key, action))| {
+            let spacer = usize::from(index > 0);
+            spacer + 4 + key.chars().count() + action.chars().count()
+        })
+        .sum()
+}
+
+fn wrapped_line_count_for_width(line_width: usize, width: usize) -> usize {
+    if width == 0 {
+        return 1;
+    }
+
+    line_width.max(1).div_ceil(width)
 }
 
 fn compact_overlay_rect(area: Rect, title: &str, lines: &[&str]) -> Rect {

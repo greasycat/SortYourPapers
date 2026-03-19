@@ -182,17 +182,16 @@ mod tests {
         end - start + 1
     }
 
-    fn footer_colored_cell_count(app: &App, width: u16, height: u16) -> usize {
+    fn header_colored_cell_count(app: &App, width: u16, height: u16) -> usize {
         let terminal = render_app(app, width, height);
         let buffer = terminal.backend().buffer();
         let area = buffer.area();
-        let footer_height = match app.screen {
-            Screen::Operation | Screen::TaxonomyReview => 3,
-            _ => 11,
-        };
-        let footer_start = area.height.saturating_sub(footer_height);
+        let header_end = (0..area.height)
+            .find(|y| (0..area.width).any(|x| buffer[(x, *y)].symbol() == "└"))
+            .map(|y| y + 1)
+            .unwrap_or(area.height.min(6));
 
-        (footer_start..area.height)
+        (0..header_end)
             .flat_map(|y| (0..area.width).map(move |x| buffer[(x, y)].bg))
             .filter(|bg| *bg != Color::Reset)
             .count()
@@ -555,12 +554,12 @@ mod tests {
     }
 
     #[test]
-    fn footer_renders_colored_key_hint_chips() {
+    fn header_renders_colored_key_hint_chips() {
         let mut app = test_app();
         app.screen = Screen::Home;
 
         let lines = render_lines(&app, 80, 24);
-        let colored_cells = footer_colored_cell_count(&app, 80, 24);
+        let colored_cells = header_colored_cell_count(&app, 80, 24);
 
         assert!(lines.iter().any(|line| line.contains("↑/↓: move")));
         assert!(lines.iter().any(|line| line.contains("Enter: open")));
@@ -568,7 +567,20 @@ mod tests {
     }
 
     #[test]
-    fn run_form_footer_describes_enter_as_edit_only() {
+    fn key_hints_render_in_header_not_bottom_panel() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+
+        let lines = render_lines(&app, 80, 24);
+        let top_region = &lines[..6.min(lines.len())];
+        let bottom_region = &lines[lines.len().saturating_sub(6)..];
+
+        assert!(top_region.iter().any(|line| line.contains("↑/↓: move")));
+        assert!(!bottom_region.iter().any(|line| line.contains("↑/↓: move")));
+    }
+
+    #[test]
+    fn run_form_header_describes_enter_as_edit_only() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
 

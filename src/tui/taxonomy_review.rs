@@ -390,7 +390,7 @@ impl TaxonomyReviewView {
         lines
     }
 
-    pub(super) fn footer_actions(&self) -> &'static [(&'static str, &'static str)] {
+    pub(super) fn shortcut_actions(&self) -> &'static [(&'static str, &'static str)] {
         if self.editing {
             &[
                 ("Enter", "submit suggestion"),
