@@ -9,12 +9,13 @@ use super::{
     forms::HOME_ITEMS,
     model::{OperationState, OperationTab, Overlay, Screen},
     session_view::rerun_stage_name,
+    taxonomy_review::ReviewPane,
 };
 
 impl App {
     pub(super) fn draw(&self, frame: &mut Frame) {
         let footer_height = match self.screen {
-            Screen::Operation => 3,
+            Screen::Operation | Screen::TaxonomyReview => 3,
             _ => 11,
         };
         let chunks = Layout::default()
@@ -32,6 +33,11 @@ impl App {
             Screen::RunForm => self.run_form.draw(frame, chunks[1]),
             Screen::Sessions => self.session_view.draw(frame, chunks[1]),
             Screen::Operation => self.draw_operation(frame, chunks[1]),
+            Screen::TaxonomyReview => {
+                if let Some((x, y)) = self.draw_taxonomy_review(frame, chunks[1]) {
+                    frame.set_cursor_position((x, y));
+                }
+            }
         }
         self.draw_footer(frame, chunks[2]);
 
@@ -46,6 +52,7 @@ impl App {
             Screen::RunForm => "Run Configuration",
             Screen::Sessions => "Sessions",
             Screen::Operation => &self.operation.title,
+            Screen::TaxonomyReview => "Taxonomy Review",
         };
         let header = Paragraph::new(Line::from(vec![
             Span::styled(
@@ -122,6 +129,81 @@ impl App {
         self.draw_operation_status(frame, chunks[0]);
         self.draw_operation_tabs(frame, chunks[1]);
         self.draw_operation_content(frame, chunks[2]);
+    }
+
+    fn draw_taxonomy_review(&self, frame: &mut Frame, area: Rect) -> Option<(u16, u16)> {
+        let Some(review) = &self.taxonomy_review else {
+            return None;
+        };
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(5), Constraint::Min(0)])
+            .split(area);
+
+        frame.render_widget(
+            Paragraph::new(
+                review
+                    .status_lines()
+                    .into_iter()
+                    .map(Line::from)
+                    .collect::<Vec<_>>(),
+            )
+            .wrap(Wrap { trim: false })
+            .block(
+                Block::default()
+                    .title("Review Status")
+                    .borders(Borders::ALL),
+            ),
+            chunks[0],
+        );
+
+        let content = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(chunks[1]);
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(8),
+                Constraint::Min(8),
+                Constraint::Length(8),
+            ])
+            .split(content[1]);
+
+        draw_scrolled_panel_with_block(
+            frame,
+            content[0],
+            focused_panel_block(
+                "Accepted Taxonomy",
+                review.focused_pane == ReviewPane::Accepted,
+            ),
+            review.accepted_lines(),
+            review.accepted_scroll,
+            "No accepted taxonomy is available.",
+        );
+        let cursor = self.draw_taxonomy_review_suggestion_panel(frame, right[0]);
+        draw_scrolled_panel_with_block(
+            frame,
+            right[1],
+            focused_panel_block(
+                "Suggested Taxonomy",
+                review.focused_pane == ReviewPane::Candidate,
+            ),
+            review.candidate_lines(),
+            review.candidate_scroll,
+            "No candidate yet. Submit a suggestion to compare a proposed taxonomy.",
+        );
+        draw_scrolled_panel_with_block(
+            frame,
+            right[2],
+            focused_panel_block("History", review.focused_pane == ReviewPane::History),
+            review.history_lines(),
+            review.history_scroll,
+            "No suggestions submitted yet.",
+        );
+
+        cursor
     }
 
     fn draw_operation_status(&self, frame: &mut Frame, area: Rect) {
@@ -406,6 +488,11 @@ impl App {
             Screen::Operation => {
                 "Tab/h/l switch  1-4 jump tab  j/k scroll  PgUp/PgDn page  g/G start/end  s sessions  Esc back when idle"
             }
+            Screen::TaxonomyReview => self
+                .taxonomy_review
+                .as_ref()
+                .map(|review| review.footer_help())
+                .unwrap_or("Tab/h/l change pane  j/k scroll"),
         };
         frame.render_widget(
             Paragraph::new(help).block(Block::default().borders(Borders::ALL)),
@@ -422,30 +509,6 @@ impl App {
                 if let Some((x, y)) = self.draw_edit_field_overlay(frame, area, label, buffer) {
                     frame.set_cursor_position((x, y));
                 }
-            }
-            Overlay::InspectPrompt {
-                categories, input, ..
-            } => {
-                if let Some((x, y)) =
-                    self.draw_inspect_prompt_overlay(frame, area, categories, input)
-                {
-                    frame.set_cursor_position((x, y));
-                }
-            }
-            Overlay::ContinuePrompt { .. } => {
-                let widget = Paragraph::new(Text::from(vec![
-                    Line::from("Continue improving this taxonomy?"),
-                    Line::from(""),
-                    Line::from("y continue"),
-                    Line::from("Enter or n finish"),
-                    Line::from("Esc cancel"),
-                ]))
-                .block(
-                    Block::default()
-                        .title("Continue Improving")
-                        .borders(Borders::ALL),
-                );
-                frame.render_widget(widget, area);
             }
             Overlay::Confirm { title, message, .. } => {
                 let widget = Paragraph::new(Text::from(vec![
@@ -508,17 +571,69 @@ impl App {
 
                 let impact_lines = stages
                     .get(*selected)
-                    .and_then(|stage| crate::session::commands::describe_rerun_impact(config, *stage).ok())
+                    .and_then(|stage| {
+                        crate::session::commands::describe_rerun_impact(config, *stage).ok()
+                    })
                     .map(|impact| impact.lines())
                     .unwrap_or_else(|| vec!["Could not describe rerun impact.".to_string()]);
                 frame.render_widget(
                     Paragraph::new(impact_lines.into_iter().map(Line::from).collect::<Vec<_>>())
                         .wrap(Wrap { trim: false })
-                        .block(Block::default().title("Rerun Consequences").borders(Borders::ALL)),
+                        .block(
+                            Block::default()
+                                .title("Rerun Consequences")
+                                .borders(Borders::ALL),
+                        ),
                     chunks[1],
                 );
             }
         }
+    }
+
+    fn draw_taxonomy_review_suggestion_panel(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+    ) -> Option<(u16, u16)> {
+        let Some(review) = &self.taxonomy_review else {
+            return None;
+        };
+
+        let block =
+            focused_panel_block("Suggestion", review.focused_pane == ReviewPane::Suggestion);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        if inner.width == 0 || inner.height == 0 {
+            return None;
+        }
+
+        let mut constraints = vec![Constraint::Min(3)];
+        if review.editing {
+            constraints.push(Constraint::Length(3));
+        }
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(inner);
+
+        frame.render_widget(
+            Paragraph::new(
+                review
+                    .suggestion_lines()
+                    .into_iter()
+                    .map(Line::from)
+                    .collect::<Vec<_>>(),
+            )
+            .wrap(Wrap { trim: false })
+            .scroll((review.focused_scroll().unwrap_or(0), 0)),
+            chunks[0],
+        );
+
+        if review.editing && chunks.len() > 1 {
+            return draw_text_field(frame, chunks[1], "Draft", &review.suggestion_buffer);
+        }
+
+        None
     }
 
     fn draw_edit_field_overlay(
@@ -556,56 +671,6 @@ impl App {
         );
 
         draw_text_field(frame, chunks[1], label, buffer)
-    }
-
-    fn draw_inspect_prompt_overlay(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        categories: &[crate::papers::taxonomy::CategoryTree],
-        input: &str,
-    ) -> Option<(u16, u16)> {
-        let block = Block::default()
-            .title("Inspect Taxonomy")
-            .borders(Borders::ALL);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        if inner.width == 0 || inner.height == 0 {
-            return None;
-        }
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Length(4),
-                Constraint::Min(0),
-            ])
-            .split(inner);
-
-        frame.render_widget(
-            Paragraph::new(Text::from(vec![
-                Line::from("Review the current taxonomy."),
-                Line::from(""),
-                Line::from(
-                    "Type below, press Enter on an empty field to accept, or Esc to cancel.",
-                ),
-            ]))
-            .wrap(Wrap { trim: false }),
-            chunks[0],
-        );
-
-        let cursor = draw_text_field(frame, chunks[1], "Suggestion", input);
-
-        let tree = crate::terminal::report::render_category_tree(categories);
-        frame.render_widget(
-            Paragraph::new(Text::from(vec![Line::from(""), Line::from(tree)]))
-                .wrap(Wrap { trim: false }),
-            chunks[2],
-        );
-
-        cursor
     }
 }
 
@@ -698,6 +763,42 @@ fn draw_scrolled_panel(
             .block(Block::default().title(title).borders(Borders::ALL)),
         area,
     );
+}
+
+fn draw_scrolled_panel_with_block(
+    frame: &mut Frame,
+    area: Rect,
+    block: Block<'_>,
+    lines: Vec<String>,
+    scroll: u16,
+    empty_message: &str,
+) {
+    let content = if lines.is_empty() {
+        vec![Line::from(empty_message.to_string())]
+    } else {
+        lines.into_iter().map(Line::from).collect::<Vec<_>>()
+    };
+    frame.render_widget(
+        Paragraph::new(content)
+            .scroll((scroll, 0))
+            .wrap(Wrap { trim: false })
+            .block(block),
+        area,
+    );
+}
+
+fn focused_panel_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
+    let border_style = if focused {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(border_style)
 }
 
 fn yes_no(value: bool) -> &'static str {

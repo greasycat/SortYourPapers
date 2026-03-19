@@ -16,6 +16,7 @@ use super::{
         Screen,
     },
     session_view::rerun_stage_name,
+    taxonomy_review::ReviewPhase,
 };
 
 impl App {
@@ -29,6 +30,7 @@ impl App {
             Screen::RunForm => self.handle_run_form_key(key).await,
             Screen::Sessions => self.handle_sessions_key(key).await,
             Screen::Operation => self.handle_operation_key(key),
+            Screen::TaxonomyReview => self.handle_taxonomy_review_key(key),
         }
     }
 
@@ -270,6 +272,87 @@ impl App {
         Ok(())
     }
 
+    fn handle_taxonomy_review_key(&mut self, key: KeyEvent) -> Result<()> {
+        let Some(review) = self.taxonomy_review.as_mut() else {
+            self.screen = Screen::Operation;
+            return Ok(());
+        };
+
+        if review.editing {
+            match key.code {
+                KeyCode::Esc => review.stop_editing(),
+                KeyCode::Enter => {
+                    if let Some(suggestion) = review.submit_suggestion()
+                        && let Some(reply) = review.take_inspect_reply()
+                    {
+                        let _ = reply.send(Ok(InspectReviewPrompt::Suggest(suggestion)));
+                    }
+                }
+                KeyCode::Backspace => review.pop_input(),
+                KeyCode::Char(c) => {
+                    if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                        review.append_input(c);
+                    }
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
+        match key.code {
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => review.focus_next(),
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => review.focus_previous(),
+            KeyCode::Down | KeyCode::Char('j') => review.scroll_focused(1),
+            KeyCode::Up | KeyCode::Char('k') => review.scroll_focused(-1),
+            KeyCode::PageDown => review.scroll_focused(10),
+            KeyCode::PageUp => review.scroll_focused(-10),
+            KeyCode::Char('g') => review.jump_focused(false),
+            KeyCode::Char('G') => review.jump_focused(true),
+            KeyCode::Char('s') if matches!(review.phase, ReviewPhase::Drafting) => {
+                review.start_editing();
+            }
+            KeyCode::Char('a') => match review.phase {
+                ReviewPhase::Drafting => {
+                    if let Some(reply) = review.take_inspect_reply() {
+                        let _ = reply.send(Ok(InspectReviewPrompt::Accept));
+                        self.finish_taxonomy_review();
+                    }
+                }
+                ReviewPhase::PostSuggestionDecision => {
+                    if let Some(reply) = review.take_continue_reply() {
+                        let _ = reply.send(Ok(false));
+                        self.finish_taxonomy_review();
+                    }
+                }
+                ReviewPhase::WaitingForModel => {}
+            },
+            KeyCode::Char('i') if matches!(review.phase, ReviewPhase::PostSuggestionDecision) => {
+                if let Some(reply) = review.take_continue_reply() {
+                    let _ = reply.send(Ok(true));
+                    review.promote_candidate_to_accepted();
+                }
+            }
+            KeyCode::Char('c') | KeyCode::Esc => {
+                let cancelled = if let Some(reply) = review.take_inspect_reply() {
+                    let _ = reply.send(Err("inspect-output cancelled".to_string()));
+                    true
+                } else if let Some(reply) = review.take_continue_reply() {
+                    let _ = reply.send(Err("inspect-output cancelled".to_string()));
+                    true
+                } else {
+                    false
+                };
+
+                if cancelled {
+                    self.finish_taxonomy_review();
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
     async fn handle_overlay_key(&mut self, key: KeyEvent) -> Result<bool> {
         let Some(mut overlay) = self.overlay.take() else {
             return Ok(false);
@@ -300,56 +383,6 @@ impl App {
                     }
                 }
                 return Ok(true);
-            }
-            Overlay::InspectPrompt { input, reply, .. } => {
-                match key.code {
-                    KeyCode::Esc => {
-                        let _ = reply.send(Err("inspect-output cancelled".to_string()));
-                    }
-                    KeyCode::Enter => {
-                        let response = if input.trim().is_empty() {
-                            InspectReviewPrompt::Accept
-                        } else {
-                            InspectReviewPrompt::Suggest(input.trim().to_string())
-                        };
-                        let _ = reply.send(Ok(response));
-                    }
-                    KeyCode::Backspace => {
-                        input.pop();
-                        self.overlay = Some(overlay);
-                        return Ok(true);
-                    }
-                    KeyCode::Char(c) => {
-                        if !key.modifiers.contains(KeyModifiers::CONTROL) {
-                            input.push(c);
-                        }
-                        self.overlay = Some(overlay);
-                        return Ok(true);
-                    }
-                    _ => {
-                        self.overlay = Some(overlay);
-                        return Ok(true);
-                    }
-                }
-                false
-            }
-            Overlay::ContinuePrompt { reply } => {
-                match key.code {
-                    KeyCode::Char('y') | KeyCode::Char('Y') => {
-                        let _ = reply.send(Ok(true));
-                    }
-                    KeyCode::Enter | KeyCode::Char('n') | KeyCode::Char('N') => {
-                        let _ = reply.send(Ok(false));
-                    }
-                    KeyCode::Esc => {
-                        let _ = reply.send(Err("inspect-output cancelled".to_string()));
-                    }
-                    _ => {
-                        self.overlay = Some(overlay);
-                        return Ok(true);
-                    }
-                }
-                false
             }
             Overlay::Confirm { action, .. } => {
                 match key.code {

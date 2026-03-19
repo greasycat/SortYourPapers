@@ -5,6 +5,7 @@ mod input;
 mod model;
 mod render;
 mod session_view;
+mod taxonomy_review;
 
 use std::{
     sync::{Arc, mpsc},
@@ -87,14 +88,22 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::{
-        papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode, terminal::AlertSeverity,
+        papers::placement::PlacementMode,
+        papers::taxonomy::{CategoryTree, TaxonomyMode},
         report::{FileAction, PlanAction, RunReport},
-        session::{RunStage, RunSummary, SessionConfigSummary, SessionDetails, SessionStatusSummary},
+        session::{
+            RunStage, RunSummary, SessionConfigSummary, SessionDetails, SessionStatusSummary,
+        },
+        terminal::{AlertSeverity, InspectReviewPrompt},
     };
 
     use super::{
         App, BackendEvent, OperationDetail, OperationState, OperationView, Overlay, ProgressEntry,
-        RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity, model::OperationTab,
+        RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
+        model::OperationTab,
+        taxonomy_review::{
+            PendingReviewReply, ReviewIteration, ReviewPane, ReviewPhase, TaxonomyReviewView,
+        },
     };
 
     fn test_app() -> App {
@@ -106,6 +115,7 @@ mod tests {
             run_form: RunForm::default(),
             session_view: SessionView::default(),
             overlay: None,
+            taxonomy_review: None,
             operation: OperationView {
                 title: "Operation".to_string(),
                 state: OperationState::Idle,
@@ -213,6 +223,16 @@ mod tests {
                 RunStage::BuildPlan,
             ],
         }
+    }
+
+    fn sample_taxonomy_categories() -> Vec<CategoryTree> {
+        vec![CategoryTree {
+            name: "AI".to_string(),
+            children: vec![CategoryTree {
+                name: "Vision".to_string(),
+                children: vec![],
+            }],
+        }]
     }
 
     #[test]
@@ -638,10 +658,8 @@ mod tests {
         app.screen = Screen::Sessions;
         let run = sample_session_run("run-complete", Some(RunStage::Completed));
         app.session_view.replace_runs_for_tests(vec![run.clone()]);
-        app.session_view.set_status_for_tests(
-            &run.run_id,
-            sample_session_status(true, false, false),
-        );
+        app.session_view
+            .set_status_for_tests(&run.run_id, sample_session_status(true, false, false));
         app.session_view
             .set_selected_details_for_tests(sample_session_details(run));
 
@@ -650,7 +668,11 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("Filters")));
         assert!(lines.iter().any(|line| line.contains("1 All")));
         assert!(lines.iter().any(|line| line.contains("Preview Tabs")));
-        assert!(lines.iter().any(|line| line.contains("provider: gemini / gemini-3-flash-preview")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("provider: gemini / gemini-3-flash-preview"))
+        );
     }
 
     #[test]
@@ -661,14 +683,10 @@ mod tests {
         let incomplete = sample_session_run("run-open", Some(RunStage::ExtractText));
         app.session_view
             .replace_runs_for_tests(vec![completed.clone(), incomplete.clone()]);
-        app.session_view.set_status_for_tests(
-            &completed.run_id,
-            sample_session_status(true, false, false),
-        );
-        app.session_view.set_status_for_tests(
-            &incomplete.run_id,
-            sample_session_status(false, true, true),
-        );
+        app.session_view
+            .set_status_for_tests(&completed.run_id, sample_session_status(true, false, false));
+        app.session_view
+            .set_status_for_tests(&incomplete.run_id, sample_session_status(false, true, true));
         app.session_view
             .set_selected_details_for_tests(sample_session_details(completed.clone()));
         let runtime = test_runtime();
@@ -677,15 +695,27 @@ mod tests {
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)))
             .expect("completed filter should be handled");
         let completed_lines = render_lines(&app, 120, 32);
-        assert!(completed_lines.iter().any(|line| line.contains("run-complete")));
+        assert!(
+            completed_lines
+                .iter()
+                .any(|line| line.contains("run-complete"))
+        );
         assert!(!completed_lines.iter().any(|line| line.contains("run-open")));
 
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE)))
             .expect("incomplete filter should be handled");
         let incomplete_lines = render_lines(&app, 120, 32);
-        assert!(incomplete_lines.iter().any(|line| line.contains("run-open")));
-        assert!(!incomplete_lines.iter().any(|line| line.contains("run-complete")));
+        assert!(
+            incomplete_lines
+                .iter()
+                .any(|line| line.contains("run-open"))
+        );
+        assert!(
+            !incomplete_lines
+                .iter()
+                .any(|line| line.contains("run-complete"))
+        );
     }
 
     #[test]
@@ -694,10 +724,8 @@ mod tests {
         app.screen = Screen::Sessions;
         let run = sample_session_run("run-complete", Some(RunStage::Completed));
         app.session_view.replace_runs_for_tests(vec![run.clone()]);
-        app.session_view.set_status_for_tests(
-            &run.run_id,
-            sample_session_status(true, false, false),
-        );
+        app.session_view
+            .set_status_for_tests(&run.run_id, sample_session_status(true, false, false));
         app.session_view
             .set_selected_details_for_tests(sample_session_details(run));
         let runtime = test_runtime();
@@ -745,6 +773,245 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("running keyword extraction"))
         );
+    }
+
+    #[test]
+    fn inspect_review_event_opens_dedicated_taxonomy_review_screen() {
+        let mut app = test_app();
+        let (backend_tx, backend_rx) = mpsc::channel();
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        app.backend_rx = backend_rx;
+
+        backend_tx
+            .send(BackendEvent::PromptInspectReview {
+                categories: sample_taxonomy_categories(),
+                reply: reply_tx,
+            })
+            .expect("prompt event should send");
+
+        app.drain_backend_events();
+
+        assert!(matches!(app.screen, Screen::TaxonomyReview));
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("taxonomy review should be open");
+        assert_eq!(review.accepted_categories[0].name, "AI");
+        assert!(review.history.is_empty());
+        assert_eq!(review.phase, ReviewPhase::Drafting);
+        assert_eq!(review.focused_pane, ReviewPane::Suggestion);
+    }
+
+    #[test]
+    fn taxonomy_review_submits_suggestion_and_enters_waiting_phase() {
+        let mut app = test_app();
+        let (reply_tx, reply_rx) = mpsc::channel();
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(TaxonomyReviewView::new(
+            sample_taxonomy_categories(),
+            reply_tx,
+        ));
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)))
+            .expect("s should start editing");
+        for character in "Merge vision".chars() {
+            runtime
+                .block_on(
+                    app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)),
+                )
+                .expect("typing should update the draft");
+        }
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
+            .expect("enter should submit the suggestion");
+
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("review should remain open while waiting");
+        assert_eq!(review.phase, ReviewPhase::WaitingForModel);
+        assert_eq!(
+            review.last_submitted_suggestion.as_deref(),
+            Some("Merge vision")
+        );
+        assert!(!review.editing);
+        assert_eq!(
+            reply_rx.recv().expect("reply should send"),
+            Ok(InspectReviewPrompt::Suggest("Merge vision".to_string()))
+        );
+    }
+
+    #[test]
+    fn taxonomy_review_candidate_tree_event_populates_candidate_and_history() {
+        let mut app = test_app();
+        let (backend_tx, backend_rx) = mpsc::channel();
+        app.backend_rx = backend_rx;
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.phase = ReviewPhase::WaitingForModel;
+        review.last_submitted_suggestion = Some("Merge vision".to_string());
+        app.taxonomy_review = Some(review);
+
+        backend_tx
+            .send(BackendEvent::CategoryTree(vec![CategoryTree {
+                name: "AI (merged)".to_string(),
+                children: vec![],
+            }]))
+            .expect("candidate event should send");
+
+        app.drain_backend_events();
+
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("review should still be open");
+        assert_eq!(
+            review
+                .candidate_categories
+                .as_ref()
+                .expect("candidate taxonomy")
+                .first()
+                .expect("candidate root")
+                .name,
+            "AI (merged)"
+        );
+        assert_eq!(review.history.len(), 1);
+        assert_eq!(review.history[0].suggestion, "Merge vision");
+    }
+
+    #[test]
+    fn continue_prompt_switches_taxonomy_review_to_candidate_decision() {
+        let mut app = test_app();
+        let (backend_tx, backend_rx) = mpsc::channel();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let (continue_tx, _continue_rx) = mpsc::channel();
+        app.backend_rx = backend_rx;
+        app.taxonomy_review = Some(TaxonomyReviewView::new(
+            sample_taxonomy_categories(),
+            inspect_tx,
+        ));
+
+        backend_tx
+            .send(BackendEvent::PromptContinueImproving { reply: continue_tx })
+            .expect("continue prompt should send");
+
+        app.drain_backend_events();
+
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("review should still exist");
+        assert_eq!(review.phase, ReviewPhase::PostSuggestionDecision);
+        assert_eq!(review.focused_pane, ReviewPane::Candidate);
+    }
+
+    #[test]
+    fn drafting_taxonomy_review_accept_sends_accept_and_returns_to_operation() {
+        let mut app = test_app();
+        let (reply_tx, reply_rx) = mpsc::channel();
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(TaxonomyReviewView::new(
+            sample_taxonomy_categories(),
+            reply_tx,
+        ));
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
+            .expect("a should accept the baseline taxonomy");
+
+        assert!(matches!(app.screen, Screen::Operation));
+        assert!(app.taxonomy_review.is_none());
+        assert_eq!(
+            reply_rx.recv().expect("reply should send"),
+            Ok(InspectReviewPrompt::Accept)
+        );
+    }
+
+    #[test]
+    fn candidate_accept_sends_finish_and_returns_to_operation() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let (continue_tx, continue_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.phase = ReviewPhase::PostSuggestionDecision;
+        review.candidate_categories = Some(vec![CategoryTree {
+            name: "AI (candidate)".to_string(),
+            children: vec![],
+        }]);
+        review.pending_reply = Some(PendingReviewReply::Continue(continue_tx));
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
+            .expect("a should accept the candidate taxonomy");
+
+        assert!(matches!(app.screen, Screen::Operation));
+        assert!(app.taxonomy_review.is_none());
+        assert_eq!(continue_rx.recv().expect("reply should send"), Ok(false));
+    }
+
+    #[test]
+    fn iterate_again_promotes_candidate_and_keeps_review_open() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let (continue_tx, continue_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.phase = ReviewPhase::PostSuggestionDecision;
+        review.candidate_categories = Some(vec![CategoryTree {
+            name: "AI (candidate)".to_string(),
+            children: vec![],
+        }]);
+        review.pending_reply = Some(PendingReviewReply::Continue(continue_tx));
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)))
+            .expect("i should continue the review loop");
+
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("review should stay open");
+        assert!(matches!(app.screen, Screen::TaxonomyReview));
+        assert_eq!(review.accepted_categories[0].name, "AI (candidate)");
+        assert!(review.candidate_categories.is_none());
+        assert_eq!(review.phase, ReviewPhase::Drafting);
+        assert_eq!(continue_rx.recv().expect("reply should send"), Ok(true));
+    }
+
+    #[test]
+    fn taxonomy_review_renders_dedicated_workspace_panels() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.phase = ReviewPhase::PostSuggestionDecision;
+        review.last_submitted_suggestion = Some("Merge vision".to_string());
+        review.history = vec![ReviewIteration {
+            number: 1,
+            suggestion: "Merge vision".to_string(),
+        }];
+        review.candidate_categories = Some(vec![CategoryTree {
+            name: "AI (candidate)".to_string(),
+            children: vec![],
+        }]);
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+
+        let lines = render_lines(&app, 120, 32);
+
+        assert!(lines.iter().any(|line| line.contains("Taxonomy Review")));
+        assert!(lines.iter().any(|line| line.contains("Accepted Taxonomy")));
+        assert!(lines.iter().any(|line| line.contains("Suggested Taxonomy")));
+        assert!(lines.iter().any(|line| line.contains("Suggestion")));
+        assert!(lines.iter().any(|line| line.contains("History")));
+        assert!(lines.iter().any(|line| line.contains("a accept candidate")));
     }
 
     #[test]

@@ -1,12 +1,9 @@
-use std::{collections::VecDeque, sync::mpsc};
+use std::collections::VecDeque;
 
 use ratatui::prelude::{Color, Style};
 
 use crate::{
-    config::AppConfig,
-    papers::taxonomy::CategoryTree,
-    session::RunStage,
-    terminal::{AlertSeverity, InspectReviewPrompt},
+    config::AppConfig, papers::taxonomy::CategoryTree, session::RunStage, terminal::AlertSeverity,
 };
 
 #[derive(Clone, Copy)]
@@ -15,6 +12,7 @@ pub(super) enum Screen {
     RunForm,
     Sessions,
     Operation,
+    TaxonomyReview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,14 +185,6 @@ pub(super) enum Overlay {
     EditField {
         label: String,
         buffer: String,
-    },
-    InspectPrompt {
-        categories: Vec<CategoryTree>,
-        input: String,
-        reply: mpsc::Sender<std::result::Result<InspectReviewPrompt, String>>,
-    },
-    ContinuePrompt {
-        reply: mpsc::Sender<std::result::Result<bool, String>>,
     },
     Confirm {
         title: String,

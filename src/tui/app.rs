@@ -10,6 +10,7 @@ use super::{
         ProgressEntry, Screen,
     },
     session_view::SessionView,
+    taxonomy_review::TaxonomyReviewView,
 };
 
 const MAX_LOG_LINES: usize = 400;
@@ -22,6 +23,7 @@ pub(super) struct App {
     pub(super) run_form: RunForm,
     pub(super) session_view: SessionView,
     pub(super) overlay: Option<Overlay>,
+    pub(super) taxonomy_review: Option<TaxonomyReviewView>,
     pub(super) operation: super::model::OperationView,
     pub(super) logs: VecDeque<String>,
     pub(super) progress: Vec<ProgressEntry>,
@@ -50,6 +52,7 @@ impl App {
             run_form: RunForm::default(),
             session_view,
             overlay: None,
+            taxonomy_review: None,
             operation: super::model::OperationView::default(),
             logs: VecDeque::new(),
             progress: Vec::new(),
@@ -108,18 +111,25 @@ impl App {
                 BackendEvent::CategoryTree(categories) => {
                     self.last_category_tree =
                         Some(crate::terminal::report::render_category_tree(&categories));
+                    if let Some(review) = self.taxonomy_review.as_mut() {
+                        review.register_candidate(categories);
+                    }
                 }
                 BackendEvent::PromptInspectReview { categories, reply } => {
                     self.last_category_tree =
                         Some(crate::terminal::report::render_category_tree(&categories));
-                    self.overlay = Some(Overlay::InspectPrompt {
-                        categories,
-                        input: String::new(),
-                        reply,
-                    });
+                    self.screen = Screen::TaxonomyReview;
+                    if let Some(review) = self.taxonomy_review.as_mut() {
+                        review.begin_iteration(categories, reply);
+                    } else {
+                        self.taxonomy_review = Some(TaxonomyReviewView::new(categories, reply));
+                    }
                 }
                 BackendEvent::PromptContinueImproving { reply } => {
-                    self.overlay = Some(Overlay::ContinuePrompt { reply });
+                    self.screen = Screen::TaxonomyReview;
+                    if let Some(review) = self.taxonomy_review.as_mut() {
+                        review.set_continue_prompt(reply);
+                    }
                 }
             }
         }
@@ -128,6 +138,7 @@ impl App {
     pub(super) fn drain_operation_events(&mut self) {
         while let Ok(outcome) = self.op_rx.try_recv() {
             let origin = self.operation.origin;
+            self.taxonomy_review = None;
             self.operation.title = outcome.title;
             self.operation.state = if outcome.success {
                 OperationState::Success
@@ -150,7 +161,7 @@ impl App {
     pub(super) fn apply_edit(&mut self, value: String) -> Result<()> {
         match self.screen {
             Screen::RunForm => self.run_form.apply_edit(value)?,
-            Screen::Home | Screen::Sessions | Screen::Operation => {}
+            Screen::Home | Screen::Sessions | Screen::Operation | Screen::TaxonomyReview => {}
         }
         Ok(())
     }
@@ -282,6 +293,7 @@ impl App {
         let origin = self.screen;
         self.screen = Screen::Operation;
         self.overlay = None;
+        self.taxonomy_review = None;
         self.operation = super::model::OperationView {
             title: title.to_string(),
             state: OperationState::Running,
@@ -317,5 +329,10 @@ impl App {
                 .saturating_sub(LOG_FOLLOW_WINDOW)
                 .min(u16::MAX as usize) as u16;
         }
+    }
+
+    pub(super) fn finish_taxonomy_review(&mut self) {
+        self.taxonomy_review = None;
+        self.screen = Screen::Operation;
     }
 }
