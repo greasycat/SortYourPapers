@@ -13,8 +13,14 @@ pub struct SypCli {
 
 #[derive(Debug, Subcommand)]
 pub enum SypCommands {
-    Tui,
+    Tui(TuiArgs),
     Cli(ForwardCliArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct TuiArgs {
+    #[arg(long)]
+    pub debug_tui: bool,
 }
 
 #[derive(Debug, Args)]
@@ -29,7 +35,8 @@ pub struct ForwardCliArgs {
 /// Returns an error when the selected mode fails.
 pub async fn run_syp(cli: SypCli) -> Result<()> {
     match cli.command {
-        None | Some(SypCommands::Tui) => tui::run().await,
+        None => tui::run(false).await,
+        Some(SypCommands::Tui(tui_args)) => tui::run(tui_args.debug_tui).await,
         Some(SypCommands::Cli(args)) => {
             crate::entrypoints::run_cli(parse_forwarded_cli(args)).await
         }
@@ -58,7 +65,18 @@ mod tests {
     #[test]
     fn parses_explicit_tui_subcommand() {
         let cli = SypCli::parse_from(["syp", "tui"]);
-        assert!(matches!(cli.command, Some(SypCommands::Tui)));
+        assert!(matches!(cli.command, Some(SypCommands::Tui(_))));
+    }
+
+    #[test]
+    fn parses_debug_tui_flag() {
+        let cli = SypCli::parse_from(["syp", "tui", "--debug-tui"]);
+
+        let Some(SypCommands::Tui(tui_args)) = cli.command else {
+            panic!("expected tui subcommand");
+        };
+
+        assert!(tui_args.debug_tui);
     }
 
     #[test]

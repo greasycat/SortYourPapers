@@ -41,7 +41,7 @@ use crate::{
 
 use self::backend::{BackendEvent, TuiBackend};
 
-pub async fn run() -> Result<()> {
+pub async fn run(debug_tui: bool) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -53,7 +53,7 @@ pub async fn run() -> Result<()> {
     let (op_tx, op_rx) = mpsc::channel();
     let _backend_guard = install_backend(Arc::new(TuiBackend::new(backend_tx)));
 
-    let mut app = App::new(backend_rx, op_rx, op_tx)?;
+    let mut app = App::new(backend_rx, op_rx, op_tx, debug_tui)?;
     let run_result = run_loop(&mut terminal, &mut app).await;
 
     disable_raw_mode()?;
@@ -101,6 +101,7 @@ struct App {
     backend_rx: mpsc::Receiver<BackendEvent>,
     op_rx: mpsc::Receiver<OperationOutcome>,
     op_tx: mpsc::Sender<OperationOutcome>,
+    debug_tui: bool,
 }
 
 impl App {
@@ -108,6 +109,7 @@ impl App {
         backend_rx: mpsc::Receiver<BackendEvent>,
         op_rx: mpsc::Receiver<OperationOutcome>,
         op_tx: mpsc::Sender<OperationOutcome>,
+        debug_tui: bool,
     ) -> Result<Self> {
         let mut session_view = SessionView::default();
         session_view.refresh()?;
@@ -129,6 +131,7 @@ impl App {
             backend_rx,
             op_rx,
             op_tx,
+            debug_tui,
         })
     }
 
@@ -350,9 +353,14 @@ impl App {
             KeyCode::Char(' ') => self.run_form.toggle_selected(),
             KeyCode::Char('r') => {
                 let config = self.run_form.build_config()?;
+                let use_debug_tui = self.debug_tui;
                 let op_tx = self.op_tx.clone();
                 self.start_async_operation("Run Papers", move |_tx| async move {
-                    let outcome = match crate::run(config).await {
+                    let outcome = match if use_debug_tui {
+                        crate::app::run_debug_tui(config).await
+                    } else {
+                        crate::run(config).await
+                    } {
                         Ok(_) => OperationOutcome::success(
                             "Run Papers",
                             "run completed".to_string(),
@@ -2008,6 +2016,7 @@ mod tests {
             backend_rx,
             op_rx,
             op_tx,
+            debug_tui: false,
         }
     }
 
