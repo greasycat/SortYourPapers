@@ -162,6 +162,26 @@ mod tests {
         terminal
     }
 
+    fn overlay_width(lines: &[String], title: &str) -> usize {
+        let line = lines
+            .iter()
+            .find(|line| line.contains(title) && line.contains('┌') && line.contains('┐'))
+            .expect("overlay title should be rendered");
+        let chars = line.chars().collect::<Vec<_>>();
+        let title_byte_index = line.find(title).expect("overlay title should be rendered");
+        let title_index = line[..title_byte_index].chars().count();
+        let start = chars[..=title_index]
+            .iter()
+            .rposition(|ch| *ch == '┌')
+            .expect("overlay should have a top border");
+        let end = chars[title_index..]
+            .iter()
+            .position(|ch| *ch == '┐')
+            .map(|offset| title_index + offset)
+            .expect("overlay should have a top border");
+        end - start + 1
+    }
+
     fn test_runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -505,6 +525,37 @@ mod tests {
         terminal
             .backend_mut()
             .assert_cursor_position(Position::new(20, 10));
+    }
+
+    #[test]
+    fn confirm_overlay_renders_compact_popup() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+        app.overlay = Some(Overlay::Confirm {
+            title: "Quit".to_string(),
+            message: "Quit SortYourPapers?".to_string(),
+            action: super::model::ConfirmAction::Quit,
+        });
+
+        let lines = render_lines(&app, 80, 24);
+        let width = overlay_width(&lines, "Quit");
+
+        assert!(width < 40, "quit overlay width was {width}");
+    }
+
+    #[test]
+    fn notice_overlay_renders_compact_popup() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.overlay = Some(Overlay::Notice {
+            title: "Validation".to_string(),
+            message: "The run configuration is not ready yet.".to_string(),
+        });
+
+        let lines = render_lines(&app, 80, 24);
+        let width = overlay_width(&lines, "Validation");
+
+        assert!(width < 50, "notice overlay width was {width}");
     }
 
     #[test]

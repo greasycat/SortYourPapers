@@ -501,7 +501,26 @@ impl App {
     }
 
     fn draw_overlay(&self, frame: &mut Frame, overlay: &Overlay) {
-        let area = centered_rect(70, 60, frame.area());
+        let area = match overlay {
+            Overlay::EditField { .. } | Overlay::SelectRerunStage { .. } => {
+                centered_rect(70, 60, frame.area())
+            }
+            Overlay::Confirm { title, message, .. } => compact_overlay_rect(
+                frame.area(),
+                title,
+                &[
+                    message.as_str(),
+                    "",
+                    "Enter or y confirm",
+                    "Esc cancel",
+                ],
+            ),
+            Overlay::Notice { title, message } => compact_overlay_rect(
+                frame.area(),
+                title,
+                &[message.as_str(), "", "Enter or Esc dismiss"],
+            ),
+        };
         frame.render_widget(Clear, area);
 
         match overlay {
@@ -731,6 +750,41 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+fn compact_overlay_rect(area: Rect, title: &str, lines: &[&str]) -> Rect {
+    let max_width = area.width.saturating_sub(4).max(1);
+    let content_width = title
+        .chars()
+        .count()
+        .max(lines.iter().map(|line| line.chars().count()).max().unwrap_or(0));
+    let desired_width = (content_width + 4).clamp(28, max_width as usize) as u16;
+    let inner_width = desired_width.saturating_sub(2).max(1) as usize;
+    let wrapped_height = lines
+        .iter()
+        .map(|line| wrapped_line_count(line, inner_width))
+        .sum::<usize>();
+    let desired_height = (wrapped_height + 2).clamp(5, area.height.saturating_sub(2).max(5) as usize)
+        as u16;
+
+    centered_rect_exact(desired_width, desired_height, area)
+}
+
+fn wrapped_line_count(line: &str, width: usize) -> usize {
+    if width == 0 {
+        return 1;
+    }
+
+    let len = line.chars().count();
+    len.max(1).div_ceil(width)
+}
+
+fn centered_rect_exact(width: u16, height: u16, area: Rect) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect::new(x, y, width, height)
 }
 
 fn operation_status_height(area_height: u16, progress_count: usize) -> u16 {
