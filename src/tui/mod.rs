@@ -17,7 +17,7 @@ use ratatui::{
     Terminal,
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Color, CrosstermBackend, Frame, Line, Modifier, Span, Style, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap},
 };
 
 use crate::{
@@ -859,40 +859,17 @@ impl App {
     }
 
     fn draw_operation(&self, frame: &mut Frame, area: Rect) {
+        let status_height = operation_status_height(area.height, self.progress.len());
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5),
+                Constraint::Length(status_height),
                 Constraint::Percentage(45),
                 Constraint::Percentage(55),
             ])
             .split(area);
 
-        let progress_lines = if self.progress.is_empty() {
-            vec![Line::from(self.operation.summary.clone())]
-        } else {
-            self.progress
-                .iter()
-                .map(|progress| {
-                    let ratio = if progress.total == 0 {
-                        0.0
-                    } else {
-                        progress.current as f64 / progress.total as f64
-                    };
-                    let bar = progress_bar(ratio, 24);
-                    Line::from(format!(
-                        "{} {} {}/{}",
-                        progress.label, bar, progress.current, progress.total
-                    ))
-                })
-                .collect()
-        };
-        frame.render_widget(
-            Paragraph::new(progress_lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Status").borders(Borders::ALL)),
-            chunks[0],
-        );
+        self.draw_operation_status(frame, chunks[0]);
 
         let detail_lines = self.operation_detail_lines();
         frame.render_widget(
@@ -955,6 +932,48 @@ impl App {
         }
 
         Text::from(vec![Line::from(self.operation.summary.clone())])
+    }
+
+    fn draw_operation_status(&self, frame: &mut Frame, area: Rect) {
+        if self.progress.is_empty() {
+            frame.render_widget(
+                Paragraph::new(vec![Line::from(self.operation.summary.clone())])
+                    .wrap(Wrap { trim: false })
+                    .block(Block::default().title("Status").borders(Borders::ALL)),
+                area,
+            );
+            return;
+        }
+
+        let block = Block::default().title("Status").borders(Borders::ALL);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if inner.height == 0 || inner.width == 0 {
+            return;
+        }
+
+        let visible = usize::from(inner.height).min(self.progress.len());
+        let progress_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Length(1); visible])
+            .split(inner);
+
+        for (progress, chunk) in self
+            .progress
+            .iter()
+            .take(visible)
+            .zip(progress_chunks.iter().copied())
+        {
+            frame.render_widget(
+                Gauge::default()
+                    .ratio(progress.ratio())
+                    .label(progress.label())
+                    .gauge_style(progress.gauge_style())
+                    .use_unicode(true),
+                chunk,
+            );
+        }
     }
 
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
@@ -1158,6 +1177,28 @@ struct ProgressEntry {
     label: String,
     total: usize,
     current: usize,
+}
+
+impl ProgressEntry {
+    fn ratio(&self) -> f64 {
+        if self.total == 0 {
+            0.0
+        } else {
+            self.current as f64 / self.total as f64
+        }
+    }
+
+    fn label(&self) -> String {
+        format!("{} {}/{}", self.label, self.current, self.total)
+    }
+
+    fn gauge_style(&self) -> Style {
+        Style::default().fg(if self.current >= self.total && self.total > 0 {
+            Color::Green
+        } else {
+            Color::Cyan
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1920,19 +1961,73 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn progress_bar(ratio: f64, width: usize) -> String {
-    let filled = (ratio.clamp(0.0, 1.0) * width as f64).round() as usize;
-    let filled = filled.min(width);
-    format!(
-        "[{}{}]",
-        "#".repeat(filled),
-        "-".repeat(width.saturating_sub(filled))
-    )
+fn operation_status_height(area_height: u16, progress_count: usize) -> u16 {
+    let preferred = if progress_count == 0 {
+        5
+    } else {
+        progress_count as u16 + 2
+    };
+    let max_height = area_height.saturating_sub(6).max(3);
+    preferred.clamp(3, max_height)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{PlacementMode, RunForm, TaxonomyMode, UiVerbosity};
+    use std::{collections::VecDeque, sync::mpsc};
+
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::{
+        App, BackendEvent, ExtractForm, OperationDetail, OperationView, PlacementMode,
+        ProgressEntry, RunForm, Screen, SessionView, TaxonomyMode, UiVerbosity,
+    };
+
+    fn test_app() -> App {
+        let (_backend_tx, backend_rx) = mpsc::channel();
+        let (op_tx, op_rx) = mpsc::channel();
+        App {
+            screen: Screen::Operation,
+            home_index: 0,
+            run_form: RunForm::default(),
+            extract_form: ExtractForm::default(),
+            init_force: false,
+            session_view: SessionView::default(),
+            overlay: None,
+            operation: OperationView {
+                title: "Operation".to_string(),
+                running: false,
+                success: true,
+                summary: "waiting for work".to_string(),
+                detail: OperationDetail::None,
+            },
+            logs: VecDeque::new(),
+            progress: Vec::new(),
+            last_report: None,
+            last_category_tree: None,
+            should_quit: false,
+            backend_rx,
+            op_rx,
+            op_tx,
+        }
+    }
+
+    fn render_lines(app: &App, width: u16, height: u16) -> Vec<String> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test terminal should build");
+        terminal
+            .draw(|frame| app.draw(frame))
+            .expect("test frame should render");
+        let buffer = terminal.backend().buffer();
+        let area = buffer.area();
+
+        (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect()
+    }
 
     #[test]
     fn run_form_non_editable_fields_match_toggle_and_enum_fields() {
@@ -1973,5 +2068,92 @@ mod tests {
         form.selected = 20;
         form.toggle_selected();
         assert!(form.quiet);
+    }
+
+    #[test]
+    fn progress_events_add_advance_and_remove_entries() {
+        let mut app = test_app();
+
+        app.progress.push(ProgressEntry {
+            id: 7,
+            label: "taxonomy".to_string(),
+            total: 3,
+            current: 0,
+        });
+        app.progress.push(ProgressEntry {
+            id: 9,
+            label: "stale".to_string(),
+            total: 1,
+            current: 1,
+        });
+
+        let (backend_tx, backend_rx) = mpsc::channel();
+        app.backend_rx = backend_rx;
+
+        backend_tx
+            .send(BackendEvent::ProgressStart {
+                id: 12,
+                total: 4,
+                label: "keyword batches".to_string(),
+            })
+            .expect("progress start should send");
+        backend_tx
+            .send(BackendEvent::ProgressAdvance { id: 12, delta: 3 })
+            .expect("progress advance should send");
+        backend_tx
+            .send(BackendEvent::ProgressAdvance { id: 12, delta: 3 })
+            .expect("progress advance should send");
+        backend_tx
+            .send(BackendEvent::ProgressFinish { id: 9 })
+            .expect("progress finish should send");
+
+        app.drain_backend_events();
+
+        assert_eq!(app.progress.len(), 2);
+        let active = app
+            .progress
+            .iter()
+            .find(|entry| entry.id == 12)
+            .expect("new progress entry should exist");
+        assert_eq!(active.current, 4);
+        assert_eq!(active.total, 4);
+        assert!(app.progress.iter().all(|entry| entry.id != 9));
+    }
+
+    #[test]
+    fn operation_screen_shows_summary_when_no_progress_is_active() {
+        let app = test_app();
+
+        let lines = render_lines(&app, 80, 24);
+
+        assert!(lines.iter().any(|line| line.contains("waiting for work")));
+    }
+
+    #[test]
+    fn operation_screen_renders_progress_gauges_with_labels_and_counts() {
+        let mut app = test_app();
+        app.progress = vec![
+            ProgressEntry {
+                id: 1,
+                label: "preprocessing".to_string(),
+                total: 10,
+                current: 3,
+            },
+            ProgressEntry {
+                id: 2,
+                label: "keyword batches".to_string(),
+                total: 4,
+                current: 4,
+            },
+        ];
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(lines.iter().any(|line| line.contains("preprocessing 3/10")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("keyword batches 4/4"))
+        );
     }
 }

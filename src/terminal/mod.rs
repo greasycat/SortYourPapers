@@ -6,8 +6,6 @@ use std::{
     time::Duration,
 };
 
-use indicatif::{ProgressState, ProgressStyle};
-
 pub use backend::{
     BackendGuard, InspectReviewPrompt, TerminalBackend, current_backend, install_backend,
 };
@@ -195,35 +193,6 @@ impl ProgressTracker {
             current_backend().finish_progress(id);
         }
     }
-}
-
-pub(crate) fn progress_style() -> ProgressStyle {
-    match ProgressStyle::with_template(
-        "{spinner:.cyan} {msg} [{wide_bar:.cyan/blue}] {pos}/{len} [{elapsed_mm_ss}/{eta_mm_ss}]",
-    ) {
-        Ok(style) => style
-            .with_key(
-                "elapsed_mm_ss",
-                |state: &ProgressState, w: &mut dyn std::fmt::Write| {
-                    let _ = write!(w, "{}", format_minutes_seconds(state.elapsed()));
-                },
-            )
-            .with_key(
-                "eta_mm_ss",
-                |state: &ProgressState, w: &mut dyn std::fmt::Write| {
-                    let _ = write!(w, "{}", format_minutes_seconds(state.eta()));
-                },
-            )
-            .progress_chars("=> "),
-        Err(_) => ProgressStyle::default_bar(),
-    }
-}
-
-fn format_minutes_seconds(duration: Duration) -> String {
-    let total_seconds = duration.as_secs();
-    let minutes = total_seconds / 60;
-    let seconds = total_seconds % 60;
-    format!("{minutes:02}:{seconds:02}")
 }
 
 pub fn format_duration(duration: Duration) -> String {

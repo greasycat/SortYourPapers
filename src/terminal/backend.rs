@@ -2,9 +2,10 @@ use std::{
     collections::HashMap,
     io::{self, BufRead, IsTerminal, Write},
     sync::{Arc, Mutex, OnceLock},
+    time::Duration,
 };
 
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 
 use crate::{
     error::{AppError, Result},
@@ -114,7 +115,7 @@ impl TerminalBackend for PlainTerminalBackend {
 
     fn start_progress(&self, id: u64, total: usize, label: &str) {
         let progress = ProgressBar::new(total as u64);
-        progress.set_style(super::progress_style());
+        progress.set_style(progress_style());
         progress.set_message(label.to_string());
         progress.enable_steady_tick(std::time::Duration::from_millis(100));
         self.progress
@@ -180,6 +181,35 @@ impl TerminalBackend for PlainTerminalBackend {
         let mut stderr = io::stderr();
         prompt_for_continue_improving_with_io(&mut stdin, &mut stderr)
     }
+}
+
+fn progress_style() -> ProgressStyle {
+    match ProgressStyle::with_template(
+        "{spinner:.cyan} {msg} [{wide_bar:.cyan/blue}] {pos}/{len} [{elapsed_mm_ss}/{eta_mm_ss}]",
+    ) {
+        Ok(style) => style
+            .with_key(
+                "elapsed_mm_ss",
+                |state: &ProgressState, w: &mut dyn std::fmt::Write| {
+                    let _ = write!(w, "{}", format_minutes_seconds(state.elapsed()));
+                },
+            )
+            .with_key(
+                "eta_mm_ss",
+                |state: &ProgressState, w: &mut dyn std::fmt::Write| {
+                    let _ = write!(w, "{}", format_minutes_seconds(state.eta()));
+                },
+            )
+            .progress_chars("=> "),
+        Err(_) => ProgressStyle::default_bar(),
+    }
+}
+
+fn format_minutes_seconds(duration: Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let minutes = total_seconds / 60;
+    let seconds = total_seconds % 60;
+    format!("{minutes:02}:{seconds:02}")
 }
 
 fn prompt_for_inspect_review_action_with_io<R, W>(

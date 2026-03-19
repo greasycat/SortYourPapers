@@ -27,7 +27,7 @@ Use LLMs to sort papers.
 - Supports preview mode by default and real moves with `--apply`
 - Supports rebuild mode to ignore existing folder names and reclassify all PDFs
 - Persists each run under the XDG cache dir so interrupted runs can be resumed, including partial keyword/preliminary-category batches
-- Shows `indicatif` progress bars by default for preprocessing, keyword batching, taxonomy synthesis, placement batching, and apply-mode moves
+- Shows `indicatif` progress bars in the plain CLI and embedded `ratatui` progress bars in the TUI for preprocessing, keyword batching, taxonomy synthesis, placement batching, and apply-mode moves
 - Keeps warnings/errors and the final summary visible by default while suppressing most staging chatter unless `-v` or `-vv` is enabled
 
 ## Configuration Priority
