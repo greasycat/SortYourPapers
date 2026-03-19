@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use crate::{
-    app::stages::{format_stage_description, stage_sequence},
     config::AppConfig,
     llm::LlmProvider,
     placement::PlacementMode,
@@ -9,7 +8,10 @@ use crate::{
         apply_resume_overrides, completed_runs, resolve_run_selection, resolve_stage_selection,
         selectable_runs, validate_run_ids,
     },
-    session::{RunStage, RunSummary},
+    session::{
+        RunStage, RunSummary,
+        stages::{format_stage_description, stage_sequence},
+    },
     taxonomy::{CategoryTree, TaxonomyMode},
     terminal::{Verbosity, report::render_category_tree},
 };

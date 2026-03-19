@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod stage;
+pub(crate) mod stages;
 pub mod workspace;
 
 pub use commands::{

@@ -1,11 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    app::stages::stage_sequence,
     error::{AppError, Result},
     papers::SynthesizeCategoriesState,
-    session::RunWorkspace,
     session::workspace::RunStage as WorkspaceRunStage,
+    session::{RunWorkspace, stages::stage_sequence},
     terminal::InspectReviewPrompt,
 };
 

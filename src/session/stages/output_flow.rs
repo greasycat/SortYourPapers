@@ -344,14 +344,13 @@ mod tests {
 
     use super::{InspectReviewState, inspect_output_stage_with_interaction};
     use crate::{
-        app::stages::planning::StagePlan,
         config::AppConfig,
         error::AppError,
         llm::{LlmProvider, LlmUsageSummary},
         papers::SynthesizeCategoriesState,
         placement::PlacementMode,
         report::RunReport,
-        session::{RunStage, RunWorkspace},
+        session::{RunStage, RunWorkspace, stages::planning::StagePlan},
         taxonomy::{CategoryTree, TaxonomyMode},
         terminal::InspectReviewPrompt,
         terminal::Verbosity,

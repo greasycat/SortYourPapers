@@ -1,5 +1,3 @@
-pub(crate) mod stages;
-
 use std::{
     env,
     path::{Path, PathBuf},
@@ -20,12 +18,12 @@ use crate::{
     },
     placement::PlacementDecision,
     report::{FileAction, PlanAction, RunReport},
-    session::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace},
+    session::{
+        ExtractTextState, FilterSizeState, RunStage, RunWorkspace, stages::run_with_workspace,
+    },
     taxonomy::CategoryTree,
     terminal::{self, Verbosity},
 };
-
-pub(crate) use stages::run_with_workspace;
 
 const DEBUG_TUI_PROGRESS_DELAY: Duration = Duration::from_secs(5);
 const DEBUG_TUI_PROGRESS_SETTLE_DELAY: Duration = Duration::from_millis(250);

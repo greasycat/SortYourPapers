@@ -4,15 +4,16 @@ use std::{
 };
 
 use crate::{
-    app::run_with_workspace,
-    app::stages::stage_sequence,
     config,
     config::AppConfig,
     error::{AppError, Result},
     llm::LlmUsageSummary,
     papers::SynthesizeCategoriesState,
     report::RunReport,
-    session::{RunStage, RunSummary, RunWorkspace},
+    session::{
+        RunStage, RunSummary, RunWorkspace,
+        stages::{run_with_workspace, stage_sequence},
+    },
     terminal::{self, Verbosity},
 };
 
