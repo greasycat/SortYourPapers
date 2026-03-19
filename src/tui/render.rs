@@ -174,43 +174,28 @@ impl App {
             .split(chunks[1]);
         let left = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(8),
-                Constraint::Min(8),
-                Constraint::Length(8),
-            ])
+            .constraints([Constraint::Length(8), Constraint::Min(10)])
             .split(content[0]);
 
         let cursor = self.draw_taxonomy_review_suggestion_panel(frame, left[0]);
         draw_scrolled_panel_with_block(
             frame,
             left[1],
-            focused_panel_block(
-                "Suggested Taxonomy",
-                review.focused_pane == ReviewPane::Candidate,
-            ),
-            review.candidate_lines(),
-            review.candidate_scroll,
-            "No candidate yet. Submit a suggestion to compare a proposed taxonomy.",
-        );
-        draw_scrolled_panel_with_block(
-            frame,
-            left[2],
             focused_panel_block("History", review.focused_pane == ReviewPane::History),
             review.history_lines(),
             review.history_scroll,
-            "No suggestions submitted yet.",
+            "No iteration history yet.",
         );
         draw_scrolled_panel_with_block(
             frame,
             content[1],
             focused_panel_block(
-                "Accepted Taxonomy",
-                review.focused_pane == ReviewPane::Accepted,
+                "Iteration Taxonomy",
+                review.focused_pane == ReviewPane::IterationTaxonomy,
             ),
-            review.accepted_lines(),
-            review.accepted_scroll,
-            "No accepted taxonomy is available.",
+            review.iteration_taxonomy_lines(),
+            review.iteration_scroll,
+            "No taxonomy is available for this iteration.",
         );
 
         cursor
@@ -534,12 +519,7 @@ impl App {
             Overlay::Confirm { title, message, .. } => compact_overlay_rect(
                 frame.area(),
                 title,
-                &[
-                    message.as_str(),
-                    "",
-                    "Enter or y confirm",
-                    "Esc cancel",
-                ],
+                &[message.as_str(), "", "Enter or y confirm", "Esc cancel"],
             ),
             Overlay::Notice { title, message } => compact_overlay_rect(
                 frame.area(),
@@ -806,21 +786,23 @@ fn shortcut_chip_spans(actions: &[(&str, &str)]) -> Vec<Span<'static>> {
     spans
 }
 
-
 fn compact_overlay_rect(area: Rect, title: &str, lines: &[&str]) -> Rect {
     let max_width = area.width.saturating_sub(4).max(1);
-    let content_width = title
-        .chars()
-        .count()
-        .max(lines.iter().map(|line| line.chars().count()).max().unwrap_or(0));
+    let content_width = title.chars().count().max(
+        lines
+            .iter()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0),
+    );
     let desired_width = (content_width + 4).clamp(28, max_width as usize) as u16;
     let inner_width = desired_width.saturating_sub(2).max(1) as usize;
     let wrapped_height = lines
         .iter()
         .map(|line| wrapped_line_count(line, inner_width))
         .sum::<usize>();
-    let desired_height = (wrapped_height + 2).clamp(5, area.height.saturating_sub(2).max(5) as usize)
-        as u16;
+    let desired_height =
+        (wrapped_height + 2).clamp(5, area.height.saturating_sub(2).max(5) as usize) as u16;
 
     centered_rect_exact(desired_width, desired_height, area)
 }

@@ -550,7 +550,11 @@ mod tests {
         let lines = render_lines(&app, 80, 24);
 
         assert!(!lines.iter().any(|line| line.contains("Keys:")));
-        assert!(lines.iter().any(|line| line.contains("Quit: exit after confirmation.")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Quit: exit after confirmation."))
+        );
     }
 
     #[test]
@@ -1024,6 +1028,12 @@ mod tests {
         );
         assert_eq!(review.history.len(), 1);
         assert_eq!(review.history[0].suggestion, "Merge vision");
+        assert_eq!(review.history[0].accepted_categories[0].name, "AI");
+        assert_eq!(
+            review.history[0].suggested_categories[0].name,
+            "AI (merged)"
+        );
+        assert_eq!(review.history_selection, 1);
     }
 
     #[test]
@@ -1049,7 +1059,7 @@ mod tests {
             .as_ref()
             .expect("review should still exist");
         assert_eq!(review.phase, ReviewPhase::PostSuggestionDecision);
-        assert_eq!(review.focused_pane, ReviewPane::Candidate);
+        assert_eq!(review.focused_pane, ReviewPane::IterationTaxonomy);
     }
 
     #[test]
@@ -1137,11 +1147,17 @@ mod tests {
         let (inspect_tx, _inspect_rx) = mpsc::channel();
         let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
         review.phase = ReviewPhase::PostSuggestionDecision;
-        review.last_submitted_suggestion = Some("Merge vision".to_string());
         review.history = vec![ReviewIteration {
             number: 1,
             suggestion: "Merge vision".to_string(),
+            accepted_categories: sample_taxonomy_categories(),
+            suggested_categories: vec![CategoryTree {
+                name: "AI (candidate)".to_string(),
+                children: vec![],
+            }],
         }];
+        review.history_selection = 1;
+        review.last_submitted_suggestion = Some("Merge vision".to_string());
         review.candidate_categories = Some(vec![CategoryTree {
             name: "AI (candidate)".to_string(),
             children: vec![],
@@ -1152,6 +1168,7 @@ mod tests {
         let lines = render_lines(&app, 120, 32);
 
         assert!(lines.iter().any(|line| line.contains("Taxonomy Review")));
+        assert!(lines.iter().any(|line| line.contains("Iteration Taxonomy")));
         assert!(lines.iter().any(|line| line.contains("Accepted Taxonomy")));
         assert!(lines.iter().any(|line| line.contains("Suggested Taxonomy")));
         assert!(lines.iter().any(|line| line.contains("Suggestion")));
@@ -1159,7 +1176,7 @@ mod tests {
     }
 
     #[test]
-    fn taxonomy_review_places_accepted_panel_to_the_right() {
+    fn taxonomy_review_places_iteration_taxonomy_panel_to_the_right() {
         let mut app = test_app();
         let (inspect_tx, _inspect_rx) = mpsc::channel();
         let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
@@ -1174,16 +1191,72 @@ mod tests {
         let lines = render_lines(&app, 120, 32);
         let panel_title_line = lines
             .iter()
-            .find(|line| line.contains("Suggestion") && line.contains("Accepted Taxonomy"))
-            .expect("suggestion and accepted titles should share the top content row");
+            .find(|line| line.contains("Suggestion") && line.contains("Iteration Taxonomy"))
+            .expect("suggestion and iteration taxonomy titles should share the top content row");
         let suggestion_x = panel_title_line
             .find("Suggestion")
             .expect("suggestion title should be present");
-        let accepted_x = panel_title_line
-            .find("Accepted Taxonomy")
-            .expect("accepted title should be present");
+        let iteration_x = panel_title_line
+            .find("Iteration Taxonomy")
+            .expect("iteration taxonomy title should be present");
 
-        assert!(accepted_x > suggestion_x);
+        assert!(iteration_x > suggestion_x);
+    }
+
+    #[test]
+    fn history_panel_selects_iterations_for_iteration_taxonomy_panel() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.focused_pane = ReviewPane::History;
+        review.history = vec![
+            ReviewIteration {
+                number: 1,
+                suggestion: "Merge vision".to_string(),
+                accepted_categories: sample_taxonomy_categories(),
+                suggested_categories: vec![CategoryTree {
+                    name: "AI (merged)".to_string(),
+                    children: vec![],
+                }],
+            },
+            ReviewIteration {
+                number: 2,
+                suggestion: "Split speech".to_string(),
+                accepted_categories: vec![CategoryTree {
+                    name: "AI (merged)".to_string(),
+                    children: vec![],
+                }],
+                suggested_categories: vec![CategoryTree {
+                    name: "Speech".to_string(),
+                    children: vec![],
+                }],
+            },
+        ];
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)))
+            .expect("down should select the first saved iteration");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)))
+            .expect("down should select the second saved iteration");
+
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("review should stay open");
+        assert_eq!(review.history_selection, 2);
+
+        let lines = render_lines(&app, 120, 32);
+        assert!(lines.iter().any(|line| line.contains("Iteration 2")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Suggestion: Split speech"))
+        );
+        assert!(lines.iter().any(|line| line.contains("Speech")));
     }
 
     #[test]
