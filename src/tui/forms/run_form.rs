@@ -6,7 +6,7 @@ use std::{
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Color, Frame, Line, Modifier, Span, Style},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
 use crate::{
@@ -30,6 +30,7 @@ use super::{
     empty_string_to_option, masked_value, parse_u8, parse_u64, parse_usize, placement_mode_label,
     provider_label, run_field_help, run_field_key, run_field_label, taxonomy_mode_label,
 };
+use crate::tui::ui_widgets::render_selectable_list;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValidationSeverity {
@@ -712,24 +713,24 @@ impl RunForm {
         sections: &[(&str, &[usize])],
         analysis: &RunFormAnalysis,
     ) {
-        let mut lines = Vec::new();
-        let mut selected_line = 0;
+        let mut items = Vec::new();
+        let mut selected_item = None;
         for (section_index, (title, fields)) in sections.iter().enumerate() {
             if section_index > 0 {
-                lines.push(Line::from(""));
+                items.push(ListItem::new(""));
             }
-            lines.push(Line::from(Span::styled(
+            items.push(ListItem::new(Line::from(Span::styled(
                 (*title).to_string(),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
-            )));
+            ))));
 
             for field_index in *fields {
                 let marker = analysis
                     .field_issue(*field_index)
                     .map_or(' ', |issue| issue.severity.marker());
-                let line = format!(
+                let content = format!(
                     "{} {}: {}",
                     marker,
                     run_field_label(*field_index),
@@ -737,34 +738,26 @@ impl RunForm {
                 );
 
                 if *field_index == self.selected {
-                    selected_line = lines.len();
-                    lines.push(Line::from(Span::styled(
-                        format!("> {line}"),
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    )));
-                } else if let Some(issue) = analysis.field_issue(*field_index) {
-                    lines.push(Line::from(Span::styled(
-                        format!("  {line}"),
+                    selected_item = Some(items.len());
+                }
+
+                if let Some(issue) = analysis.field_issue(*field_index) {
+                    items.push(ListItem::new(Line::styled(
+                        content,
                         Style::default().fg(issue.severity.color()),
                     )));
                 } else {
-                    lines.push(Line::from(format!("  {line}")));
+                    items.push(ListItem::new(content));
                 }
             }
         }
 
-        let block = Block::default().borders(Borders::ALL);
-        let inner = block.inner(area);
-        let scroll = selected_line.saturating_sub(usize::from(inner.height.saturating_sub(1)));
-        frame.render_widget(
-            Paragraph::new(lines)
-                .scroll((scroll as u16, 0))
-                .wrap(Wrap { trim: false })
-                .block(block),
+        render_selectable_list(
+            frame,
             area,
+            Block::default().borders(Borders::ALL),
+            items,
+            selected_item,
         );
     }
 
