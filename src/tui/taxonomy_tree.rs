@@ -15,10 +15,6 @@ pub(super) enum TaxonomySection {
         title: String,
         categories: Vec<CategoryTree>,
     },
-    Message {
-        title: String,
-        lines: Vec<String>,
-    },
 }
 
 pub(super) fn reset_state_for_categories(state: &mut TaxonomyTreeState, categories: &[CategoryTree]) {
@@ -135,15 +131,6 @@ fn section_items(sections: &[TaxonomySection]) -> Vec<TreeItem<'static, usize>> 
                 let children = category_items(categories);
                 TreeItem::new(index, title.clone(), children)
                     .expect("taxonomy section tree uses unique sibling indices")
-            }
-            TaxonomySection::Message { title, lines } => {
-                let children = lines
-                    .iter()
-                    .enumerate()
-                    .map(|(line_index, line)| TreeItem::new_leaf(line_index, line.clone()))
-                    .collect::<Vec<_>>();
-                TreeItem::new(index, title.clone(), children)
-                    .expect("taxonomy message tree uses unique sibling indices")
             }
         })
         .collect()

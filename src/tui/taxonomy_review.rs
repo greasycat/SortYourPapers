@@ -328,44 +328,29 @@ impl TaxonomyReviewView {
 
     pub(super) fn iteration_taxonomy_sections(&self) -> Vec<TaxonomySection> {
         if let Some(iteration) = self.selected_iteration() {
-            return vec![
+            return vec![if iteration.suggested_categories.is_empty() {
                 TaxonomySection::Categories {
                     title: "Accepted Taxonomy".to_string(),
                     categories: iteration.accepted_categories.clone(),
-                },
+                }
+            } else {
                 TaxonomySection::Categories {
                     title: "Suggested Taxonomy".to_string(),
                     categories: iteration.suggested_categories.clone(),
-                },
-            ];
+                }
+            }];
         }
 
-        vec![
-            TaxonomySection::Categories {
+        vec![match &self.candidate_categories {
+            Some(categories) if !categories.is_empty() => TaxonomySection::Categories {
+                title: "Suggested Taxonomy".to_string(),
+                categories: categories.clone(),
+            },
+            _ => TaxonomySection::Categories {
                 title: "Accepted Taxonomy".to_string(),
                 categories: self.accepted_categories.clone(),
             },
-            match &self.candidate_categories {
-                Some(categories) => TaxonomySection::Categories {
-                    title: "Suggested Taxonomy".to_string(),
-                    categories: categories.clone(),
-                },
-                None => TaxonomySection::Message {
-                    title: "Suggested Taxonomy".to_string(),
-                    lines: match self.phase {
-                        ReviewPhase::Drafting => {
-                            vec!["No suggested taxonomy yet for the current iteration.".to_string()]
-                        }
-                        ReviewPhase::WaitingForModel => {
-                            vec!["Waiting for the suggested taxonomy from the model.".to_string()]
-                        }
-                        ReviewPhase::PostSuggestionDecision => {
-                            vec!["Suggested taxonomy unavailable for this iteration.".to_string()]
-                        }
-                    },
-                },
-            },
-        ]
+        }]
     }
 
     pub(super) fn history_lines(&self) -> Vec<String> {

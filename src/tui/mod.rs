@@ -1394,8 +1394,8 @@ mod tests {
 
         assert!(lines.iter().any(|line| line.contains("Taxonomy Review")));
         assert!(lines.iter().any(|line| line.contains("Iteration Taxonomy")));
-        assert!(lines.iter().any(|line| line.contains("Accepted Taxonomy")));
         assert!(lines.iter().any(|line| line.contains("Suggested Taxonomy")));
+        assert!(!lines.iter().any(|line| line.contains("Accepted Taxonomy")));
         assert!(lines.iter().any(|line| line.contains("Suggestion")));
         assert!(lines.iter().any(|line| line.contains("History")));
     }
