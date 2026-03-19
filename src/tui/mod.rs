@@ -488,7 +488,6 @@ impl App {
                     KeyCode::Esc => {}
                     KeyCode::Enter => {
                         self.apply_edit(buffer.clone())?;
-                        return Ok(true);
                     }
                     KeyCode::Backspace => {
                         buffer.pop();
@@ -507,7 +506,7 @@ impl App {
                         return Ok(true);
                     }
                 }
-                false
+                return Ok(true);
             }
             Overlay::InspectPrompt { input, reply, .. } => {
                 match key.code {
@@ -2188,5 +2187,29 @@ mod tests {
 
         assert_eq!(app.run_form.input, "papers");
         assert!(app.overlay.is_none());
+    }
+
+    #[test]
+    fn edit_overlay_escape_closes_editor_without_leaving_form() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.selected = 0;
+        let original_input = app.run_form.input.clone();
+        app.overlay = Some(Overlay::EditField {
+            label: "Input".to_string(),
+            buffer: "papers".to_string(),
+        });
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)))
+            .expect("escape should close editor");
+
+        assert!(matches!(app.screen, Screen::RunForm));
+        assert!(app.overlay.is_none());
+        assert_eq!(app.run_form.input, original_input);
     }
 }
