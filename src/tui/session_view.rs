@@ -57,7 +57,8 @@ impl SessionView {
                         Line::from(Span::styled(
                             format!("> {line}"),
                             Style::default()
-                                .fg(Color::Yellow)
+                                .fg(Color::Black)
+                                .bg(Color::Green)
                                 .add_modifier(Modifier::BOLD),
                         ))
                     } else {
