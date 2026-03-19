@@ -89,13 +89,17 @@ impl RunForm {
             .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
             .split(area);
 
-        let lines = self.sectioned_lines();
+        let block = Block::default()
+            .title("Run Configuration")
+            .borders(Borders::ALL);
+        let inner = block.inner(chunks[0]);
+        let (lines, selected_line) = self.sectioned_lines();
+        let scroll = selected_line.saturating_sub(usize::from(inner.height.saturating_sub(1)));
         frame.render_widget(
-            Paragraph::new(lines).wrap(Wrap { trim: false }).block(
-                Block::default()
-                    .title("Run Configuration")
-                    .borders(Borders::ALL),
-            ),
+            Paragraph::new(lines)
+                .scroll((scroll as u16, 0))
+                .wrap(Wrap { trim: false })
+                .block(block),
             chunks[0],
         );
 
@@ -233,7 +237,7 @@ impl RunForm {
         }
     }
 
-    fn sectioned_lines(&self) -> Vec<Line<'static>> {
+    fn sectioned_lines(&self) -> (Vec<Line<'static>>, usize) {
         const FIELD_SECTIONS: [(&str, &[usize]); 6] = [
             ("Paths & Scope", &[0, 1, 2]),
             ("Extraction", &[3, 4, 5]),
@@ -244,6 +248,7 @@ impl RunForm {
         ];
 
         let mut lines = Vec::new();
+        let mut selected_line = 0;
         for (section_index, (title, fields)) in FIELD_SECTIONS.iter().enumerate() {
             if section_index > 0 {
                 lines.push(Line::from(""));
@@ -259,6 +264,7 @@ impl RunForm {
                 let label = RUN_FIELD_LABELS[*field_index];
                 let line = format!("{label}: {}", self.value(*field_index));
                 if *field_index == self.selected {
+                    selected_line = lines.len();
                     lines.push(Line::from(Span::styled(
                         format!("> {line}"),
                         Style::default()
@@ -271,6 +277,6 @@ impl RunForm {
             }
         }
 
-        lines
+        (lines, selected_line)
     }
 }

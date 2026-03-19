@@ -209,6 +209,18 @@ mod tests {
     }
 
     #[test]
+    fn run_form_scrolls_to_keep_selected_field_visible() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.selected = 20;
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(lines.iter().any(|line| line.contains("Output & Logs")));
+        assert!(lines.iter().any(|line| line.contains("> quiet: no")));
+    }
+
+    #[test]
     fn progress_events_add_advance_and_remove_entries() {
         let mut app = test_app();
 
