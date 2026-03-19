@@ -4,10 +4,11 @@ use crate::error::Result;
 
 use super::{
     backend::BackendEvent,
-    forms::RunForm,
+    config_view::ConfigView,
+    forms::{ExtractForm, RunForm},
     model::{
-        OperationAlert, OperationDetail, OperationOutcome, OperationState, OperationTab, Overlay,
-        ProgressEntry, Screen, StageTiming,
+        HomeAction, OperationAlert, OperationDetail, OperationOutcome, OperationState,
+        OperationTab, Overlay, ProgressEntry, Screen, StageTiming,
     },
     session_view::SessionView,
     taxonomy_review::TaxonomyReviewView,
@@ -21,7 +22,9 @@ pub(super) struct App {
     pub(super) screen: Screen,
     pub(super) home_index: usize,
     pub(super) run_form: RunForm,
+    pub(super) extract_form: ExtractForm,
     pub(super) session_view: SessionView,
+    pub(super) config_view: ConfigView,
     pub(super) overlay: Option<Overlay>,
     pub(super) taxonomy_review: Option<TaxonomyReviewView>,
     pub(super) operation: super::model::OperationView,
@@ -50,7 +53,9 @@ impl App {
             screen: Screen::Home,
             home_index: 0,
             run_form: RunForm::default(),
+            extract_form: ExtractForm::default(),
             session_view,
+            config_view: ConfigView::default(),
             overlay: None,
             taxonomy_review: None,
             operation: super::model::OperationView::default(),
@@ -161,7 +166,13 @@ impl App {
     pub(super) fn apply_edit(&mut self, value: String) -> Result<()> {
         match self.screen {
             Screen::RunForm => self.run_form.apply_edit(value)?,
-            Screen::Home | Screen::Sessions | Screen::Operation | Screen::TaxonomyReview => {}
+            Screen::ExtractForm => self.extract_form.apply_edit(value)?,
+            Screen::Home
+            | Screen::Sessions
+            | Screen::Config
+            | Screen::Debug
+            | Screen::Operation
+            | Screen::TaxonomyReview => {}
         }
         Ok(())
     }
@@ -249,17 +260,20 @@ impl App {
     }
 
     pub(super) fn operation_taxonomy_lines(&self) -> Vec<String> {
-        if let OperationDetail::Tree(categories) = &self.operation.detail {
-            return crate::terminal::report::render_category_tree(categories)
-                .lines()
-                .map(ToOwned::to_owned)
-                .collect();
+        match &self.operation.detail {
+            OperationDetail::Tree(categories) => {
+                crate::terminal::report::render_category_tree(categories)
+                    .lines()
+                    .map(ToOwned::to_owned)
+                    .collect()
+            }
+            OperationDetail::Text { lines, .. } => lines.clone(),
+            OperationDetail::None => self
+                .last_category_tree
+                .as_ref()
+                .map(|tree| tree.lines().map(ToOwned::to_owned).collect())
+                .unwrap_or_default(),
         }
-
-        self.last_category_tree
-            .as_ref()
-            .map(|tree| tree.lines().map(ToOwned::to_owned).collect())
-            .unwrap_or_default()
     }
 
     fn operation_content_len(&self, tab: OperationTab) -> usize {
@@ -378,5 +392,32 @@ impl App {
             stage: self.operation.stage_label.clone(),
             elapsed: started_at.elapsed(),
         });
+    }
+
+    pub(super) fn home_actions(&self) -> Vec<HomeAction> {
+        let mut actions = vec![
+            HomeAction::RunPapers,
+            HomeAction::ExtractText,
+            HomeAction::Sessions,
+            HomeAction::Config,
+        ];
+        if self.debug_tui {
+            actions.push(HomeAction::DebugTools);
+        }
+        actions.push(HomeAction::Quit);
+        actions
+    }
+
+    pub(super) fn selected_home_action(&self) -> HomeAction {
+        let actions = self.home_actions();
+        actions
+            .get(self.home_index.min(actions.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(HomeAction::RunPapers)
+    }
+
+    pub(super) fn clamp_home_index(&mut self) {
+        let max_index = self.home_actions().len().saturating_sub(1);
+        self.home_index = self.home_index.min(max_index);
     }
 }

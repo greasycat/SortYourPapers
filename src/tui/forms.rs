@@ -1,17 +1,18 @@
+mod extract_form;
 mod run_form;
 
 use crate::{
     error::{AppError, Result},
     llm::LlmProvider,
+    papers::extract::ExtractorMode,
     papers::placement::PlacementMode,
     papers::taxonomy::TaxonomyMode,
 };
 
+pub(super) use self::extract_form::ExtractForm;
 pub(super) use self::run_form::RunForm;
 #[cfg(test)]
 pub(super) use self::run_form::ValidationSeverity;
-
-pub(super) const HOME_ITEMS: [&str; 3] = ["Run Papers", "Sessions", "Quit"];
 
 struct RunFieldDescriptor {
     key: &'static str,
@@ -127,6 +128,14 @@ const RUN_FIELDS: [RunFieldDescriptor; 21] = [
     },
 ];
 
+pub(super) const EXTRACT_FIELD_LABELS: [&str; 5] = [
+    "PDF Files",
+    "Pages Per PDF",
+    "Extractor",
+    "Extract Workers",
+    "Verbosity",
+];
+
 pub(super) fn run_field_key(index: usize) -> &'static str {
     RUN_FIELDS[index].key
 }
@@ -137,6 +146,10 @@ pub(super) fn run_field_label(index: usize) -> &'static str {
 
 pub(super) fn run_field_help(index: usize) -> &'static str {
     RUN_FIELDS[index].help
+}
+
+pub(super) fn extract_field_label(index: usize) -> &'static str {
+    EXTRACT_FIELD_LABELS[index]
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -205,6 +218,14 @@ fn provider_label(value: LlmProvider) -> &'static str {
     }
 }
 
+fn extractor_label(value: ExtractorMode) -> &'static str {
+    match value {
+        ExtractorMode::Auto => "auto",
+        ExtractorMode::PdfOxide => "pdf-oxide",
+        ExtractorMode::Pdftotext => "pdftotext",
+    }
+}
+
 fn taxonomy_mode_label(value: TaxonomyMode) -> &'static str {
     match value {
         TaxonomyMode::Global => "global",
@@ -224,6 +245,15 @@ fn cycle_provider(value: LlmProvider, direction: i8) -> LlmProvider {
         LlmProvider::Openai,
         LlmProvider::Ollama,
         LlmProvider::Gemini,
+    ];
+    cycle_enum(value, &all, direction)
+}
+
+fn cycle_extractor(value: ExtractorMode, direction: i8) -> ExtractorMode {
+    let all = [
+        ExtractorMode::Auto,
+        ExtractorMode::PdfOxide,
+        ExtractorMode::Pdftotext,
     ];
     cycle_enum(value, &all, direction)
 }

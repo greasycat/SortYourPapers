@@ -10,8 +10,7 @@ use crate::terminal;
 
 use super::{
     app::App,
-    forms::HOME_ITEMS,
-    model::{OperationState, OperationTab, Overlay, Screen},
+    model::{OperationDetail, OperationState, OperationTab, Overlay, Screen},
     session_view::rerun_stage_name,
     taxonomy_review::ReviewPane,
 };
@@ -27,7 +26,10 @@ impl App {
         match self.screen {
             Screen::Home => self.draw_home(frame, chunks[1]),
             Screen::RunForm => self.run_form.draw(frame, chunks[1]),
+            Screen::ExtractForm => self.draw_extract(frame, chunks[1]),
             Screen::Sessions => self.session_view.draw(frame, chunks[1]),
+            Screen::Config => self.config_view.draw(frame, chunks[1]),
+            Screen::Debug => self.draw_debug(frame, chunks[1]),
             Screen::Operation => self.draw_operation(frame, chunks[1]),
             Screen::TaxonomyReview => {
                 if let Some((x, y)) = self.draw_taxonomy_review(frame, chunks[1]) {
@@ -45,7 +47,10 @@ impl App {
         let title = match self.screen {
             Screen::Home => "Home",
             Screen::RunForm => "Run Configuration",
+            Screen::ExtractForm => "Extract Text",
             Screen::Sessions => "Sessions",
+            Screen::Config => "Config",
+            Screen::Debug => "Debug Tools",
             Screen::Operation => &self.operation.title,
             Screen::TaxonomyReview => "Taxonomy Review",
         };
@@ -94,20 +99,21 @@ impl App {
             .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
             .split(area);
 
-        let menu_lines = HOME_ITEMS
+        let actions = self.home_actions();
+        let menu_lines = actions
             .iter()
             .enumerate()
             .map(|(index, item)| {
                 if index == self.home_index {
                     Line::from(Span::styled(
-                        format!("> {item}"),
+                        format!("> {}", item.label()),
                         Style::default()
                             .fg(Color::Black)
                             .bg(Color::Green)
                             .add_modifier(Modifier::BOLD),
                     ))
                 } else {
-                    Line::from(format!("  {item}"))
+                    Line::from(format!("  {}", item.label()))
                 }
             })
             .collect::<Vec<_>>();
@@ -120,13 +126,154 @@ impl App {
         let help = Paragraph::new(Text::from(vec![
             Line::from("`syp` is the interactive terminal frontend."),
             Line::from(""),
-            Line::from("Run: configure the full sorting workflow."),
+            Line::from("Run Papers: configure and launch the full sorting workflow."),
+            Line::from(
+                "Extract Text: preview raw and LLM-ready text without running the full pipeline.",
+            ),
             Line::from("Sessions: resume, rerun, review, remove, or clear saved runs."),
-            Line::from("Quit: exit after confirmation."),
+            Line::from(
+                "Config: inspect XDG config status, env overrides, and write the default template.",
+            ),
+            Line::from(if self.debug_tui {
+                "Debug Tools: inspect mock-run behavior enabled by --debug-tui."
+            } else {
+                "Quit: exit after confirmation."
+            }),
+            Line::from(if self.debug_tui {
+                "Quit: exit after confirmation."
+            } else {
+                ""
+            }),
         ]))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Overview").borders(Borders::ALL));
         frame.render_widget(help, chunks[1]);
+    }
+
+    fn draw_extract(&self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(46), Constraint::Percentage(54)])
+            .split(area);
+
+        self.extract_form.draw(frame, chunks[0]);
+
+        let preview_lines = vec![
+            Line::from(Span::styled(
+                "Workflow",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("1. Enter one or more PDF paths."),
+            Line::from("2. Choose extractor, page limit, and worker count."),
+            Line::from("3. Press r to collect an extract preview."),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Result Surface",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("The preview opens in Operation."),
+            Line::from("Use tab 3 for extracted text and failures."),
+            Line::from("Use tab 2 for raw extractor logs when verbose/debug is enabled."),
+        ];
+        frame.render_widget(
+            Paragraph::new(preview_lines)
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title("Preview Output")
+                        .borders(Borders::ALL),
+                ),
+            chunks[1],
+        );
+    }
+
+    fn draw_debug(&self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
+            .split(area);
+
+        let status_lines = vec![
+            Line::from(Span::styled(
+                "Debug TUI is enabled",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("Run Papers launches the seeded mock workflow."),
+            Line::from("The debug path forces preview mode and disables rebuild."),
+            Line::from(
+                "Stage artifacts, taxonomy review, and reports are generated from canned data.",
+            ),
+            Line::from(""),
+            Line::from("This screen is hidden unless `syp tui --debug-tui` is used."),
+        ];
+        frame.render_widget(
+            Paragraph::new(status_lines)
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title("Debug Mode").borders(Borders::ALL)),
+            chunks[0],
+        );
+
+        let quick_lines = vec![
+            Line::from(Span::styled(
+                "Quick Routes",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("r open Run Configuration"),
+            Line::from("e open Extract Text"),
+            Line::from("c open Config"),
+            Line::from("s open Sessions"),
+            Line::from("Esc return home"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Current Run Defaults",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(format!(
+                "input={}  output={}",
+                self.run_form.input.trim(),
+                self.run_form.output.trim()
+            )),
+            Line::from(format!(
+                "provider={}  model={}",
+                self.run_form.provider_label(),
+                self.run_form.model_label()
+            )),
+            Line::from(format!(
+                "mode={}  quiet={}  verbosity={}",
+                if self.run_form.apply {
+                    "apply requested"
+                } else {
+                    "preview requested"
+                },
+                if self.run_form.quiet { "yes" } else { "no" },
+                self.run_form.verbosity.label()
+            )),
+        ];
+        frame.render_widget(
+            Paragraph::new(quick_lines)
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title("Routes & Defaults")
+                        .borders(Borders::ALL),
+                ),
+            chunks[1],
+        );
     }
 
     fn draw_operation(&self, frame: &mut Frame, area: Rect) {
@@ -295,7 +442,10 @@ impl App {
                     Style::default().fg(Color::Gray)
                 };
                 vec![
-                    Span::styled(format!(" {} {} ", index + 1, tab.label()), style),
+                    Span::styled(
+                        format!(" {} {} ", index + 1, tab.label(&self.operation.detail)),
+                        style,
+                    ),
                     Span::raw(" "),
                 ]
             })
@@ -402,20 +552,26 @@ impl App {
 
         let guidance = match self.operation.state {
             OperationState::Running => vec![
-                "Use 2 Logs for raw output and retries.",
-                "Use 3 Taxonomy or 4 Planned Actions as artifacts arrive.",
+                "Use 2 Logs for raw output and retries.".to_string(),
+                format!(
+                    "Use 3 {} or 4 Planned Actions as artifacts arrive.",
+                    self.operation.detail.tab_label()
+                ),
             ],
             OperationState::Success => vec![
-                "Next actions: 3 Taxonomy, 4 Planned Actions, s Sessions.",
-                "Esc returns to the screen that launched this operation.",
+                format!(
+                    "Next actions: 3 {}, 4 Planned Actions, s Sessions.",
+                    self.operation.detail.tab_label()
+                ),
+                "Esc returns to the screen that launched this operation.".to_string(),
             ],
             OperationState::Failure => vec![
-                "Use 2 Logs for details and s Sessions for follow-up.",
-                "Esc returns after the operation becomes idle.",
+                "Use 2 Logs for details and s Sessions for follow-up.".to_string(),
+                "Esc returns after the operation becomes idle.".to_string(),
             ],
             OperationState::Idle => vec![
-                "No active operation is running.",
-                "Launch a run from the Run Configuration screen.",
+                "No active operation is running.".to_string(),
+                "Launch a run from the Run Configuration screen.".to_string(),
             ],
         };
 
@@ -464,13 +620,28 @@ impl App {
     }
 
     fn draw_operation_taxonomy_tab(&self, frame: &mut Frame, area: Rect) {
+        let (title, empty_message) = match &self.operation.detail {
+            OperationDetail::Text {
+                title,
+                empty_message,
+                ..
+            } => (title.as_str(), empty_message.as_str()),
+            OperationDetail::Tree(_) => (
+                "Taxonomy",
+                "Taxonomy not available yet. It appears after taxonomy synthesis or review.",
+            ),
+            OperationDetail::None => (
+                "Taxonomy",
+                "Taxonomy not available yet. It appears after taxonomy synthesis or review.",
+            ),
+        };
         draw_scrolled_panel(
             frame,
             area,
-            "Taxonomy",
+            title,
             self.operation_taxonomy_lines(),
             self.operation.taxonomy_scroll,
-            "Taxonomy not available yet. It appears after taxonomy synthesis or review.",
+            empty_message,
         );
     }
 
@@ -495,6 +666,13 @@ impl App {
                 ("Space", "toggle"),
                 ("Esc", "back"),
             ],
+            Screen::ExtractForm => &[
+                ("↑/↓ or j/k", "move"),
+                ("←/→ or h/l", "cycle"),
+                ("Enter", "edit"),
+                ("r", "preview"),
+                ("Esc", "back"),
+            ],
             Screen::Sessions => &[
                 ("1-5", "filter"),
                 ("Tab/h/l", "preview tab"),
@@ -508,6 +686,14 @@ impl App {
                 ("g", "refresh"),
                 ("Esc", "back"),
             ],
+            Screen::Config => &[
+                ("↑/↓", "action"),
+                ("Enter", "run action"),
+                ("g", "refresh"),
+                ("PgUp/PgDn", "scroll"),
+                ("Esc", "back"),
+            ],
+            Screen::Debug => &[("r/e/c/s", "route"), ("Esc", "back")],
             Screen::Operation => &[
                 ("Tab/h/l", "switch"),
                 ("1-4", "jump tab"),

@@ -13,9 +13,35 @@ use crate::{
 pub(super) enum Screen {
     Home,
     RunForm,
+    ExtractForm,
     Sessions,
+    Config,
+    Debug,
     Operation,
     TaxonomyReview,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum HomeAction {
+    RunPapers,
+    ExtractText,
+    Sessions,
+    Config,
+    DebugTools,
+    Quit,
+}
+
+impl HomeAction {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::RunPapers => "Run Papers",
+            Self::ExtractText => "Extract Text",
+            Self::Sessions => "Sessions",
+            Self::Config => "Config",
+            Self::DebugTools => "Debug Tools",
+            Self::Quit => "Quit",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,11 +55,11 @@ pub(super) enum OperationTab {
 impl OperationTab {
     pub(super) const ALL: [Self; 4] = [Self::Summary, Self::Logs, Self::Taxonomy, Self::Report];
 
-    pub(super) fn label(self) -> &'static str {
+    pub(super) fn label(self, detail: &OperationDetail) -> &str {
         match self {
             Self::Summary => "Summary",
             Self::Logs => "Logs",
-            Self::Taxonomy => "Taxonomy",
+            Self::Taxonomy => detail.tab_label(),
             Self::Report => "Planned Actions",
         }
     }
@@ -159,6 +185,21 @@ pub(super) enum OperationDetail {
     #[default]
     None,
     Tree(Vec<CategoryTree>),
+    Text {
+        title: String,
+        lines: Vec<String>,
+        empty_message: String,
+    },
+}
+
+impl OperationDetail {
+    pub(super) fn tab_label(&self) -> &str {
+        match self {
+            Self::None => "Taxonomy",
+            Self::Tree(_) => "Taxonomy",
+            Self::Text { title, .. } => title.as_str(),
+        }
+    }
 }
 
 pub(super) struct OperationOutcome {

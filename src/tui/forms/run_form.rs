@@ -288,6 +288,14 @@ impl RunForm {
             });
         }
 
+        if matches!(self.llm_provider, LlmProvider::Ollama) && !self.api_key.trim().is_empty() {
+            issues.push(ValidationIssue {
+                field: Some(16),
+                severity: ValidationSeverity::Info,
+                message: "Ollama does not use the API key field.".to_string(),
+            });
+        }
+
         if self.quiet && !matches!(self.verbosity, UiVerbosity::Normal) {
             issues.push(ValidationIssue {
                 field: Some(20),
@@ -478,6 +486,14 @@ impl RunForm {
         }
     }
 
+    pub(crate) fn provider_label(&self) -> &'static str {
+        provider_label(self.llm_provider)
+    }
+
+    pub(crate) fn model_label(&self) -> &str {
+        self.llm_model.trim()
+    }
+
     fn draw_form_workspace(&self, frame: &mut Frame, area: Rect, analysis: &RunFormAnalysis) {
         let outer = Block::default().title("Run Setup").borders(Borders::ALL);
         let inner = outer.inner(area);
@@ -653,6 +669,18 @@ impl RunForm {
                     .fg(issue.severity.color())
                     .add_modifier(Modifier::BOLD),
             )));
+        }
+
+        let provider_guidance = provider_guidance_lines(self.llm_provider);
+        if !provider_guidance.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!("Provider Notes ({})", provider_label(self.llm_provider)),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.extend(provider_guidance.into_iter().map(Line::from));
         }
 
         lines.push(Line::from(""));
@@ -850,5 +878,26 @@ fn display_path_line(value: &str, default_value: &str) -> String {
         default_value.to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+fn provider_guidance_lines(provider: LlmProvider) -> Vec<String> {
+    match provider {
+        LlmProvider::Openai => vec![
+            "Hosted OpenAI requests require an API key.".to_string(),
+            "Leave Base URL blank to use https://api.openai.com/v1.".to_string(),
+            "Models starting with gpt-5 use the Responses API automatically.".to_string(),
+        ],
+        LlmProvider::Gemini => vec![
+            "Gemini requests require an API key.".to_string(),
+            "Leave Base URL blank to use https://generativelanguage.googleapis.com/v1beta."
+                .to_string(),
+            "The model may be entered with or without the models/ prefix.".to_string(),
+        ],
+        LlmProvider::Ollama => vec![
+            "Ollama ignores API Key and expects a local or self-hosted server.".to_string(),
+            "Leave Base URL blank to use http://localhost:11434.".to_string(),
+            "Make sure the selected model has already been pulled into Ollama.".to_string(),
+        ],
     }
 }

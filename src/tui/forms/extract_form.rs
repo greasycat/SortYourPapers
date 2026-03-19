@@ -113,7 +113,7 @@ impl ExtractForm {
             page_cutoff: parse_u8("page_cutoff", &self.page_cutoff)?,
             extractor: self.extractor,
             pdf_extract_workers: parse_usize("pdf_extract_workers", &self.pdf_extract_workers)?,
-            verbosity: self.verbosity.count(),
+            verbosity: self.verbosity.raw(),
         })
     }
 

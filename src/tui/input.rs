@@ -10,10 +10,11 @@ use crate::{
 
 use super::{
     app::App,
-    forms::{HOME_ITEMS, run_field_label},
+    extract::{collect_extract_preview, render_extract_result_lines},
+    forms::{extract_field_label, run_field_label},
     model::{
-        ConfirmAction, OperationDetail, OperationOutcome, OperationState, OperationTab, Overlay,
-        Screen,
+        ConfirmAction, HomeAction, OperationDetail, OperationOutcome, OperationState, OperationTab,
+        Overlay, Screen,
     },
     session_view::rerun_stage_name,
     taxonomy_review::ReviewPhase,
@@ -28,33 +29,110 @@ impl App {
         match self.screen {
             Screen::Home => self.handle_home_key(key).await,
             Screen::RunForm => self.handle_run_form_key(key).await,
+            Screen::ExtractForm => self.handle_extract_form_key(key).await,
             Screen::Sessions => self.handle_sessions_key(key).await,
+            Screen::Config => self.handle_config_key(key),
+            Screen::Debug => self.handle_debug_key(key).await,
             Screen::Operation => self.handle_operation_key(key),
             Screen::TaxonomyReview => self.handle_taxonomy_review_key(key),
         }
     }
 
     async fn handle_home_key(&mut self, key: KeyEvent) -> Result<()> {
+        self.clamp_home_index();
+        let action_count = self.home_actions().len();
         match key.code {
             KeyCode::Esc => self.open_quit_confirmation(),
             KeyCode::Down | KeyCode::Char('j') => {
-                self.home_index = (self.home_index + 1).min(HOME_ITEMS.len() - 1);
+                self.home_index = (self.home_index + 1).min(action_count.saturating_sub(1));
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 self.home_index = self.home_index.saturating_sub(1);
             }
             KeyCode::Enter => {
-                self.screen = match self.home_index {
-                    0 => Screen::RunForm,
-                    1 => {
+                self.screen = match self.selected_home_action() {
+                    HomeAction::RunPapers => Screen::RunForm,
+                    HomeAction::ExtractText => Screen::ExtractForm,
+                    HomeAction::Sessions => {
                         self.session_view.refresh()?;
                         Screen::Sessions
                     }
-                    _ => {
+                    HomeAction::Config => {
+                        self.config_view.refresh()?;
+                        Screen::Config
+                    }
+                    HomeAction::DebugTools => Screen::Debug,
+                    HomeAction::Quit => {
                         self.open_quit_confirmation();
                         Screen::Home
                     }
                 };
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_extract_form_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => self.screen = Screen::Home,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.extract_form.selected = (self.extract_form.selected + 1).min(4);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.extract_form.selected = self.extract_form.selected.saturating_sub(1);
+            }
+            KeyCode::Left | KeyCode::Char('h') => self.extract_form.cycle_selected(-1),
+            KeyCode::Right | KeyCode::Char('l') => self.extract_form.cycle_selected(1),
+            KeyCode::Char('r') => {
+                let args = match self.extract_form.build_args() {
+                    Ok(args) => args,
+                    Err(err) => {
+                        self.overlay = Some(Overlay::Notice {
+                            title: "Extract Configuration".to_string(),
+                            message: err.to_string(),
+                        });
+                        return Ok(());
+                    }
+                };
+
+                self.start_async_operation("Extract Text", move |tx| async move {
+                    let outcome = match collect_extract_preview(args).await {
+                        Ok(result) => {
+                            let summary = format!(
+                                "extracted {} PDF(s); {} extraction failure(s)",
+                                result.papers.len(),
+                                result.failures.len()
+                            );
+                            let detail = OperationDetail::Text {
+                                title: "Extract Preview".to_string(),
+                                lines: render_extract_result_lines(&result),
+                                empty_message: "No extracted text was produced.".to_string(),
+                            };
+                            if result.failures.is_empty() {
+                                OperationOutcome::success("Extract Text", summary, detail)
+                            } else {
+                                OperationOutcome::failure("Extract Text", summary, detail)
+                            }
+                        }
+                        Err(err) => OperationOutcome::failure(
+                            "Extract Text",
+                            err.to_string(),
+                            OperationDetail::None,
+                        ),
+                    };
+                    let _ = tx.send(outcome);
+                });
+            }
+            KeyCode::Enter => {
+                if matches!(self.extract_form.selected, 0 | 1 | 3) {
+                    self.overlay = Some(Overlay::EditField {
+                        label: extract_field_label(self.extract_form.selected).to_string(),
+                        buffer: self.extract_form.value(self.extract_form.selected),
+                    });
+                } else {
+                    self.extract_form.cycle_selected(1);
+                }
             }
             _ => {}
         }
@@ -165,6 +243,76 @@ impl App {
                     message: "Clear all incomplete saved sessions for this workspace?".to_string(),
                     action: ConfirmAction::ClearIncomplete,
                 });
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_config_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => self.screen = Screen::Home,
+            KeyCode::Down | KeyCode::Char('j') => self.config_view.move_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.config_view.move_selection(-1),
+            KeyCode::PageDown => self.config_view.scroll(10),
+            KeyCode::PageUp => self.config_view.scroll(-10),
+            KeyCode::Char('g') => {
+                self.config_view.refresh()?;
+                self.config_view
+                    .set_status("Diagnostics refreshed.".to_string());
+            }
+            KeyCode::Enter => match self.config_view.selected_action() {
+                super::config_view::ConfigAction::Refresh => {
+                    self.config_view.refresh()?;
+                    self.config_view
+                        .set_status("Diagnostics refreshed.".to_string());
+                }
+                super::config_view::ConfigAction::Init => match crate::init_config(false) {
+                    Ok(path) => {
+                        self.config_view.refresh()?;
+                        self.config_view
+                            .set_status(format!("Wrote default config to {}", path.display()));
+                    }
+                    Err(err) => {
+                        self.config_view.set_status(err.to_string());
+                        self.overlay = Some(Overlay::Notice {
+                            title: "Config Init".to_string(),
+                            message: err.to_string(),
+                        });
+                    }
+                },
+                super::config_view::ConfigAction::ForceInit => match crate::init_config(true) {
+                    Ok(path) => {
+                        self.config_view.refresh()?;
+                        self.config_view
+                            .set_status(format!("Overwrote config at {}", path.display()));
+                    }
+                    Err(err) => {
+                        self.config_view.set_status(err.to_string());
+                        self.overlay = Some(Overlay::Notice {
+                            title: "Config Init".to_string(),
+                            message: err.to_string(),
+                        });
+                    }
+                },
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_debug_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => self.screen = Screen::Home,
+            KeyCode::Char('r') => self.screen = Screen::RunForm,
+            KeyCode::Char('e') => self.screen = Screen::ExtractForm,
+            KeyCode::Char('c') => {
+                self.config_view.refresh()?;
+                self.screen = Screen::Config;
+            }
+            KeyCode::Char('s') => {
+                self.session_view.refresh()?;
+                self.screen = Screen::Sessions;
             }
             _ => {}
         }
@@ -384,21 +532,19 @@ impl App {
                 }
                 return Ok(true);
             }
-            Overlay::Confirm { action, .. } => {
-                match key.code {
-                    KeyCode::Char('y') | KeyCode::Enter => {
-                        self.confirm_action(action.clone())?;
-                        return Ok(true);
-                    }
-                    KeyCode::Esc => {
-                        return Ok(true);
-                    }
-                    _ => {
-                        self.overlay = Some(overlay);
-                        return Ok(true);
-                    }
+            Overlay::Confirm { action, .. } => match key.code {
+                KeyCode::Char('y') | KeyCode::Enter => {
+                    self.confirm_action(action.clone())?;
+                    return Ok(true);
                 }
-            }
+                KeyCode::Esc => {
+                    return Ok(true);
+                }
+                _ => {
+                    self.overlay = Some(overlay);
+                    return Ok(true);
+                }
+            },
             Overlay::Notice { .. } => match key.code {
                 KeyCode::Enter | KeyCode::Esc => true,
                 _ => {

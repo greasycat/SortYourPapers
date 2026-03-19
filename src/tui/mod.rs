@@ -1,5 +1,7 @@
 mod app;
 mod backend;
+mod config_view;
+mod extract;
 mod forms;
 mod input;
 mod model;
@@ -27,7 +29,8 @@ use self::{app::App, backend::TuiBackend};
 #[cfg(test)]
 use self::{
     backend::BackendEvent,
-    forms::{RunForm, UiVerbosity, ValidationSeverity},
+    config_view::ConfigView,
+    forms::{ExtractForm, RunForm, UiVerbosity, ValidationSeverity},
     model::{OperationDetail, OperationState, OperationView, Overlay, ProgressEntry, Screen},
     session_view::SessionView,
 };
@@ -98,8 +101,8 @@ mod tests {
     };
 
     use super::{
-        App, BackendEvent, OperationDetail, OperationState, OperationView, Overlay, ProgressEntry,
-        RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
+        App, BackendEvent, ConfigView, ExtractForm, OperationDetail, OperationState, OperationView,
+        Overlay, ProgressEntry, RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
         model::{OperationTab, StageTiming},
         render::stage_timing_bars,
         taxonomy_review::{
@@ -114,7 +117,9 @@ mod tests {
             screen: Screen::Operation,
             home_index: 0,
             run_form: RunForm::default(),
+            extract_form: ExtractForm::default(),
             session_view: SessionView::default(),
+            config_view: ConfigView::default(),
             overlay: None,
             taxonomy_review: None,
             operation: OperationView {
@@ -389,6 +394,52 @@ mod tests {
     }
 
     #[test]
+    fn home_screen_lists_extract_and_config_actions() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+
+        let lines = render_lines(&app, 120, 28);
+
+        assert!(lines.iter().any(|line| line.contains("Run Papers")));
+        assert!(lines.iter().any(|line| line.contains("Extract Text")));
+        assert!(lines.iter().any(|line| line.contains("Sessions")));
+        assert!(lines.iter().any(|line| line.contains("Config")));
+        assert!(!lines.iter().any(|line| line.contains("Debug Tools")));
+    }
+
+    #[test]
+    fn home_screen_shows_debug_tools_when_debug_tui_is_enabled() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+        app.debug_tui = true;
+
+        let lines = render_lines(&app, 120, 28);
+
+        assert!(lines.iter().any(|line| line.contains("Debug Tools")));
+    }
+
+    #[test]
+    fn run_form_selected_field_includes_provider_specific_guidance() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.selected = 13;
+        app.run_form.cycle_selected(-1);
+
+        let lines = render_lines(&app, 140, 36);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Provider Notes (ollama)"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("http://localhost:11434"))
+        );
+    }
+
+    #[test]
     fn progress_events_add_advance_and_remove_entries() {
         let mut app = test_app();
 
@@ -445,6 +496,25 @@ mod tests {
         let lines = render_lines(&app, 80, 24);
 
         assert!(lines.iter().any(|line| line.contains("waiting for work")));
+    }
+
+    #[test]
+    fn operation_detail_text_renders_custom_extract_preview_title() {
+        let mut app = test_app();
+        app.operation.active_tab = OperationTab::Taxonomy;
+        app.operation.detail = OperationDetail::Text {
+            title: "Extract Preview".to_string(),
+            lines: vec![
+                "=== /tmp/paper.pdf ===".to_string(),
+                "--- raw ---".to_string(),
+            ],
+            empty_message: "No extract output".to_string(),
+        };
+
+        let lines = render_lines(&app, 120, 24);
+
+        assert!(lines.iter().any(|line| line.contains("Extract Preview")));
+        assert!(lines.iter().any(|line| line.contains("/tmp/paper.pdf")));
     }
 
     #[test]
@@ -681,7 +751,7 @@ mod tests {
     fn selecting_quit_from_home_requires_confirmation() {
         let mut app = test_app();
         app.screen = Screen::Home;
-        app.home_index = 2;
+        app.home_index = app.home_actions().len().saturating_sub(1);
 
         let runtime = test_runtime();
         runtime
