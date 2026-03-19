@@ -364,7 +364,11 @@ impl App {
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(4)])
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(4),
+                Constraint::Min(0),
+            ])
             .split(inner);
 
         frame.render_widget(
@@ -399,15 +403,16 @@ impl App {
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(8), Constraint::Length(4)])
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(4),
+                Constraint::Min(0),
+            ])
             .split(inner);
 
-        let tree = crate::terminal::report::render_category_tree(categories);
         frame.render_widget(
             Paragraph::new(Text::from(vec![
                 Line::from("Review the current taxonomy."),
-                Line::from(""),
-                Line::from(tree),
                 Line::from(""),
                 Line::from("Type below, press Enter on an empty field to accept, or q to cancel."),
             ]))
@@ -415,7 +420,16 @@ impl App {
             chunks[0],
         );
 
-        draw_text_field(frame, chunks[1], "Suggestion", input)
+        let cursor = draw_text_field(frame, chunks[1], "Suggestion", input);
+
+        let tree = crate::terminal::report::render_category_tree(categories);
+        frame.render_widget(
+            Paragraph::new(Text::from(vec![Line::from(""), Line::from(tree)]))
+                .wrap(Wrap { trim: false }),
+            chunks[2],
+        );
+
+        cursor
     }
 }
 

@@ -354,6 +354,6 @@ mod tests {
         );
         terminal
             .backend_mut()
-            .assert_cursor_position(Position::new(20, 15));
+            .assert_cursor_position(Position::new(20, 10));
     }
 }
