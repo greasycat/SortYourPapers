@@ -88,6 +88,8 @@ mod tests {
 
     use crate::{
         papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode, terminal::AlertSeverity,
+        report::{FileAction, PlanAction, RunReport},
+        session::{RunStage, RunSummary, SessionConfigSummary, SessionDetails, SessionStatusSummary},
     };
 
     use super::{
@@ -155,6 +157,62 @@ mod tests {
             .enable_all()
             .build()
             .expect("test runtime should build")
+    }
+
+    fn sample_session_status(
+        is_completed: bool,
+        is_incomplete: bool,
+        is_failed_looking: bool,
+    ) -> SessionStatusSummary {
+        SessionStatusSummary {
+            is_completed,
+            is_incomplete,
+            is_failed_looking,
+        }
+    }
+
+    fn sample_session_run(run_id: &str, stage: Option<RunStage>) -> RunSummary {
+        RunSummary {
+            run_id: run_id.to_string(),
+            created_unix_ms: 120_000,
+            cwd: "/tmp/project".into(),
+            last_completed_stage: stage,
+            is_latest: run_id == "run-complete",
+        }
+    }
+
+    fn sample_session_details(run: RunSummary) -> SessionDetails {
+        let mut report = RunReport::new(true);
+        report.actions = (0..20)
+            .map(|index| PlanAction {
+                source: format!("/tmp/in/paper-{index:02}.pdf").into(),
+                destination: format!("/tmp/out/topic-{index:02}.pdf").into(),
+                action: FileAction::Move,
+            })
+            .collect();
+
+        SessionDetails {
+            run,
+            config: SessionConfigSummary {
+                dry_run: true,
+                llm_provider: "gemini".to_string(),
+                llm_model: "gemini-3-flash-preview".to_string(),
+            },
+            status: sample_session_status(true, false, false),
+            report: Some(report),
+            taxonomy: Some(vec![crate::papers::taxonomy::CategoryTree {
+                name: "AI".to_string(),
+                children: vec![crate::papers::taxonomy::CategoryTree {
+                    name: "Vision".to_string(),
+                    children: vec![],
+                }],
+            }]),
+            available_stage_artifacts: vec![
+                RunStage::ExtractText,
+                RunStage::SynthesizeCategories,
+                RunStage::BuildPlan,
+            ],
+        }
     }
 
     #[test]
@@ -572,6 +630,87 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("Next actions: 3 Taxonomy, 4 Report, s Sessions."))
         );
+    }
+
+    #[test]
+    fn sessions_screen_renders_filters_and_preview_panels() {
+        let mut app = test_app();
+        app.screen = Screen::Sessions;
+        let run = sample_session_run("run-complete", Some(RunStage::Completed));
+        app.session_view.replace_runs_for_tests(vec![run.clone()]);
+        app.session_view.set_status_for_tests(
+            &run.run_id,
+            sample_session_status(true, false, false),
+        );
+        app.session_view
+            .set_selected_details_for_tests(sample_session_details(run));
+
+        let lines = render_lines(&app, 120, 32);
+
+        assert!(lines.iter().any(|line| line.contains("Filters")));
+        assert!(lines.iter().any(|line| line.contains("1 All")));
+        assert!(lines.iter().any(|line| line.contains("Preview Tabs")));
+        assert!(lines.iter().any(|line| line.contains("provider: gemini / gemini-3-flash-preview")));
+    }
+
+    #[test]
+    fn sessions_filter_hotkeys_change_visible_runs() {
+        let mut app = test_app();
+        app.screen = Screen::Sessions;
+        let completed = sample_session_run("run-complete", Some(RunStage::Completed));
+        let incomplete = sample_session_run("run-open", Some(RunStage::ExtractText));
+        app.session_view
+            .replace_runs_for_tests(vec![completed.clone(), incomplete.clone()]);
+        app.session_view.set_status_for_tests(
+            &completed.run_id,
+            sample_session_status(true, false, false),
+        );
+        app.session_view.set_status_for_tests(
+            &incomplete.run_id,
+            sample_session_status(false, true, true),
+        );
+        app.session_view
+            .set_selected_details_for_tests(sample_session_details(completed.clone()));
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)))
+            .expect("completed filter should be handled");
+        let completed_lines = render_lines(&app, 120, 32);
+        assert!(completed_lines.iter().any(|line| line.contains("run-complete")));
+        assert!(!completed_lines.iter().any(|line| line.contains("run-open")));
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE)))
+            .expect("incomplete filter should be handled");
+        let incomplete_lines = render_lines(&app, 120, 32);
+        assert!(incomplete_lines.iter().any(|line| line.contains("run-open")));
+        assert!(!incomplete_lines.iter().any(|line| line.contains("run-complete")));
+    }
+
+    #[test]
+    fn sessions_preview_tabs_switch_and_scroll() {
+        let mut app = test_app();
+        app.screen = Screen::Sessions;
+        let run = sample_session_run("run-complete", Some(RunStage::Completed));
+        app.session_view.replace_runs_for_tests(vec![run.clone()]);
+        app.session_view.set_status_for_tests(
+            &run.run_id,
+            sample_session_status(true, false, false),
+        );
+        app.session_view
+            .set_selected_details_for_tests(sample_session_details(run));
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)))
+            .expect("tab should switch to report preview");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)))
+            .expect("page down should scroll report preview");
+
+        assert_eq!(app.session_view.preview_tab_label_for_tests(), "Report");
+        assert!(app.session_view.preview_scroll_for_tests() > 0);
     }
 
     #[test]

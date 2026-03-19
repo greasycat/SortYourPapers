@@ -65,6 +65,23 @@ impl App {
             KeyCode::Char('g') => self.session_view.refresh()?,
             KeyCode::Down | KeyCode::Char('j') => self.session_view.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.session_view.move_selection(-1),
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                self.session_view.switch_preview_tab(1);
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                self.session_view.switch_preview_tab(-1);
+            }
+            KeyCode::PageDown => self.session_view.scroll_preview(10),
+            KeyCode::PageUp => self.session_view.scroll_preview(-10),
+            KeyCode::Char('1')
+            | KeyCode::Char('2')
+            | KeyCode::Char('3')
+            | KeyCode::Char('4')
+            | KeyCode::Char('5') => {
+                if let KeyCode::Char(key) = key.code {
+                    self.session_view.set_filter_for_key(key);
+                }
+            }
             KeyCode::Char('p') => {
                 if let Some(run_id) = self.session_view.selected_run_id() {
                     self.start_async_operation("Resume Session", move |tx| async move {

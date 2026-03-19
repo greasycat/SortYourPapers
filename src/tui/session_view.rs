@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use chrono::{Local, TimeZone};
 use ratatui::{
@@ -8,38 +11,176 @@ use ratatui::{
 };
 
 use crate::{
-    error::Result,
-    session::{RunStage, RunSummary, RunWorkspace},
+    session::{
+        RunStage, RunSummary, RunWorkspace, SessionDetails, SessionStatusSummary,
+    },
+    terminal::{Verbosity, report::render_report_lines},
 };
 
 use super::forms::bool_label;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum SessionFilter {
+    #[default]
+    All,
+    Latest,
+    Completed,
+    Incomplete,
+    Failed,
+}
+
+impl SessionFilter {
+    const ALL: [Self; 5] = [
+        Self::All,
+        Self::Latest,
+        Self::Completed,
+        Self::Incomplete,
+        Self::Failed,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Latest => "Latest",
+            Self::Completed => "Completed",
+            Self::Incomplete => "Incomplete",
+            Self::Failed => "Failed",
+        }
+    }
+
+    fn from_key(key: char) -> Option<Self> {
+        match key {
+            '1' => Some(Self::All),
+            '2' => Some(Self::Latest),
+            '3' => Some(Self::Completed),
+            '4' => Some(Self::Incomplete),
+            '5' => Some(Self::Failed),
+            _ => None,
+        }
+    }
+
+    fn matches(self, run: &RunSummary, status: &SessionStatusSummary) -> bool {
+        match self {
+            Self::All => true,
+            Self::Latest => run.is_latest,
+            Self::Completed => status.is_completed,
+            Self::Incomplete => status.is_incomplete,
+            Self::Failed => status.is_failed_looking,
+        }
+    }
+
+    fn empty_message(self) -> &'static str {
+        match self {
+            Self::All => "No saved sessions found",
+            Self::Latest => "No latest session is available",
+            Self::Completed => "No completed sessions match this filter",
+            Self::Incomplete => "No incomplete sessions match this filter",
+            Self::Failed => "No failed-looking sessions match this filter",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum SessionPreviewTab {
+    #[default]
+    Overview,
+    Report,
+    Taxonomy,
+}
+
+impl SessionPreviewTab {
+    const ALL: [Self; 3] = [Self::Overview, Self::Report, Self::Taxonomy];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Overview => "Overview",
+            Self::Report => "Report",
+            Self::Taxonomy => "Taxonomy",
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Overview => 0,
+            Self::Report => 1,
+            Self::Taxonomy => 2,
+        }
+    }
+
+    fn from_index(index: usize) -> Self {
+        Self::ALL[index.min(Self::ALL.len() - 1)]
+    }
+}
+
 #[derive(Default)]
 pub(super) struct SessionView {
     runs: Vec<RunSummary>,
+    statuses: HashMap<String, SessionStatusSummary>,
+    visible_runs: Vec<RunSummary>,
     selected: usize,
+    filter: SessionFilter,
+    preview_tab: SessionPreviewTab,
+    preview_scroll: u16,
+    selected_details: Option<SessionDetails>,
+    selected_error: Option<String>,
 }
 
 impl SessionView {
-    pub(super) fn refresh(&mut self) -> Result<()> {
+    pub(super) fn refresh(&mut self) -> crate::error::Result<()> {
+        let selected_run_id = self.selected_run_id();
         self.runs = RunWorkspace::list_runs()?;
-        if self.selected >= self.runs.len() {
-            self.selected = self.runs.len().saturating_sub(1);
-        }
+        self.statuses = self
+            .runs
+            .iter()
+            .map(|run| {
+                let status = RunWorkspace::inspect_run_status(run)
+                    .unwrap_or_else(|_| fallback_status(run));
+                (run.run_id.clone(), status)
+            })
+            .collect();
+        self.apply_filter(selected_run_id.as_deref());
         Ok(())
     }
 
     pub(super) fn move_selection(&mut self, delta: isize) {
-        if self.runs.is_empty() {
+        if self.visible_runs.is_empty() {
             self.selected = 0;
+            self.selected_details = None;
+            self.selected_error = None;
             return;
         }
         let next = self.selected as isize + delta;
-        self.selected = next.clamp(0, self.runs.len().saturating_sub(1) as isize) as usize;
+        self.selected = next.clamp(0, self.visible_runs.len().saturating_sub(1) as isize) as usize;
+        self.preview_scroll = 0;
+        self.load_selected_details();
+    }
+
+    pub(super) fn set_filter_for_key(&mut self, key: char) {
+        if let Some(filter) = SessionFilter::from_key(key) {
+            self.filter = filter;
+            self.apply_filter(self.selected_run_id().as_deref());
+        }
+    }
+
+    pub(super) fn switch_preview_tab(&mut self, delta: i8) {
+        let current = self.preview_tab.index();
+        let target = if delta < 0 {
+            current.saturating_sub(1)
+        } else {
+            (current + 1).min(SessionPreviewTab::ALL.len() - 1)
+        };
+        self.preview_tab = SessionPreviewTab::from_index(target);
+        self.preview_scroll = 0;
+    }
+
+    pub(super) fn scroll_preview(&mut self, delta: isize) {
+        let max_offset = self.preview_lines().len().saturating_sub(1);
+        self.preview_scroll = (self.preview_scroll as isize + delta)
+            .clamp(0, max_offset.min(u16::MAX as usize) as isize) as u16;
     }
 
     pub(super) fn selected_run_id(&self) -> Option<String> {
-        self.runs.get(self.selected).map(|run| run.run_id.clone())
+        self.visible_runs.get(self.selected).map(|run| run.run_id.clone())
     }
 
     pub(super) fn draw(&self, frame: &mut Frame, area: Rect) {
@@ -48,17 +189,131 @@ impl SessionView {
             .map_or(0, |duration| duration.as_millis());
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
             .split(area);
 
-        let lines = if self.runs.is_empty() {
-            vec![Line::from("No saved sessions found")]
+        self.draw_list_column(frame, chunks[0], now_unix_ms);
+        self.draw_detail_column(frame, chunks[1], now_unix_ms);
+    }
+
+    #[cfg(test)]
+    pub(super) fn replace_runs_for_tests(&mut self, runs: Vec<RunSummary>) {
+        self.runs = runs.clone();
+        self.statuses = runs
+            .iter()
+            .map(|run| (run.run_id.clone(), fallback_status(run)))
+            .collect();
+        self.visible_runs = runs;
+        self.selected = 0;
+        self.selected_details = None;
+        self.selected_error = None;
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_status_for_tests(
+        &mut self,
+        run_id: &str,
+        status: SessionStatusSummary,
+    ) {
+        self.statuses.insert(run_id.to_string(), status);
+        self.apply_filter(self.selected_run_id().as_deref());
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_selected_details_for_tests(&mut self, details: SessionDetails) {
+        self.selected_details = Some(details);
+        self.selected_error = None;
+        self.preview_scroll = 0;
+    }
+
+    #[cfg(test)]
+    pub(super) fn preview_scroll_for_tests(&self) -> u16 {
+        self.preview_scroll
+    }
+
+    #[cfg(test)]
+    pub(super) fn preview_tab_label_for_tests(&self) -> &'static str {
+        self.preview_tab.label()
+    }
+
+    fn apply_filter(&mut self, preferred_run_id: Option<&str>) {
+        self.visible_runs = self
+            .runs
+            .iter()
+            .filter(|run| {
+                self.statuses
+                    .get(&run.run_id)
+                    .is_some_and(|status| self.filter.matches(run, status))
+            })
+            .cloned()
+            .collect();
+
+        self.selected = preferred_run_id
+            .and_then(|run_id| self.visible_runs.iter().position(|run| run.run_id == run_id))
+            .unwrap_or(0);
+        if self.selected >= self.visible_runs.len() {
+            self.selected = self.visible_runs.len().saturating_sub(1);
+        }
+        self.preview_scroll = 0;
+        self.load_selected_details();
+    }
+
+    fn load_selected_details(&mut self) {
+        self.selected_details = None;
+        self.selected_error = None;
+        let Some(run) = self.visible_runs.get(self.selected) else {
+            return;
+        };
+
+        match RunWorkspace::inspect_run(run) {
+            Ok(details) => self.selected_details = Some(details),
+            Err(err) => self.selected_error = Some(err.to_string()),
+        }
+    }
+
+    fn draw_list_column(&self, frame: &mut Frame, area: Rect, now_unix_ms: u128) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(0)])
+            .split(area);
+
+        let filter_spans = SessionFilter::ALL
+            .iter()
+            .enumerate()
+            .flat_map(|(index, filter)| {
+                let style = if *filter == self.filter {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                vec![
+                    Span::styled(format!(" {} {} ", index + 1, filter.label()), style),
+                    Span::raw(" "),
+                ]
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(
+            Paragraph::new(Line::from(filter_spans))
+                .block(Block::default().title("Filters").borders(Borders::ALL)),
+            chunks[0],
+        );
+
+        let lines = if self.visible_runs.is_empty() {
+            vec![Line::from(self.filter.empty_message())]
         } else {
-            self.runs
+            self.visible_runs
                 .iter()
                 .enumerate()
                 .map(|(index, run)| {
-                    let line = format_run_summary(index, run, now_unix_ms);
+                    let status = self
+                        .statuses
+                        .get(&run.run_id)
+                        .cloned()
+                        .unwrap_or_else(|| fallback_status(run));
+                    let line = format_run_summary(index, run, &status, now_unix_ms);
                     if index == self.selected {
                         Line::from(Span::styled(
                             format!("> {line}"),
@@ -68,7 +323,10 @@ impl SessionView {
                                 .add_modifier(Modifier::BOLD),
                         ))
                     } else {
-                        Line::from(format!("  {line}"))
+                        Line::from(Span::styled(
+                            format!("  {line}"),
+                            Style::default().fg(run_status_color(run, &status)),
+                        ))
                     }
                 })
                 .collect::<Vec<_>>()
@@ -77,50 +335,205 @@ impl SessionView {
             Paragraph::new(lines)
                 .wrap(Wrap { trim: false })
                 .block(Block::default().title("Saved Runs").borders(Borders::ALL)),
-            chunks[0],
-        );
-
-        let detail_lines = if let Some(run) = self.runs.get(self.selected) {
-            let relative_age = format_relative_age(run.created_unix_ms, now_unix_ms);
-            vec![
-                Line::from(format!("run_id: {}", run.run_id)),
-                Line::from(format!("cwd: {}", run.cwd.display())),
-                Line::from(format!("state: {}", run_state_label(run))),
-                Line::from(format!(
-                    "last stage: {}",
-                    run.last_completed_stage.map_or_else(
-                        || "Not started".to_string(),
-                        |stage| stage.description().to_string()
-                    )
-                )),
-                Line::from(format!(
-                    "started: {}",
-                    format_exact_time(run.created_unix_ms)
-                )),
-                Line::from(format!("age: {relative_age}")),
-                Line::from(format!("latest: {}", bool_label(run.is_latest))),
-                Line::from(""),
-                Line::from("p resume preview"),
-                Line::from("a resume apply"),
-                Line::from("r rerun preview"),
-                Line::from("x rerun apply"),
-                Line::from("v review taxonomy"),
-                Line::from("d delete selected"),
-                Line::from("c clear incomplete"),
-            ]
-        } else {
-            vec![Line::from("No run selected")]
-        };
-        frame.render_widget(
-            Paragraph::new(detail_lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Details").borders(Borders::ALL)),
             chunks[1],
         );
     }
+
+    fn draw_detail_column(&self, frame: &mut Frame, area: Rect, now_unix_ms: u128) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(12),
+                Constraint::Length(3),
+                Constraint::Min(0),
+            ])
+            .split(area);
+
+        let overview_lines = self.overview_lines(now_unix_ms);
+        frame.render_widget(
+            Paragraph::new(overview_lines)
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title("Overview").borders(Borders::ALL)),
+            chunks[0],
+        );
+
+        let tab_spans = SessionPreviewTab::ALL
+            .iter()
+            .enumerate()
+            .flat_map(|(index, tab)| {
+                let style = if *tab == self.preview_tab {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                vec![
+                    Span::styled(format!(" {} {} ", index + 1, tab.label()), style),
+                    Span::raw(" "),
+                ]
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(
+            Paragraph::new(Line::from(tab_spans))
+                .block(Block::default().title("Preview Tabs").borders(Borders::ALL)),
+            chunks[1],
+        );
+
+        let preview_title = format!("Preview: {}", self.preview_tab.label());
+        let preview_lines = self.preview_lines();
+        let preview_content = if preview_lines.is_empty() {
+            vec![Line::from("No preview is available for the selected session.")]
+        } else {
+            preview_lines.into_iter().map(Line::from).collect::<Vec<_>>()
+        };
+        frame.render_widget(
+            Paragraph::new(preview_content)
+                .scroll((self.preview_scroll, 0))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title(preview_title).borders(Borders::ALL)),
+            chunks[2],
+        );
+    }
+
+    fn overview_lines(&self, now_unix_ms: u128) -> Vec<Line<'static>> {
+        let Some(run) = self.visible_runs.get(self.selected) else {
+            return vec![Line::from("No run selected")];
+        };
+        let status = self
+            .statuses
+            .get(&run.run_id)
+            .cloned()
+            .unwrap_or_else(|| fallback_status(run));
+        let relative_age = format_relative_age(run.created_unix_ms, now_unix_ms);
+        let mut lines = vec![
+            Line::from(format!("run_id: {}", run.run_id)),
+            Line::from(format!(
+                "state: {}",
+                run_status_label(run, &status)
+            )),
+            Line::from(format!(
+                "last stage: {}",
+                run.last_completed_stage.map_or_else(
+                    || "Not started".to_string(),
+                    |stage| stage.description().to_string()
+                )
+            )),
+            Line::from(format!("started: {}", format_exact_time(run.created_unix_ms))),
+            Line::from(format!("age: {relative_age}")),
+            Line::from(format!("latest: {}", bool_label(run.is_latest))),
+        ];
+
+        if let Some(details) = &self.selected_details {
+            lines.push(Line::from(format!(
+                "mode: {}",
+                if details.config.dry_run {
+                    "preview"
+                } else {
+                    "apply"
+                }
+            )));
+            lines.push(Line::from(format!(
+                "provider: {} / {}",
+                details.config.llm_provider, details.config.llm_model
+            )));
+            lines.push(Line::from(format!(
+                "report: {}  taxonomy: {}",
+                bool_label(details.report.is_some()),
+                bool_label(details.taxonomy.is_some())
+            )));
+        } else if let Some(error) = &self.selected_error {
+            lines.push(Line::from(""));
+            lines.push(Line::from(format!("inspection error: {error}")));
+        }
+
+        lines
+    }
+
+    fn preview_lines(&self) -> Vec<String> {
+        if let Some(error) = &self.selected_error {
+            return vec![format!("Could not load selected session details: {error}")];
+        }
+
+        let Some(details) = &self.selected_details else {
+            return Vec::new();
+        };
+
+        match self.preview_tab {
+            SessionPreviewTab::Overview => self.overview_preview_lines(details),
+            SessionPreviewTab::Report => details
+                .report
+                .as_ref()
+                .map(|report| render_report_lines(report, Verbosity::new(false, false, false)))
+                .unwrap_or_else(|| vec!["No saved report exists for this session.".to_string()]),
+            SessionPreviewTab::Taxonomy => details
+                .taxonomy
+                .as_ref()
+                .map(|categories| {
+                    crate::terminal::report::render_category_tree(categories)
+                        .lines()
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_else(|| {
+                    vec!["No saved taxonomy exists for this session.".to_string()]
+                }),
+        }
+    }
+
+    fn overview_preview_lines(&self, details: &SessionDetails) -> Vec<String> {
+        let mut lines = vec![
+            format!(
+                "status: {}",
+                run_status_label(&details.run, &details.status)
+            ),
+            format!("workspace: {}", details.run.cwd.display()),
+            format!(
+                "saved mode: {}",
+                if details.config.dry_run {
+                    "preview"
+                } else {
+                    "apply"
+                }
+            ),
+            String::new(),
+            "Available stage artifacts:".to_string(),
+        ];
+
+        if details.available_stage_artifacts.is_empty() {
+            lines.push("  none".to_string());
+        } else {
+            for stage in &details.available_stage_artifacts {
+                lines.push(format!(
+                    "  {} | {}",
+                    rerun_stage_name(*stage),
+                    stage.description()
+                ));
+            }
+        }
+
+        lines.extend([
+            String::new(),
+            "Actions:".to_string(),
+            "  p resume preview".to_string(),
+            "  a resume apply".to_string(),
+            "  r rerun preview".to_string(),
+            "  x rerun apply".to_string(),
+            "  v review taxonomy".to_string(),
+            "  d delete selected".to_string(),
+            "  c clear incomplete".to_string(),
+        ]);
+        lines
+    }
 }
 
-fn format_run_summary(index: usize, run: &RunSummary, now_unix_ms: u128) -> String {
+fn format_run_summary(
+    index: usize,
+    run: &RunSummary,
+    status: &SessionStatusSummary,
+    now_unix_ms: u128,
+) -> String {
     let stage = run
         .last_completed_stage
         .map_or("not-started", rerun_stage_name);
@@ -129,18 +542,42 @@ fn format_run_summary(index: usize, run: &RunSummary, now_unix_ms: u128) -> Stri
         "{}. {} | {} | {} | {}{}",
         index + 1,
         run.run_id,
-        run_state_label(run),
+        run_status_label(run, status),
         stage,
         format_relative_age(run.created_unix_ms, now_unix_ms),
         latest
     )
 }
 
-fn run_state_label(run: &RunSummary) -> &'static str {
-    match run.last_completed_stage {
-        Some(RunStage::Completed) => "completed",
-        Some(_) => "resumable",
-        None => "new",
+fn fallback_status(run: &RunSummary) -> SessionStatusSummary {
+    SessionStatusSummary {
+        is_completed: run.last_completed_stage == Some(RunStage::Completed),
+        is_incomplete: run.last_completed_stage != Some(RunStage::Completed),
+        is_failed_looking: run.last_completed_stage != Some(RunStage::Completed),
+    }
+}
+
+fn run_status_label(run: &RunSummary, status: &SessionStatusSummary) -> &'static str {
+    if status.is_completed && status.is_failed_looking {
+        "failed"
+    } else if status.is_completed {
+        "completed"
+    } else if run.last_completed_stage.is_some() {
+        "incomplete"
+    } else {
+        "new"
+    }
+}
+
+fn run_status_color(run: &RunSummary, status: &SessionStatusSummary) -> Color {
+    if status.is_completed && status.is_failed_looking {
+        Color::Red
+    } else if status.is_completed {
+        Color::Green
+    } else if run.last_completed_stage.is_some() {
+        Color::Yellow
+    } else {
+        Color::Gray
     }
 }
 
@@ -193,9 +630,15 @@ pub(super) fn rerun_stage_name(stage: RunStage) -> &'static str {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::session::RunSummary;
+    use crate::session::{
+        RunSummary, SessionConfigSummary, SessionDetails, SessionStatusSummary,
+    };
 
-    use super::{format_exact_time, format_relative_age, format_run_summary, run_state_label};
+    use super::{
+        SessionPreviewTab, format_exact_time, format_relative_age, format_run_summary,
+        run_status_label,
+    };
+    use crate::report::RunReport;
     use crate::session::RunStage;
 
     fn sample_run(stage: Option<RunStage>) -> RunSummary {
@@ -208,6 +651,14 @@ mod tests {
         }
     }
 
+    fn sample_status(is_completed: bool, is_incomplete: bool, is_failed_looking: bool) -> SessionStatusSummary {
+        SessionStatusSummary {
+            is_completed,
+            is_incomplete,
+            is_failed_looking,
+        }
+    }
+
     #[test]
     fn relative_age_prefers_human_scannable_labels() {
         assert_eq!(format_relative_age(60_000, 60_500), "just now");
@@ -217,23 +668,44 @@ mod tests {
     }
 
     #[test]
-    fn run_state_label_matches_completion_state() {
-        assert_eq!(run_state_label(&sample_run(None)), "new");
+    fn run_status_label_matches_completion_state() {
         assert_eq!(
-            run_state_label(&sample_run(Some(RunStage::ExtractText))),
-            "resumable"
+            run_status_label(&sample_run(None), &sample_status(false, true, true)),
+            "new"
         );
         assert_eq!(
-            run_state_label(&sample_run(Some(RunStage::Completed))),
+            run_status_label(
+                &sample_run(Some(RunStage::ExtractText)),
+                &sample_status(false, true, true)
+            ),
+            "incomplete"
+        );
+        assert_eq!(
+            run_status_label(
+                &sample_run(Some(RunStage::Completed)),
+                &sample_status(true, false, false)
+            ),
             "completed"
+        );
+        assert_eq!(
+            run_status_label(
+                &sample_run(Some(RunStage::Completed)),
+                &sample_status(true, false, true)
+            ),
+            "failed"
         );
     }
 
     #[test]
     fn run_summary_uses_human_age_instead_of_raw_timestamp() {
-        let line = format_run_summary(0, &sample_run(Some(RunStage::ExtractText)), 180_000);
+        let line = format_run_summary(
+            0,
+            &sample_run(Some(RunStage::ExtractText)),
+            &sample_status(false, true, true),
+            180_000,
+        );
 
-        assert!(line.contains("resumable"));
+        assert!(line.contains("incomplete"));
         assert!(line.contains("extract-text"));
         assert!(line.contains("2m ago"));
         assert!(!line.contains("created_unix_ms"));
@@ -242,5 +714,29 @@ mod tests {
     #[test]
     fn exact_time_format_returns_displayable_timestamp() {
         assert_ne!(format_exact_time(60_000), "unknown");
+    }
+
+    #[test]
+    fn overview_preview_tab_index_round_trip_is_stable() {
+        assert_eq!(SessionPreviewTab::from_index(0), SessionPreviewTab::Overview);
+        assert_eq!(SessionPreviewTab::from_index(9), SessionPreviewTab::Taxonomy);
+    }
+
+    #[test]
+    fn sample_detail_construction_stays_compilable_for_parent_module_tests() {
+        let detail = SessionDetails {
+            run: sample_run(Some(RunStage::Completed)),
+            config: SessionConfigSummary {
+                dry_run: true,
+                llm_provider: "gemini".to_string(),
+                llm_model: "gemini-3-flash-preview".to_string(),
+            },
+            status: sample_status(true, false, false),
+            report: Some(RunReport::new(true)),
+            taxonomy: None,
+            available_stage_artifacts: vec![RunStage::ExtractText],
+        };
+
+        assert_eq!(detail.available_stage_artifacts.len(), 1);
     }
 }

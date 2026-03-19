@@ -191,6 +191,11 @@ impl RunWorkspace {
         workspace.inspect_with_summary(run.clone())
     }
 
+    pub fn inspect_run_status(run: &RunSummary) -> Result<SessionStatusSummary> {
+        let workspace = Self::open_in(&run.cwd, &run.run_id)?;
+        Ok(workspace.inspect_status(run))
+    }
+
     pub fn load_config(&self) -> Result<AppConfig> {
         read_json(&self.root_dir.join(CONFIG_FILE))
     }
@@ -392,13 +397,7 @@ impl RunWorkspace {
         let taxonomy = self
             .load_stage::<crate::papers::SynthesizeCategoriesState>(RunStage::SynthesizeCategories)?
             .map(|state| state.categories);
-
-        let status = SessionStatusSummary {
-            is_completed: run.last_completed_stage == Some(RunStage::Completed),
-            is_incomplete: run.last_completed_stage != Some(RunStage::Completed),
-            is_failed_looking: run.last_completed_stage != Some(RunStage::Completed)
-                || report.as_ref().is_some_and(|saved| saved.failed > 0),
-        };
+        let status = status_from_report(&run, report.as_ref());
 
         Ok(SessionDetails {
             run,
@@ -412,6 +411,11 @@ impl RunWorkspace {
             taxonomy,
             available_stage_artifacts: available_stage_artifacts(&self.root_dir),
         })
+    }
+
+    fn inspect_status(&self, run: &RunSummary) -> SessionStatusSummary {
+        let report = self.load_report().ok().flatten();
+        status_from_report(run, report.as_ref())
     }
 
     fn summary(&self, is_latest: bool) -> RunSummary {
@@ -643,6 +647,15 @@ fn llm_provider_label(provider: LlmProvider) -> &'static str {
         LlmProvider::Openai => "openai",
         LlmProvider::Ollama => "ollama",
         LlmProvider::Gemini => "gemini",
+    }
+}
+
+fn status_from_report(run: &RunSummary, report: Option<&RunReport>) -> SessionStatusSummary {
+    SessionStatusSummary {
+        is_completed: run.last_completed_stage == Some(RunStage::Completed),
+        is_incomplete: run.last_completed_stage != Some(RunStage::Completed),
+        is_failed_looking: run.last_completed_stage != Some(RunStage::Completed)
+            || report.is_some_and(|saved| saved.failed > 0),
     }
 }
 

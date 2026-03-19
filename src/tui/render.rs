@@ -401,7 +401,7 @@ impl App {
                 "↑/↓ or j/k move  ←/→ or h/l column  Enter edit/run  space toggle  Esc back"
             }
             Screen::Sessions => {
-                "↑/↓ select  p preview  a apply  r rerun  x rerun-apply  v review  d delete  c clear  g refresh  Esc back"
+                "1-5 filter  Tab/h/l preview tab  PgUp/PgDn preview scroll  ↑/↓ select  p/a resume  r/x rerun  v review  d delete  c clear  g refresh  Esc back"
             }
             Screen::Operation => {
                 "Tab/h/l switch  1-4 jump tab  j/k scroll  PgUp/PgDn page  g/G start/end  s sessions  Esc back when idle"
