@@ -12,6 +12,7 @@ use super::{
     app::App,
     model::{OperationDetail, OperationState, OperationTab, Overlay, Screen},
     session_view::rerun_stage_name,
+    taxonomy_tree::{render_category_tree, render_section_tree},
     taxonomy_review::ReviewPane,
     ui_widgets::{muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs},
 };
@@ -279,7 +280,7 @@ impl App {
     }
 
     fn draw_taxonomy_review(&self, frame: &mut Frame, area: Rect) -> Option<(u16, u16)> {
-        let Some(review) = &self.taxonomy_review else {
+        let Some(review) = self.taxonomy_review.as_ref() else {
             return None;
         };
 
@@ -314,7 +315,7 @@ impl App {
             .constraints([Constraint::Length(8), Constraint::Min(10)])
             .split(content[0]);
 
-        let cursor = self.draw_taxonomy_review_suggestion_panel(frame, left[0]);
+        let cursor = draw_taxonomy_review_suggestion_panel(frame, left[0], review);
         draw_scrolled_panel_with_block(
             frame,
             left[1],
@@ -323,16 +324,32 @@ impl App {
             review.history_scroll,
             "No iteration history yet.",
         );
-        draw_scrolled_panel_with_block(
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(4), Constraint::Min(0)])
+            .split(content[1]);
+        frame.render_widget(
+            Paragraph::new(
+                review
+                    .iteration_summary_lines()
+                    .into_iter()
+                    .map(Line::from)
+                    .collect::<Vec<_>>(),
+            )
+            .wrap(Wrap { trim: false })
+            .block(Block::default().title("Iteration").borders(Borders::ALL)),
+            right[0],
+        );
+        let mut tree_state = review.iteration_tree_state.borrow_mut();
+        render_section_tree(
             frame,
-            content[1],
+            right[1],
             focused_panel_block(
                 "Iteration Taxonomy",
                 review.focused_pane == ReviewPane::IterationTaxonomy,
             ),
-            review.iteration_taxonomy_lines(),
-            review.iteration_scroll,
-            "No taxonomy is available for this iteration.",
+            &review.iteration_taxonomy_sections(),
+            &mut tree_state,
         );
 
         cursor
@@ -597,29 +614,51 @@ impl App {
     }
 
     fn draw_operation_taxonomy_tab(&self, frame: &mut Frame, area: Rect) {
-        let (title, empty_message) = match &self.operation.detail {
+        match &self.operation.detail {
             OperationDetail::Text {
                 title,
                 empty_message,
                 ..
-            } => (title.as_str(), empty_message.as_str()),
-            OperationDetail::Tree(_) => (
-                "Taxonomy",
-                "Taxonomy not available yet. It appears after taxonomy synthesis or review.",
+            } => draw_scrolled_panel(
+                frame,
+                area,
+                title,
+                self.operation_taxonomy_lines(),
+                self.operation.taxonomy_scroll,
+                empty_message,
             ),
-            OperationDetail::None => (
-                "Taxonomy",
-                "Taxonomy not available yet. It appears after taxonomy synthesis or review.",
-            ),
-        };
-        draw_scrolled_panel(
-            frame,
-            area,
-            title,
-            self.operation_taxonomy_lines(),
-            self.operation.taxonomy_scroll,
-            empty_message,
-        );
+            OperationDetail::Tree(categories) => {
+                let mut state = self.operation.taxonomy_tree_state.borrow_mut();
+                render_category_tree(
+                    frame,
+                    area,
+                    Block::default().title("Taxonomy").borders(Borders::ALL),
+                    categories,
+                    &mut state,
+                );
+            }
+            OperationDetail::None => {
+                if let Some(categories) = &self.last_category_tree {
+                    let mut state = self.operation.taxonomy_tree_state.borrow_mut();
+                    render_category_tree(
+                        frame,
+                        area,
+                        Block::default().title("Taxonomy").borders(Borders::ALL),
+                        categories,
+                        &mut state,
+                    );
+                } else {
+                    draw_scrolled_panel(
+                        frame,
+                        area,
+                        "Taxonomy",
+                        Vec::new(),
+                        0,
+                        "Taxonomy not available yet. It appears after taxonomy synthesis or review.",
+                    );
+                }
+            }
+        }
     }
 
     fn draw_operation_report_tab(&self, frame: &mut Frame, area: Rect) {
@@ -785,52 +824,6 @@ impl App {
         }
     }
 
-    fn draw_taxonomy_review_suggestion_panel(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-    ) -> Option<(u16, u16)> {
-        let Some(review) = &self.taxonomy_review else {
-            return None;
-        };
-
-        let block =
-            focused_panel_block("Suggestion", review.focused_pane == ReviewPane::Suggestion);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        if inner.width == 0 || inner.height == 0 {
-            return None;
-        }
-
-        let mut constraints = vec![Constraint::Min(3)];
-        if review.editing {
-            constraints.push(Constraint::Length(3));
-        }
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints)
-            .split(inner);
-
-        frame.render_widget(
-            Paragraph::new(
-                review
-                    .suggestion_lines()
-                    .into_iter()
-                    .map(Line::from)
-                    .collect::<Vec<_>>(),
-            )
-            .wrap(Wrap { trim: false })
-            .scroll((review.focused_scroll().unwrap_or(0), 0)),
-            chunks[0],
-        );
-
-        if review.editing && chunks.len() > 1 {
-            return draw_text_field(frame, chunks[1], "Draft", &review.suggestion_buffer);
-        }
-
-        None
-    }
-
     fn draw_edit_field_overlay(
         &self,
         frame: &mut Frame,
@@ -868,6 +861,48 @@ impl App {
         draw_text_field(frame, chunks[1], label, buffer)
     }
 }
+
+fn draw_taxonomy_review_suggestion_panel(
+    frame: &mut Frame,
+    area: Rect,
+    review: &super::taxonomy_review::TaxonomyReviewView,
+) -> Option<(u16, u16)> {
+        let block =
+            focused_panel_block("Suggestion", review.focused_pane == ReviewPane::Suggestion);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        if inner.width == 0 || inner.height == 0 {
+            return None;
+        }
+
+        let mut constraints = vec![Constraint::Min(3)];
+        if review.editing {
+            constraints.push(Constraint::Length(3));
+        }
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(inner);
+
+        frame.render_widget(
+            Paragraph::new(
+                review
+                    .suggestion_lines()
+                    .into_iter()
+                    .map(Line::from)
+                    .collect::<Vec<_>>(),
+            )
+            .wrap(Wrap { trim: false })
+            .scroll((review.focused_scroll().unwrap_or(0), 0)),
+            chunks[0],
+        );
+
+        if review.editing && chunks.len() > 1 {
+            return draw_text_field(frame, chunks[1], "Draft", &review.suggestion_buffer);
+        }
+
+        None
+    }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct StageTimingSnapshot {

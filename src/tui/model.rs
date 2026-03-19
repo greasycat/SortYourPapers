@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::VecDeque,
     time::{Duration, Instant},
 };
@@ -8,6 +9,8 @@ use ratatui::prelude::{Color, Style};
 use crate::{
     config::AppConfig, papers::taxonomy::CategoryTree, session::RunStage, terminal::AlertSeverity,
 };
+
+use super::taxonomy_tree::TaxonomyTreeState;
 
 #[derive(Clone, Copy)]
 pub(super) enum Screen {
@@ -145,6 +148,7 @@ pub(super) struct OperationView {
     pub(super) active_tab: OperationTab,
     pub(super) log_scroll: u16,
     pub(super) taxonomy_scroll: u16,
+    pub(super) taxonomy_tree_state: RefCell<TaxonomyTreeState>,
     pub(super) report_scroll: u16,
     pub(super) alerts: VecDeque<OperationAlert>,
     pub(super) stage_label: String,
@@ -164,6 +168,7 @@ impl Default for OperationView {
             active_tab: OperationTab::Summary,
             log_scroll: 0,
             taxonomy_scroll: 0,
+            taxonomy_tree_state: RefCell::new(TaxonomyTreeState::default()),
             report_scroll: 0,
             alerts: VecDeque::new(),
             stage_label: String::new(),

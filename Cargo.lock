@@ -2064,6 +2064,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml",
+ "tui-tree-widget",
  "walkdir",
 ]
 
@@ -2410,6 +2411,16 @@ name = "ttf-parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+
+[[package]]
+name = "tui-tree-widget"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c14c4488e071617f5b5922222193cdf6725835e492c6229557af85d3c1a4e903"
+dependencies = [
+ "ratatui",
+ "unicode-width 0.2.0",
+]
 
 [[package]]
 name = "typenum"

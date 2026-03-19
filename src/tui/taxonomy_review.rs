@@ -1,6 +1,8 @@
-use std::sync::mpsc;
+use std::{cell::RefCell, sync::mpsc};
 
 use crate::{papers::taxonomy::CategoryTree, terminal::InspectReviewPrompt};
+
+use super::taxonomy_tree::{TaxonomySection, TaxonomyTreeState, reset_state_for_sections};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ReviewPhase {
@@ -66,6 +68,7 @@ pub(super) struct TaxonomyReviewView {
     pub(super) history_scroll: u16,
     pub(super) history_selection: usize,
     pub(super) focused_pane: ReviewPane,
+    pub(super) iteration_tree_state: RefCell<TaxonomyTreeState>,
     pub(super) phase: ReviewPhase,
     pub(super) editing: bool,
     pub(super) pending_reply: Option<PendingReviewReply>,
@@ -76,7 +79,7 @@ impl TaxonomyReviewView {
         categories: Vec<CategoryTree>,
         reply: mpsc::Sender<std::result::Result<InspectReviewPrompt, String>>,
     ) -> Self {
-        Self {
+        let mut review = Self {
             accepted_categories: categories,
             candidate_categories: None,
             suggestion_buffer: String::new(),
@@ -86,10 +89,13 @@ impl TaxonomyReviewView {
             history_scroll: 0,
             history_selection: 0,
             focused_pane: ReviewPane::Suggestion,
+            iteration_tree_state: RefCell::new(TaxonomyTreeState::default()),
             phase: ReviewPhase::Drafting,
             editing: false,
             pending_reply: Some(PendingReviewReply::Inspect(reply)),
-        }
+        };
+        review.refresh_iteration_tree_state();
+        review
     }
 
     pub(super) fn begin_iteration(
@@ -107,6 +113,7 @@ impl TaxonomyReviewView {
         self.phase = ReviewPhase::Drafting;
         self.editing = false;
         self.pending_reply = Some(PendingReviewReply::Inspect(reply));
+        self.refresh_iteration_tree_state();
     }
 
     pub(super) fn register_candidate(&mut self, categories: Vec<CategoryTree>) {
@@ -126,6 +133,7 @@ impl TaxonomyReviewView {
             self.history_selection = self.history.len();
             self.sync_history_scroll();
         }
+        self.refresh_iteration_tree_state();
     }
 
     pub(super) fn set_continue_prompt(
@@ -136,6 +144,7 @@ impl TaxonomyReviewView {
         self.phase = ReviewPhase::PostSuggestionDecision;
         self.editing = false;
         self.pending_reply = Some(PendingReviewReply::Continue(reply));
+        self.refresh_iteration_tree_state();
     }
 
     pub(super) fn start_editing(&mut self) {
@@ -183,6 +192,7 @@ impl TaxonomyReviewView {
         self.focused_pane = ReviewPane::Suggestion;
         self.editing = false;
         self.pending_reply = None;
+        self.refresh_iteration_tree_state();
     }
 
     pub(super) fn has_pending_inspect_prompt(&self) -> bool {
@@ -229,10 +239,18 @@ impl TaxonomyReviewView {
         match self.focused_pane {
             ReviewPane::Suggestion => {}
             ReviewPane::IterationTaxonomy => {
-                let max_offset = self.iteration_taxonomy_lines().len().saturating_sub(1);
-                self.iteration_scroll = (self.iteration_scroll as isize + delta)
-                    .clamp(0, max_offset.min(u16::MAX as usize) as isize)
-                    as u16;
+                if delta < 0 {
+                    for _ in 0..delta.unsigned_abs() {
+                        let _ = self.iteration_tree_state.borrow_mut().key_up();
+                    }
+                } else {
+                    for _ in 0..delta as usize {
+                        let _ = self.iteration_tree_state.borrow_mut().key_down();
+                    }
+                }
+                self.iteration_tree_state
+                    .borrow_mut()
+                    .scroll_selected_into_view();
             }
             ReviewPane::History => self.select_history_delta(delta),
         }
@@ -242,12 +260,14 @@ impl TaxonomyReviewView {
         match self.focused_pane {
             ReviewPane::Suggestion => {}
             ReviewPane::IterationTaxonomy => {
-                let target = self.iteration_taxonomy_lines().len().saturating_sub(1);
-                self.iteration_scroll = if to_end {
-                    target.min(u16::MAX as usize) as u16
+                if to_end {
+                    let _ = self.iteration_tree_state.borrow_mut().select_last();
                 } else {
-                    0
-                };
+                    let _ = self.iteration_tree_state.borrow_mut().select_first();
+                }
+                self.iteration_tree_state
+                    .borrow_mut()
+                    .scroll_selected_into_view();
             }
             ReviewPane::History => {
                 self.history_selection = if to_end { self.history.len() } else { 0 };
@@ -265,13 +285,6 @@ impl TaxonomyReviewView {
     pub(super) fn focus_previous(&mut self) {
         let current = self.focused_pane.index();
         self.focused_pane = ReviewPane::from_index(current.saturating_sub(1));
-    }
-
-    fn category_lines(categories: &[CategoryTree]) -> Vec<String> {
-        crate::terminal::report::render_category_tree(categories)
-            .lines()
-            .map(ToOwned::to_owned)
-            .collect()
     }
 
     fn selected_iteration(&self) -> Option<&ReviewIteration> {
@@ -293,53 +306,66 @@ impl TaxonomyReviewView {
             .clamp(0, max_index.min(isize::MAX as usize) as isize)
             as usize;
         self.sync_history_scroll();
-        self.iteration_scroll = 0;
+        self.refresh_iteration_tree_state();
     }
 
-    fn current_suggested_lines(&self) -> Vec<String> {
-        self.candidate_categories
-            .as_ref()
-            .map(|categories| Self::category_lines(categories))
-            .unwrap_or_else(|| match self.phase {
-                ReviewPhase::Drafting => {
-                    vec!["No suggested taxonomy yet for the current iteration.".to_string()]
-                }
-                ReviewPhase::WaitingForModel => {
-                    vec!["Waiting for the suggested taxonomy from the model.".to_string()]
-                }
-                ReviewPhase::PostSuggestionDecision => {
-                    vec!["Suggested taxonomy unavailable for this iteration.".to_string()]
-                }
-            })
-    }
-
-    pub(super) fn iteration_taxonomy_lines(&self) -> Vec<String> {
-        let mut lines = Vec::new();
+    pub(super) fn iteration_summary_lines(&self) -> Vec<String> {
         if let Some(iteration) = self.selected_iteration() {
-            lines.push(format!("Iteration {}", iteration.number));
-            lines.push(format!("Suggestion: {}", iteration.suggestion));
-            lines.push(String::new());
-            lines.push("Accepted Taxonomy".to_string());
-            lines.extend(Self::category_lines(&iteration.accepted_categories));
-            lines.push(String::new());
-            lines.push("Suggested Taxonomy".to_string());
-            lines.extend(Self::category_lines(&iteration.suggested_categories));
-            return lines;
+            return vec![
+                format!("Iteration {}", iteration.number),
+                format!("Suggestion: {}", iteration.suggestion),
+            ];
         }
 
-        lines.push("Current Iteration".to_string());
+        let mut lines = vec!["Current Iteration".to_string()];
         if let Some(suggestion) = self.last_submitted_suggestion.as_deref()
             && !matches!(self.phase, ReviewPhase::Drafting)
         {
             lines.push(format!("Latest suggestion: {suggestion}"));
         }
-        lines.push(String::new());
-        lines.push("Accepted Taxonomy".to_string());
-        lines.extend(Self::category_lines(&self.accepted_categories));
-        lines.push(String::new());
-        lines.push("Suggested Taxonomy".to_string());
-        lines.extend(self.current_suggested_lines());
         lines
+    }
+
+    pub(super) fn iteration_taxonomy_sections(&self) -> Vec<TaxonomySection> {
+        if let Some(iteration) = self.selected_iteration() {
+            return vec![
+                TaxonomySection::Categories {
+                    title: "Accepted Taxonomy".to_string(),
+                    categories: iteration.accepted_categories.clone(),
+                },
+                TaxonomySection::Categories {
+                    title: "Suggested Taxonomy".to_string(),
+                    categories: iteration.suggested_categories.clone(),
+                },
+            ];
+        }
+
+        vec![
+            TaxonomySection::Categories {
+                title: "Accepted Taxonomy".to_string(),
+                categories: self.accepted_categories.clone(),
+            },
+            match &self.candidate_categories {
+                Some(categories) => TaxonomySection::Categories {
+                    title: "Suggested Taxonomy".to_string(),
+                    categories: categories.clone(),
+                },
+                None => TaxonomySection::Message {
+                    title: "Suggested Taxonomy".to_string(),
+                    lines: match self.phase {
+                        ReviewPhase::Drafting => {
+                            vec!["No suggested taxonomy yet for the current iteration.".to_string()]
+                        }
+                        ReviewPhase::WaitingForModel => {
+                            vec!["Waiting for the suggested taxonomy from the model.".to_string()]
+                        }
+                        ReviewPhase::PostSuggestionDecision => {
+                            vec!["Suggested taxonomy unavailable for this iteration.".to_string()]
+                        }
+                    },
+                },
+            },
+        ]
     }
 
     pub(super) fn history_lines(&self) -> Vec<String> {
@@ -360,6 +386,13 @@ impl TaxonomyReviewView {
             ));
         }
         lines
+    }
+
+    fn refresh_iteration_tree_state(&mut self) {
+        let sections = self.iteration_taxonomy_sections();
+        let state = self.iteration_tree_state.get_mut();
+        *state = TaxonomyTreeState::default();
+        reset_state_for_sections(state, &sections);
     }
 
     pub(super) fn status_lines(&self) -> Vec<String> {

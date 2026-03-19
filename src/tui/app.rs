@@ -11,6 +11,7 @@ use super::{
         OperationTab, Overlay, ProgressEntry, Screen, StageTiming,
     },
     session_view::SessionView,
+    taxonomy_tree::reset_state_for_categories,
     taxonomy_review::TaxonomyReviewView,
 };
 
@@ -31,7 +32,7 @@ pub(super) struct App {
     pub(super) logs: VecDeque<String>,
     pub(super) progress: Vec<ProgressEntry>,
     pub(super) last_report: Option<crate::report::RunReport>,
-    pub(super) last_category_tree: Option<String>,
+    pub(super) last_category_tree: Option<Vec<crate::papers::taxonomy::CategoryTree>>,
     pub(super) should_quit: bool,
     pub(super) backend_rx: mpsc::Receiver<BackendEvent>,
     pub(super) op_rx: mpsc::Receiver<OperationOutcome>,
@@ -113,15 +114,13 @@ impl App {
                     self.last_report = Some(report);
                 }
                 BackendEvent::CategoryTree(categories) => {
-                    self.last_category_tree =
-                        Some(crate::terminal::report::render_category_tree(&categories));
+                    self.last_category_tree = Some(categories.clone());
                     if let Some(review) = self.taxonomy_review.as_mut() {
                         review.register_candidate(categories);
                     }
                 }
                 BackendEvent::PromptInspectReview { categories, reply } => {
-                    self.last_category_tree =
-                        Some(crate::terminal::report::render_category_tree(&categories));
+                    self.last_category_tree = Some(categories.clone());
                     self.screen = Screen::TaxonomyReview;
                     if let Some(review) = self.taxonomy_review.as_mut() {
                         review.begin_iteration(categories, reply);
@@ -153,8 +152,11 @@ impl App {
             self.operation.summary = outcome.summary;
             self.operation.detail = outcome.detail;
             if let OperationDetail::Tree(categories) = &self.operation.detail {
-                self.last_category_tree =
-                    Some(crate::terminal::report::render_category_tree(categories));
+                self.last_category_tree = Some(categories.clone());
+                reset_state_for_categories(
+                    &mut self.operation.taxonomy_tree_state.borrow_mut(),
+                    categories,
+                );
             }
             if matches!(origin, Screen::Sessions) {
                 let _ = self.session_view.refresh();
@@ -193,6 +195,28 @@ impl App {
 
     pub(super) fn scroll_active_operation_tab(&mut self, delta: isize) {
         let active_tab = self.operation.active_tab;
+        if matches!(active_tab, OperationTab::Taxonomy)
+            && matches!(
+                self.operation.detail,
+                OperationDetail::Tree(_) | OperationDetail::None
+            )
+        {
+            if delta < 0 {
+                for _ in 0..delta.unsigned_abs() {
+                    let _ = self.operation.taxonomy_tree_state.borrow_mut().key_up();
+                }
+            } else {
+                for _ in 0..delta as usize {
+                    let _ = self.operation.taxonomy_tree_state.borrow_mut().key_down();
+                }
+            }
+            self.operation
+                .taxonomy_tree_state
+                .borrow_mut()
+                .scroll_selected_into_view();
+            return;
+        }
+
         let max_offset = self.operation_content_len(active_tab).saturating_sub(1);
         let next = match active_tab {
             OperationTab::Summary => return,
@@ -212,6 +236,23 @@ impl App {
 
     pub(super) fn jump_active_operation_tab(&mut self, to_end: bool) {
         let active_tab = self.operation.active_tab;
+        if matches!(active_tab, OperationTab::Taxonomy)
+            && matches!(
+                self.operation.detail,
+                OperationDetail::Tree(_) | OperationDetail::None
+            )
+        {
+            if to_end {
+                let _ = self.operation.taxonomy_tree_state.borrow_mut().select_last();
+            } else {
+                let _ = self.operation.taxonomy_tree_state.borrow_mut().select_first();
+            }
+            self.operation
+                .taxonomy_tree_state
+                .borrow_mut()
+                .scroll_selected_into_view();
+            return;
+        }
         let target = if to_end {
             self.operation_content_len(active_tab).saturating_sub(1)
         } else {
@@ -261,17 +302,12 @@ impl App {
 
     pub(super) fn operation_taxonomy_lines(&self) -> Vec<String> {
         match &self.operation.detail {
-            OperationDetail::Tree(categories) => {
-                crate::terminal::report::render_category_tree(categories)
-                    .lines()
-                    .map(ToOwned::to_owned)
-                    .collect()
-            }
+            OperationDetail::Tree(_) => Vec::new(),
             OperationDetail::Text { lines, .. } => lines.clone(),
             OperationDetail::None => self
                 .last_category_tree
                 .as_ref()
-                .map(|tree| tree.lines().map(ToOwned::to_owned).collect())
+                .map(|_| Vec::new())
                 .unwrap_or_default(),
         }
     }
@@ -280,7 +316,7 @@ impl App {
         match tab {
             OperationTab::Summary => 0,
             OperationTab::Logs => self.operation_log_lines().len(),
-            OperationTab::Taxonomy => self.operation_taxonomy_lines().len(),
+            OperationTab::Taxonomy => 0,
             OperationTab::Report => self.operation_report_lines().len(),
         }
     }
@@ -332,6 +368,9 @@ impl App {
             active_tab: OperationTab::Summary,
             log_scroll: 0,
             taxonomy_scroll: 0,
+            taxonomy_tree_state: std::cell::RefCell::new(
+                super::taxonomy_tree::TaxonomyTreeState::default(),
+            ),
             report_scroll: 0,
             alerts: VecDeque::new(),
             stage_label: String::new(),

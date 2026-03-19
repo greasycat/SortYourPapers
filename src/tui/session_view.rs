@@ -11,11 +11,13 @@ use ratatui::{
 };
 
 use crate::{
+    papers::taxonomy::CategoryTree,
     session::{RunStage, RunSummary, RunWorkspace, SessionDetails, SessionStatusSummary},
     terminal::{Verbosity, report::render_report_lines},
 };
 
 use super::forms::bool_label;
+use super::taxonomy_tree::{render_category_tree, reset_state_for_categories, TaxonomyTreeState};
 use super::ui_widgets::{
     muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs,
 };
@@ -280,7 +282,9 @@ impl SessionView {
         };
 
         match RunWorkspace::inspect_run(run) {
-            Ok(details) => self.selected_details = Some(details),
+            Ok(details) => {
+                self.selected_details = Some(details);
+            }
             Err(err) => self.selected_error = Some(err.to_string()),
         }
     }
@@ -369,25 +373,51 @@ impl SessionView {
         );
 
         let preview_title = format!("Preview: {}", self.preview_tab.label());
-        let preview_lines = self.preview_lines();
-        let preview_content = if preview_lines.is_empty() {
-            vec![Line::from(
-                "No preview is available for the selected session.",
-            )]
-        } else {
-            preview_lines
-                .into_iter()
-                .map(Line::from)
-                .collect::<Vec<_>>()
-        };
-        render_scrolled_paragraph(
-            frame,
-            chunks[2],
-            Block::default().title(preview_title).borders(Borders::ALL),
-            preview_content,
-            self.preview_scroll,
-            true,
-        );
+        match self.preview_tab {
+            SessionPreviewTab::Taxonomy => {
+                if let Some(categories) = self.preview_taxonomy_categories() {
+                    let mut tree_state = TaxonomyTreeState::default();
+                    reset_state_for_categories(&mut tree_state, categories);
+                    render_category_tree(
+                        frame,
+                        chunks[2],
+                        Block::default().title(preview_title).borders(Borders::ALL),
+                        categories,
+                        &mut tree_state,
+                    );
+                } else {
+                    render_scrolled_paragraph(
+                        frame,
+                        chunks[2],
+                        Block::default().title(preview_title).borders(Borders::ALL),
+                        vec![Line::from("No saved taxonomy exists for this session.")],
+                        0,
+                        true,
+                    );
+                }
+            }
+            _ => {
+                let preview_lines = self.preview_lines();
+                let preview_content = if preview_lines.is_empty() {
+                    vec![Line::from(
+                        "No preview is available for the selected session.",
+                    )]
+                } else {
+                    preview_lines
+                        .into_iter()
+                        .map(Line::from)
+                        .collect::<Vec<_>>()
+                };
+                render_scrolled_paragraph(
+                    frame,
+                    chunks[2],
+                    Block::default().title(preview_title).borders(Borders::ALL),
+                    preview_content,
+                    self.preview_scroll,
+                    true,
+                );
+            }
+        }
     }
 
     fn overview_lines(&self, now_unix_ms: u128) -> Vec<Line<'static>> {
@@ -460,17 +490,14 @@ impl SessionView {
                 .as_ref()
                 .map(|report| render_report_lines(report, Verbosity::new(false, false, false)))
                 .unwrap_or_else(|| vec!["No saved report exists for this session.".to_string()]),
-            SessionPreviewTab::Taxonomy => details
-                .taxonomy
-                .as_ref()
-                .map(|categories| {
-                    crate::terminal::report::render_category_tree(categories)
-                        .lines()
-                        .map(ToOwned::to_owned)
-                        .collect()
-                })
-                .unwrap_or_else(|| vec!["No saved taxonomy exists for this session.".to_string()]),
+            SessionPreviewTab::Taxonomy => Vec::new(),
         }
+    }
+
+    fn preview_taxonomy_categories(&self) -> Option<&[CategoryTree]> {
+        self.selected_details
+            .as_ref()
+            .and_then(|details| details.taxonomy.as_deref())
     }
 
     fn overview_preview_lines(&self, details: &SessionDetails) -> Vec<String> {

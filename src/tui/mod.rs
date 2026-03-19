@@ -7,6 +7,7 @@ mod input;
 mod model;
 mod render;
 mod session_view;
+mod taxonomy_tree;
 mod taxonomy_review;
 mod ui_widgets;
 
@@ -1413,15 +1414,13 @@ mod tests {
         app.taxonomy_review = Some(review);
 
         let lines = render_lines(&app, 120, 32);
-        let panel_title_line = lines
+        let suggestion_x = lines
             .iter()
-            .find(|line| line.contains("Suggestion") && line.contains("Iteration Taxonomy"))
-            .expect("suggestion and iteration taxonomy titles should share the top content row");
-        let suggestion_x = panel_title_line
-            .find("Suggestion")
+            .find_map(|line| line.find("Suggestion"))
             .expect("suggestion title should be present");
-        let iteration_x = panel_title_line
-            .find("Iteration Taxonomy")
+        let iteration_x = lines
+            .iter()
+            .find_map(|line| line.find("Iteration Taxonomy"))
             .expect("iteration taxonomy title should be present");
 
         assert!(iteration_x > suggestion_x);
