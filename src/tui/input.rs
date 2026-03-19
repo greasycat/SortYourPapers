@@ -34,7 +34,7 @@ impl App {
 
     async fn handle_home_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
-            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Esc => self.open_quit_confirmation(),
             KeyCode::Down | KeyCode::Char('j') => {
                 self.home_index = (self.home_index + 1).min(HOME_ITEMS.len() - 1);
             }
@@ -51,7 +51,7 @@ impl App {
                     2 => Screen::ExtractForm,
                     3 => Screen::Init,
                     _ => {
-                        self.should_quit = true;
+                        self.open_quit_confirmation();
                         Screen::Home
                     }
                 };
@@ -277,12 +277,7 @@ impl App {
 
     fn handle_operation_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
-            KeyCode::Char('q') => {
-                if !self.operation.running {
-                    self.should_quit = true;
-                }
-            }
-            KeyCode::Esc | KeyCode::Char('b') => {
+            KeyCode::Esc => {
                 if !self.operation.running {
                     self.screen = Screen::Home;
                 }
@@ -325,7 +320,7 @@ impl App {
             }
             Overlay::InspectPrompt { input, reply, .. } => {
                 match key.code {
-                    KeyCode::Esc | KeyCode::Char('q') => {
+                    KeyCode::Esc => {
                         let _ = reply.send(Err("inspect-output cancelled".to_string()));
                     }
                     KeyCode::Enter => {
@@ -363,7 +358,7 @@ impl App {
                     KeyCode::Enter | KeyCode::Char('n') | KeyCode::Char('N') => {
                         let _ = reply.send(Ok(false));
                     }
-                    KeyCode::Esc | KeyCode::Char('q') => {
+                    KeyCode::Esc => {
                         let _ = reply.send(Err("inspect-output cancelled".to_string()));
                     }
                     _ => {
@@ -378,7 +373,7 @@ impl App {
                     KeyCode::Char('y') | KeyCode::Enter => {
                         self.confirm_action(action.clone())?;
                     }
-                    KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => {}
+                    KeyCode::Esc => {}
                     _ => {
                         self.overlay = Some(overlay);
                         return Ok(true);
@@ -434,7 +429,7 @@ impl App {
                             });
                         }
                     }
-                    KeyCode::Esc | KeyCode::Char('q') => {}
+                    KeyCode::Esc => {}
                     _ => {
                         self.overlay = Some(overlay);
                         return Ok(true);
@@ -449,6 +444,9 @@ impl App {
 
     fn confirm_action(&mut self, action: ConfirmAction) -> Result<()> {
         match action {
+            ConfirmAction::Quit => {
+                self.should_quit = true;
+            }
             ConfirmAction::RemoveRun(run_id) => {
                 self.start_blocking_operation("Remove Session", move || {
                     let removed = RunWorkspace::remove_runs(&[run_id.clone()])?;
@@ -476,6 +474,14 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    fn open_quit_confirmation(&mut self) {
+        self.overlay = Some(Overlay::Confirm {
+            title: "Quit".to_string(),
+            message: "Quit SortYourPapers?".to_string(),
+            action: ConfirmAction::Quit,
+        });
     }
 
     fn open_rerun_overlay(&mut self, apply: bool) -> Result<()> {

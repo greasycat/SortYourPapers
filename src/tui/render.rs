@@ -112,7 +112,7 @@ impl App {
             Line::from("Extract Text: preview manual extraction output."),
             Line::from("Init Config: write the default XDG config file."),
             Line::from(""),
-            Line::from("Keys: ↑/↓ move, Enter open, q quit."),
+            Line::from("Keys: ↑/↓ move, Enter open, Esc quit."),
         ]))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Overview").borders(Borders::ALL));
@@ -255,7 +255,7 @@ impl App {
 
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let help = match self.screen {
-            Screen::Home => "↑/↓ move  Enter open  q quit",
+            Screen::Home => "↑/↓ move  Enter open  Esc quit",
             Screen::RunForm => {
                 "↑/↓ or j/k move  ←/→ or h/l column  Enter edit/run  space toggle  Esc back"
             }
@@ -264,7 +264,7 @@ impl App {
             }
             Screen::ExtractForm => "↑/↓ select  Enter edit/run  ←/→ cycle  Esc back",
             Screen::Init => "space toggle  Enter run  Esc back",
-            Screen::Operation => "b/Esc back when idle  q quit when idle",
+            Screen::Operation => "Esc back when idle",
         };
         frame.render_widget(
             Paragraph::new(help).block(Block::default().borders(Borders::ALL)),
@@ -297,7 +297,7 @@ impl App {
                     Line::from(""),
                     Line::from("y continue"),
                     Line::from("Enter or n finish"),
-                    Line::from("q cancel"),
+                    Line::from("Esc cancel"),
                 ]))
                 .block(
                     Block::default()
@@ -311,7 +311,7 @@ impl App {
                     Line::from(message.clone()),
                     Line::from(""),
                     Line::from("Enter or y confirm"),
-                    Line::from("Esc, n, or q cancel"),
+                    Line::from("Esc cancel"),
                 ]))
                 .wrap(Wrap { trim: false })
                 .block(Block::default().title(title.clone()).borders(Borders::ALL));
@@ -416,7 +416,7 @@ impl App {
             Paragraph::new(Text::from(vec![
                 Line::from("Review the current taxonomy."),
                 Line::from(""),
-                Line::from("Type below, press Enter on an empty field to accept, or q to cancel."),
+                Line::from("Type below, press Enter on an empty field to accept, or Esc to cancel."),
             ]))
             .wrap(Wrap { trim: false }),
             chunks[0],

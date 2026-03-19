@@ -60,6 +60,7 @@ impl OperationOutcome {
 
 #[derive(Clone)]
 pub(super) enum ConfirmAction {
+    Quit,
     RemoveRun(String),
     ClearIncomplete,
 }

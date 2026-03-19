@@ -426,4 +426,91 @@ mod tests {
             .backend_mut()
             .assert_cursor_position(Position::new(20, 10));
     }
+
+    #[test]
+    fn escape_on_home_opens_quit_confirmation() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)))
+            .expect("escape should open quit confirmation");
+
+        assert!(matches!(
+            app.overlay,
+            Some(Overlay::Confirm {
+                action: super::model::ConfirmAction::Quit,
+                ..
+            })
+        ));
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn selecting_quit_from_home_requires_confirmation() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+        app.home_index = 4;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
+            .expect("enter should open quit confirmation");
+
+        assert!(matches!(app.screen, Screen::Home));
+        assert!(matches!(
+            app.overlay,
+            Some(Overlay::Confirm {
+                action: super::model::ConfirmAction::Quit,
+                ..
+            })
+        ));
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn confirming_quit_sets_should_quit() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+        app.overlay = Some(Overlay::Confirm {
+            title: "Quit".to_string(),
+            message: "Quit SortYourPapers?".to_string(),
+            action: super::model::ConfirmAction::Quit,
+        });
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
+            .expect("enter should confirm quit");
+
+        assert!(app.should_quit);
+        assert!(app.overlay.is_none());
+    }
+
+    #[test]
+    fn q_no_longer_quits_from_home() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)))
+            .expect("q should be ignored");
+
+        assert!(!app.should_quit);
+        assert!(app.overlay.is_none());
+    }
 }
