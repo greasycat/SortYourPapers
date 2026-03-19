@@ -1333,7 +1333,7 @@ mod tests {
     }
 
     #[test]
-    fn taxonomy_review_x_marks_selected_taxonomy_node_red() {
+    fn taxonomy_review_d_marks_selected_taxonomy_node_red() {
         let mut app = test_app();
         let (reply_tx, _reply_rx) = mpsc::channel();
         let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), reply_tx);
@@ -1347,8 +1347,8 @@ mod tests {
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)))
             .expect("down should select the first taxonomy node");
         runtime
-            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)))
-            .expect("x should mark the selected taxonomy node");
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)))
+            .expect("d should mark the selected taxonomy node");
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)))
             .expect("up should move selection away from the marked node");
@@ -1373,8 +1373,8 @@ mod tests {
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)))
             .expect("down should select the first taxonomy node");
         runtime
-            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)))
-            .expect("x should mark the selected taxonomy node");
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)))
+            .expect("d should mark the selected taxonomy node");
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
             .expect("a should submit the removal request");
@@ -1389,6 +1389,44 @@ mod tests {
             review.last_submitted_suggestion.as_deref(),
             Some("remove: AI")
         );
+        assert_eq!(
+            reply_rx.recv().expect("reply should send"),
+            Ok(InspectReviewPrompt::Suggest(InspectReviewRequest::new(
+                None,
+                vec!["AI".to_string()],
+            )))
+        );
+    }
+
+    #[test]
+    fn taxonomy_review_capital_d_marks_selected_subtree_red() {
+        let mut app = test_app();
+        let (reply_tx, reply_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), reply_tx);
+        review.focused_pane = ReviewPane::IterationTaxonomy;
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+        let _ = render_lines(&app, 120, 32);
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)))
+            .expect("down should select the first taxonomy node");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT)))
+            .expect("D should mark the selected taxonomy subtree");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)))
+            .expect("up should move selection away from the marked subtree");
+
+        let lines = render_lines(&app, 120, 32);
+        assert!(lines.iter().any(|line| line.contains("x AI")));
+        assert!(lines.iter().any(|line| line.contains("x Vision")));
+        assert!(contains_symbol_with_fg(&app, 120, 32, "x", Color::Red));
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
+            .expect("a should submit the subtree removal request");
         assert_eq!(
             reply_rx.recv().expect("reply should send"),
             Ok(InspectReviewPrompt::Suggest(InspectReviewRequest::new(

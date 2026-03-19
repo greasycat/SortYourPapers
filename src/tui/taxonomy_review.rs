@@ -73,6 +73,7 @@ pub(super) struct TaxonomyReviewView {
     pub(super) focused_pane: ReviewPane,
     pub(super) iteration_tree_state: RefCell<TaxonomyTreeState>,
     pub(super) marked_removals: BTreeSet<Vec<String>>,
+    pub(super) marked_subtree_removals: BTreeSet<Vec<String>>,
     pub(super) phase: ReviewPhase,
     pub(super) editing: bool,
     pub(super) pending_reply: Option<PendingReviewReply>,
@@ -95,6 +96,7 @@ impl TaxonomyReviewView {
             focused_pane: ReviewPane::Suggestion,
             iteration_tree_state: RefCell::new(TaxonomyTreeState::default()),
             marked_removals: BTreeSet::new(),
+            marked_subtree_removals: BTreeSet::new(),
             phase: ReviewPhase::Drafting,
             editing: false,
             pending_reply: Some(PendingReviewReply::Inspect(reply)),
@@ -115,6 +117,7 @@ impl TaxonomyReviewView {
         self.history_selection = 0;
         self.history_scroll = 0;
         self.marked_removals.clear();
+        self.marked_subtree_removals.clear();
         self.focused_pane = ReviewPane::Suggestion;
         self.phase = ReviewPhase::Drafting;
         self.editing = false;
@@ -130,6 +133,7 @@ impl TaxonomyReviewView {
         self.candidate_categories = Some(categories.clone());
         self.iteration_scroll = 0;
         self.marked_removals.clear();
+        self.marked_subtree_removals.clear();
         if let Some(suggestion) = self.last_submitted_suggestion.clone() {
             self.history.push(ReviewIteration {
                 number: self.history.len() + 1,
@@ -148,6 +152,7 @@ impl TaxonomyReviewView {
         reply: mpsc::Sender<std::result::Result<bool, String>>,
     ) {
         self.marked_removals.clear();
+        self.marked_subtree_removals.clear();
         self.focused_pane = ReviewPane::IterationTaxonomy;
         self.phase = ReviewPhase::PostSuggestionDecision;
         self.editing = false;
@@ -175,7 +180,7 @@ impl TaxonomyReviewView {
     }
 
     pub(super) fn has_marked_removals(&self) -> bool {
-        !self.marked_removals.is_empty()
+        !self.marked_removals.is_empty() || !self.marked_subtree_removals.is_empty()
     }
 
     pub(super) fn submit_review_request(&mut self) -> Option<InspectReviewRequest> {
@@ -203,6 +208,7 @@ impl TaxonomyReviewView {
         self.history_selection = 0;
         self.history_scroll = 0;
         self.marked_removals.clear();
+        self.marked_subtree_removals.clear();
         self.phase = ReviewPhase::Drafting;
         self.focused_pane = ReviewPane::Suggestion;
         self.editing = false;
@@ -316,8 +322,27 @@ impl TaxonomyReviewView {
             return;
         };
 
+        self.marked_subtree_removals.remove(&path);
         if !self.marked_removals.remove(&path) {
             self.marked_removals.insert(path);
+        }
+    }
+
+    pub(super) fn toggle_selected_subtree_removal(&mut self) {
+        if !matches!(self.phase, ReviewPhase::Drafting)
+            || !matches!(self.focused_pane, ReviewPane::IterationTaxonomy)
+        {
+            return;
+        }
+
+        let selected = self.iteration_tree_state.borrow().selected().to_vec();
+        let Some(path) = self.selected_category_path(&selected) else {
+            return;
+        };
+
+        self.marked_removals.remove(&path);
+        if !self.marked_subtree_removals.remove(&path) {
+            self.marked_subtree_removals.insert(path);
         }
     }
 
@@ -351,6 +376,7 @@ impl TaxonomyReviewView {
             as usize;
         self.sync_history_scroll();
         self.marked_removals.clear();
+        self.marked_subtree_removals.clear();
         self.refresh_iteration_tree_state();
     }
 
@@ -361,6 +387,7 @@ impl TaxonomyReviewView {
         let removals = self
             .marked_removals
             .iter()
+            .chain(self.marked_subtree_removals.iter())
             .map(|path| path.join(" > "))
             .collect::<Vec<_>>();
 
@@ -387,6 +414,14 @@ impl TaxonomyReviewView {
         } else {
             &self.accepted_categories
         }
+    }
+
+    fn marked_paths_for_render(&self, categories: &[CategoryTree]) -> BTreeSet<Vec<String>> {
+        let mut marked_paths = self.marked_removals.clone();
+        for root in &self.marked_subtree_removals {
+            collect_marked_subtree_paths(categories, root, &mut marked_paths);
+        }
+        marked_paths
     }
 
     fn selected_category_path(&self, selected: &[usize]) -> Option<Vec<String>> {
@@ -442,12 +477,12 @@ impl TaxonomyReviewView {
             Some(categories) if !categories.is_empty() => TaxonomySection::Categories {
                 title: "Suggested Taxonomy".to_string(),
                 categories: categories.clone(),
-                marked_paths: self.marked_removals.clone(),
+                marked_paths: self.marked_paths_for_render(categories),
             },
             _ => TaxonomySection::Categories {
                 title: "Accepted Taxonomy".to_string(),
                 categories: self.accepted_categories.clone(),
-                marked_paths: self.marked_removals.clone(),
+                marked_paths: self.marked_paths_for_render(&self.accepted_categories),
             },
         }]
     }
@@ -489,7 +524,8 @@ impl TaxonomyReviewView {
         match self.phase {
             ReviewPhase::Drafting if self.has_pending_inspect_prompt() => {
                 lines.push("Compare the current taxonomy and draft a focused change.".to_string());
-                lines.push("Press `x` on a taxonomy node to mark it for removal.".to_string());
+                lines.push("Press `d` on a taxonomy node to mark it for removal.".to_string());
+                lines.push("Press `D` to mark that taxonomy and all sub-taxonomies.".to_string());
                 lines
                     .push("Accept with `a`, or press `s` to draft the next iteration.".to_string());
             }
@@ -529,7 +565,10 @@ impl TaxonomyReviewView {
                         .to_string(),
                 );
                 lines.push(
-                    "Use `x` on a taxonomy node to request removing that section.".to_string(),
+                    "Use `d` on a taxonomy node to request removing that section.".to_string(),
+                );
+                lines.push(
+                    "Use `D` to request removing the selected taxonomy subtree.".to_string(),
                 );
             }
             ReviewPhase::WaitingForModel => {
@@ -578,7 +617,8 @@ impl TaxonomyReviewView {
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
                     ("Space", "fold"),
-                    ("x", "mark remove"),
+                    ("d", "mark remove"),
+                    ("D", "mark subtree"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                     ("s", "edit suggestion"),
@@ -589,7 +629,8 @@ impl TaxonomyReviewView {
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
                     ("Space", "fold"),
-                    ("x", "mark remove"),
+                    ("d", "mark remove"),
+                    ("D", "mark subtree"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                 ],
@@ -612,5 +653,45 @@ impl TaxonomyReviewView {
                 ],
             }
         }
+    }
+}
+
+fn collect_marked_subtree_paths(
+    categories: &[CategoryTree],
+    root: &[String],
+    marked_paths: &mut BTreeSet<Vec<String>>,
+) {
+    if root.is_empty() {
+        return;
+    }
+
+    let mut current_categories = categories;
+    let mut path = Vec::new();
+    let mut target = None;
+    for segment in root {
+        let Some(category) = current_categories.iter().find(|category| category.name == *segment)
+        else {
+            return;
+        };
+        path.push(category.name.clone());
+        current_categories = &category.children;
+        target = Some(category);
+    }
+
+    if let Some(category) = target {
+        collect_category_subtree_paths(category, &mut path, marked_paths);
+    }
+}
+
+fn collect_category_subtree_paths(
+    category: &CategoryTree,
+    path: &mut Vec<String>,
+    marked_paths: &mut BTreeSet<Vec<String>>,
+) {
+    marked_paths.insert(path.clone());
+    for child in &category.children {
+        path.push(child.name.clone());
+        collect_category_subtree_paths(child, path, marked_paths);
+        path.pop();
     }
 }
