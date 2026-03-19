@@ -319,7 +319,7 @@ impl App {
     fn draw_operation_summary_tab(&self, frame: &mut Frame, area: Rect) {
         let timing_bars = self.operation_stage_timing_bars();
         let run_summary_lines = self.operation_run_summary_lines();
-        let top_height = (timing_bars.len() as u16 + 3)
+        let top_height = (timing_bars.len() as u16 + 2)
             .max(6)
             .min(area.height.saturating_sub(6).max(6));
         let chunks = Layout::default()
@@ -351,38 +351,20 @@ impl App {
             return;
         }
 
-        let summary_height = 1u16.min(inner.height);
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(summary_height), Constraint::Min(0)])
-            .split(inner);
-
-        frame.render_widget(
-            Paragraph::new(vec![Line::from(format!(
-                "summary: {}",
-                self.operation.summary
-            ))]),
-            chunks[0],
-        );
-
-        if chunks[1].height == 0 {
-            return;
-        }
-
         if timing_bars.is_empty() {
             frame.render_widget(
                 Paragraph::new(vec![Line::from("No completed stage timings yet.")])
                     .wrap(Wrap { trim: false }),
-                chunks[1],
+                inner,
             );
             return;
         }
 
-        let visible = usize::from(chunks[1].height).min(timing_bars.len());
+        let visible = usize::from(inner.height).min(timing_bars.len());
         let timing_rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Length(1); visible])
-            .split(chunks[1]);
+            .split(inner);
 
         for (timing, row) in timing_bars
             .iter()

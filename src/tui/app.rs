@@ -236,10 +236,14 @@ impl App {
         self.last_report
             .as_ref()
             .map(|report| {
-                crate::terminal::report::render_report_summary_lines(
+                let mut lines = crate::terminal::report::render_report_summary_lines(
                     report,
                     crate::terminal::Verbosity::new(false, false, false),
-                )
+                );
+                if !lines.is_empty() {
+                    lines.remove(0);
+                }
+                lines
             })
             .unwrap_or_default()
     }

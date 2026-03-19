@@ -1017,12 +1017,31 @@ mod tests {
         let lines = render_lines(&app, 120, 28);
 
         assert!(
-            lines
+            !lines
                 .iter()
                 .any(|line| line.contains("SortYourPapers Summary"))
         );
         assert!(lines.iter().any(|line| line.contains("scanned 12")));
         assert!(lines.iter().any(|line| line.contains("processed 9")));
+    }
+
+    #[test]
+    fn operation_elapsed_time_panel_no_longer_repeats_summary_text() {
+        let mut app = test_app();
+        app.operation.summary = "run completed".to_string();
+        app.operation.stage_timings = vec![StageTiming {
+            stage: "discover-input".to_string(),
+            elapsed: Duration::from_millis(500),
+        }];
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(lines.iter().any(|line| line.contains("Elasped Time")));
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.contains("summary: run completed"))
+        );
     }
 
     #[test]
