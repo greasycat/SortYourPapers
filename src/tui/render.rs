@@ -403,10 +403,10 @@ impl App {
         let guidance = match self.operation.state {
             OperationState::Running => vec![
                 "Use 2 Logs for raw output and retries.",
-                "Use 3 Taxonomy or 4 Report as artifacts arrive.",
+                "Use 3 Taxonomy or 4 Planned Actions as artifacts arrive.",
             ],
             OperationState::Success => vec![
-                "Next actions: 3 Taxonomy, 4 Report, s Sessions.",
+                "Next actions: 3 Taxonomy, 4 Planned Actions, s Sessions.",
                 "Esc returns to the screen that launched this operation.",
             ],
             OperationState::Failure => vec![
@@ -478,10 +478,10 @@ impl App {
         draw_scrolled_panel(
             frame,
             area,
-            "Report",
+            "Planned Actions",
             self.operation_report_lines(),
             self.operation.report_scroll,
-            "Report not available yet. It appears after report data is emitted.",
+            "Planned actions are not available yet. They appear after plan generation.",
         );
     }
 

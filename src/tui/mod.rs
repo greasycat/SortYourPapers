@@ -794,11 +794,12 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("1 Summary")));
         assert!(lines.iter().any(|line| line.contains("2 Logs")));
         assert!(lines.iter().any(|line| line.contains("3 Taxonomy")));
-        assert!(lines.iter().any(|line| line.contains("4 Report")));
+        assert!(lines.iter().any(|line| line.contains("4 Planned Actions")));
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("Next actions: 3 Taxonomy, 4 Report, s Sessions."))
+                .any(|line| line
+                    .contains("Next actions: 3 Taxonomy, 4 Planned Actions, s Sessions."))
         );
     }
 
@@ -1500,7 +1501,7 @@ mod tests {
         assert!(
             report_lines
                 .iter()
-                .any(|line| line.contains("Report not available yet."))
+                .any(|line| line.contains("Planned actions are not available yet."))
         );
     }
 

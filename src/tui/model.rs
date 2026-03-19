@@ -34,7 +34,7 @@ impl OperationTab {
             Self::Summary => "Summary",
             Self::Logs => "Logs",
             Self::Taxonomy => "Taxonomy",
-            Self::Report => "Report",
+            Self::Report => "Planned Actions",
         }
     }
 
