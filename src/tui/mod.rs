@@ -101,6 +101,7 @@ mod tests {
         App, BackendEvent, OperationDetail, OperationState, OperationView, Overlay, ProgressEntry,
         RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
         model::{OperationTab, StageTiming},
+        render::stage_timing_bars,
         taxonomy_review::{
             PendingReviewReply, ReviewIteration, ReviewPane, ReviewPhase, TaxonomyReviewView,
         },
@@ -971,6 +972,26 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("extract-text: 2.000s"))
         );
+    }
+
+    #[test]
+    fn stage_timing_progress_uses_max_elapsed_scaled_by_one_point_five() {
+        let bars = stage_timing_bars(vec![
+            super::render::StageTimingSnapshot {
+                stage: "discover-input".to_string(),
+                elapsed: Duration::from_secs(2),
+                running: false,
+            },
+            super::render::StageTimingSnapshot {
+                stage: "extract-text".to_string(),
+                elapsed: Duration::from_secs(4),
+                running: false,
+            },
+        ]);
+
+        assert_eq!(bars.len(), 2);
+        assert!((bars[0].ratio - (2.0 / 6.0)).abs() < 0.000_001);
+        assert!((bars[1].ratio - (4.0 / 6.0)).abs() < 0.000_001);
     }
 
     #[test]

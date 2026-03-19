@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -322,13 +322,7 @@ impl App {
             .constraints([Constraint::Min(6), Constraint::Length(5)])
             .split(area);
 
-        let highlight_lines = self.operation_highlight_lines();
-        frame.render_widget(
-            Paragraph::new(highlight_lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Highlights").borders(Borders::ALL)),
-            chunks[0],
-        );
+        self.draw_operation_highlights(frame, chunks[0]);
 
         let body = match self.operation.state {
             OperationState::Running => vec![
@@ -360,30 +354,78 @@ impl App {
         );
     }
 
-    fn operation_highlight_lines(&self) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(format!("summary: {}", self.operation.summary))];
-        let timing_lines = self.operation_stage_timing_lines();
+    fn draw_operation_highlights(&self, frame: &mut Frame, area: Rect) {
+        let block = Block::default().title("Highlights").borders(Borders::ALL);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
 
-        if timing_lines.is_empty() {
-            lines.push(Line::from("No completed stage timings yet."));
-        } else {
-            lines.extend(timing_lines.into_iter().map(Line::from));
+        if inner.width == 0 || inner.height == 0 {
+            return;
         }
 
-        lines
+        let summary_height = 1u16.min(inner.height);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(summary_height), Constraint::Min(0)])
+            .split(inner);
+
+        frame.render_widget(
+            Paragraph::new(vec![Line::from(format!(
+                "summary: {}",
+                self.operation.summary
+            ))]),
+            chunks[0],
+        );
+
+        if chunks[1].height == 0 {
+            return;
+        }
+
+        let timing_bars = self.operation_stage_timing_bars();
+        if timing_bars.is_empty() {
+            frame.render_widget(
+                Paragraph::new(vec![Line::from("No completed stage timings yet.")])
+                    .wrap(Wrap { trim: false }),
+                chunks[1],
+            );
+            return;
+        }
+
+        let visible = usize::from(chunks[1].height).min(timing_bars.len());
+        let timing_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Length(1); visible])
+            .split(chunks[1]);
+
+        for (timing, chunk) in timing_bars
+            .iter()
+            .take(visible)
+            .zip(timing_chunks.iter().copied())
+        {
+            frame.render_widget(
+                Gauge::default()
+                    .ratio(timing.ratio)
+                    .label(timing.label.clone())
+                    .gauge_style(timing.style())
+                    .use_unicode(true),
+                chunk,
+            );
+        }
     }
 
-    fn operation_stage_timing_lines(&self) -> Vec<String> {
-        let mut lines = self
+    pub(super) fn operation_stage_timing_bars(&self) -> Vec<StageTimingBar> {
+        stage_timing_bars(self.operation_stage_timing_snapshots())
+    }
+
+    fn operation_stage_timing_snapshots(&self) -> Vec<StageTimingSnapshot> {
+        let mut timings = self
             .operation
             .stage_timings
             .iter()
-            .map(|timing| {
-                format!(
-                    "{}: {}",
-                    timing.stage,
-                    terminal::format_duration(timing.elapsed)
-                )
+            .map(|timing| StageTimingSnapshot {
+                stage: timing.stage.clone(),
+                elapsed: timing.elapsed,
+                running: false,
             })
             .collect::<Vec<_>>();
 
@@ -391,14 +433,14 @@ impl App {
             self.operation.stage_started_at,
             self.operation.stage_label.is_empty(),
         ) {
-            lines.push(format!(
-                "{}: {} (running)",
-                self.operation.stage_label,
-                terminal::format_duration(Instant::now().saturating_duration_since(started_at))
-            ));
+            timings.push(StageTimingSnapshot {
+                stage: self.operation.stage_label.clone(),
+                elapsed: Instant::now().saturating_duration_since(started_at),
+                running: true,
+            });
         }
 
-        lines
+        timings
     }
 
     fn draw_operation_logs_tab(&self, frame: &mut Frame, area: Rect) {
@@ -659,6 +701,69 @@ impl App {
         );
 
         draw_text_field(frame, chunks[1], label, buffer)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct StageTimingSnapshot {
+    pub(super) stage: String,
+    pub(super) elapsed: Duration,
+    pub(super) running: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct StageTimingBar {
+    pub(super) label: String,
+    pub(super) ratio: f64,
+    running: bool,
+}
+
+impl StageTimingBar {
+    fn style(&self) -> Style {
+        Style::default().fg(if self.running {
+            Color::Yellow
+        } else {
+            Color::Cyan
+        })
+    }
+}
+
+pub(super) fn stage_timing_bars(timings: Vec<StageTimingSnapshot>) -> Vec<StageTimingBar> {
+    let max_elapsed = timings
+        .iter()
+        .map(|timing| timing.elapsed)
+        .max()
+        .unwrap_or_default();
+    let denominator = timing_progress_denominator(max_elapsed);
+
+    timings
+        .into_iter()
+        .map(|timing| StageTimingBar {
+            label: format!(
+                "{}: {}{}",
+                timing.stage,
+                terminal::format_duration(timing.elapsed),
+                if timing.running { " (running)" } else { "" }
+            ),
+            ratio: timing_ratio(timing.elapsed, denominator),
+            running: timing.running,
+        })
+        .collect()
+}
+
+fn timing_progress_denominator(max_elapsed: Duration) -> Duration {
+    if max_elapsed.is_zero() {
+        Duration::from_millis(1)
+    } else {
+        max_elapsed.mul_f64(1.5)
+    }
+}
+
+fn timing_ratio(elapsed: Duration, denominator: Duration) -> f64 {
+    if denominator.is_zero() {
+        0.0
+    } else {
+        (elapsed.as_secs_f64() / denominator.as_secs_f64()).clamp(0.0, 1.0)
     }
 }
 
