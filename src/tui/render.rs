@@ -317,45 +317,33 @@ impl App {
     }
 
     fn draw_operation_summary_tab(&self, frame: &mut Frame, area: Rect) {
+        let timing_bars = self.operation_stage_timing_bars();
+        let run_summary_lines = self.operation_run_summary_lines();
+        let top_height = (timing_bars.len() as u16 + 3)
+            .max(6)
+            .min(area.height.saturating_sub(6).max(6));
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(6), Constraint::Length(5)])
+            .constraints([Constraint::Length(top_height), Constraint::Min(6)])
             .split(area);
 
-        self.draw_operation_highlights(frame, chunks[0]);
-
-        let body = match self.operation.state {
-            OperationState::Running => vec![
-                Line::from(self.operation.summary.clone()),
-                Line::from("Use 2 Logs for raw output and retries."),
-                Line::from("Use 3 Taxonomy or 4 Report as artifacts arrive."),
-            ],
-            OperationState::Success => vec![
-                Line::from(self.operation.summary.clone()),
-                Line::from("Next actions: 3 Taxonomy, 4 Report, s Sessions."),
-                Line::from("Esc returns to the screen that launched this operation."),
-            ],
-            OperationState::Failure => vec![
-                Line::from(self.operation.summary.clone()),
-                Line::from("Use 2 Logs for details and s Sessions for follow-up."),
-                Line::from("Esc returns after the operation becomes idle."),
-            ],
-            OperationState::Idle => vec![
-                Line::from(self.operation.summary.clone()),
-                Line::from("No active operation is running."),
-                Line::from("Launch a run from the Run Configuration screen."),
-            ],
-        };
         frame.render_widget(
-            Paragraph::new(body)
+            Paragraph::new(run_summary_lines)
                 .wrap(Wrap { trim: false })
                 .block(Block::default().title("Run Summary").borders(Borders::ALL)),
             chunks[1],
         );
+
+        self.draw_operation_highlights(frame, chunks[0], &timing_bars);
     }
 
-    fn draw_operation_highlights(&self, frame: &mut Frame, area: Rect) {
-        let block = Block::default().title("Highlights").borders(Borders::ALL);
+    fn draw_operation_highlights(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        timing_bars: &[StageTimingBar],
+    ) {
+        let block = Block::default().title("Elasped Time").borders(Borders::ALL);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -381,7 +369,6 @@ impl App {
             return;
         }
 
-        let timing_bars = self.operation_stage_timing_bars();
         if timing_bars.is_empty() {
             frame.render_widget(
                 Paragraph::new(vec![Line::from("No completed stage timings yet.")])
@@ -421,6 +408,40 @@ impl App {
 
     pub(super) fn operation_stage_timing_bars(&self) -> Vec<StageTimingBar> {
         stage_timing_bars(self.operation_stage_timing_snapshots())
+    }
+
+    fn operation_run_summary_lines(&self) -> Vec<Line<'static>> {
+        let mut lines = vec![Line::from(self.operation.summary.clone())];
+        let report_lines = self.operation_report_summary_lines();
+        if !report_lines.is_empty() {
+            lines.push(Line::from(String::new()));
+            lines.extend(report_lines.into_iter().map(Line::from));
+        }
+
+        let guidance = match self.operation.state {
+            OperationState::Running => vec![
+                "Use 2 Logs for raw output and retries.",
+                "Use 3 Taxonomy or 4 Report as artifacts arrive.",
+            ],
+            OperationState::Success => vec![
+                "Next actions: 3 Taxonomy, 4 Report, s Sessions.",
+                "Esc returns to the screen that launched this operation.",
+            ],
+            OperationState::Failure => vec![
+                "Use 2 Logs for details and s Sessions for follow-up.",
+                "Esc returns after the operation becomes idle.",
+            ],
+            OperationState::Idle => vec![
+                "No active operation is running.",
+                "Launch a run from the Run Configuration screen.",
+            ],
+        };
+
+        if !lines.is_empty() {
+            lines.push(Line::from(String::new()));
+        }
+        lines.extend(guidance.into_iter().map(Line::from));
+        lines
     }
 
     fn operation_stage_timing_snapshots(&self) -> Vec<StageTimingSnapshot> {

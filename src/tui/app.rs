@@ -224,7 +224,19 @@ impl App {
         self.last_report
             .as_ref()
             .map(|report| {
-                crate::terminal::report::render_report_lines(
+                crate::terminal::report::render_report_action_lines(
+                    report,
+                    crate::terminal::Verbosity::new(false, false, false),
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    pub(super) fn operation_report_summary_lines(&self) -> Vec<String> {
+        self.last_report
+            .as_ref()
+            .map(|report| {
+                crate::terminal::report::render_report_summary_lines(
                     report,
                     crate::terminal::Verbosity::new(false, false, false),
                 )

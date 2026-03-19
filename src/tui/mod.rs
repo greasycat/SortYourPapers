@@ -943,6 +943,7 @@ mod tests {
         assert!(!lines.iter().any(|line| line.contains("Pinned Alerts")));
         assert!(!lines.iter().any(|line| line.contains("┌Failure")));
         assert!(lines.iter().any(|line| line.contains("Run Summary")));
+        assert!(lines.iter().any(|line| line.contains("Elasped Time")));
     }
 
     #[test]
@@ -995,6 +996,59 @@ mod tests {
         assert_eq!(bars[1].elapsed_label, "4.000s");
         assert!((bars[0].ratio - (2.0 / 6.0)).abs() < 0.000_001);
         assert!((bars[1].ratio - (4.0 / 6.0)).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn operation_summary_panel_includes_report_summary_information() {
+        let mut app = test_app();
+        let mut report = RunReport::new(true);
+        report.scanned = 12;
+        report.processed = 9;
+        report.skipped = 2;
+        report.failed = 1;
+        report.actions = vec![PlanAction {
+            source: "/tmp/in/paper.pdf".into(),
+            destination: "/tmp/out/topic/paper.pdf".into(),
+            action: FileAction::Move,
+        }];
+        app.last_report = Some(report);
+        app.operation.summary = "run completed".to_string();
+
+        let lines = render_lines(&app, 120, 28);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("SortYourPapers Summary"))
+        );
+        assert!(lines.iter().any(|line| line.contains("scanned 12")));
+        assert!(lines.iter().any(|line| line.contains("processed 9")));
+    }
+
+    #[test]
+    fn operation_report_tab_keeps_planned_actions_only() {
+        let mut app = test_app();
+        let mut report = RunReport::new(true);
+        report.scanned = 12;
+        report.processed = 9;
+        report.actions = vec![PlanAction {
+            source: "/tmp/in/paper.pdf".into(),
+            destination: "/tmp/out/topic/paper.pdf".into(),
+            action: FileAction::Move,
+        }];
+        app.last_report = Some(report);
+        app.operation.active_tab = super::model::OperationTab::Report;
+
+        let lines = render_lines(&app, 120, 28);
+
+        assert!(lines.iter().any(|line| line.contains("Planned Actions")));
+        assert!(lines.iter().any(|line| line.contains("/tmp/in/paper.pdf")));
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.contains("SortYourPapers Summary"))
+        );
+        assert!(!lines.iter().any(|line| line.contains("scanned 12")));
     }
 
     #[test]
