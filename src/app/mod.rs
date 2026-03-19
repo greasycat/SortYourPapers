@@ -20,7 +20,7 @@ use crate::{
     },
     report::{FileAction, PlanAction, RunReport},
     session::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace, run_with_workspace},
-    terminal::{self, Verbosity},
+    terminal::{self, InspectReviewPrompt, Verbosity},
 };
 
 const DEBUG_TUI_PROGRESS_DELAY: Duration = Duration::from_secs(5);
@@ -63,9 +63,15 @@ pub(crate) async fn run_debug_tui(config: AppConfig) -> Result<RunReport> {
     let verbosity = Verbosity::new(config.verbose, config.debug, config.quiet);
     let debug_run = seed_debug_stages(&mut workspace, &config)?;
 
-    simulate_debug_tui_run(&debug_run, verbosity).await;
+    let reviewed_categories = simulate_debug_tui_run(&debug_run, verbosity).await?;
     terminal::report::print_report(&debug_run.report, verbosity);
-    terminal::report::print_category_tree(&debug_run.categories, verbosity);
+    terminal::report::print_category_tree(&reviewed_categories, verbosity);
+    workspace.save_stage(
+        RunStage::InspectOutput,
+        &InspectableDebugState {
+            categories: reviewed_categories,
+        },
+    )?;
     workspace.save_report(&debug_run.report)?;
     workspace.mark_completed()?;
 
@@ -195,12 +201,6 @@ fn seed_debug_stages(workspace: &mut RunWorkspace, config: &AppConfig) -> Result
             partial_categories: vec![categories.clone()],
         },
     )?;
-    workspace.save_stage(
-        RunStage::InspectOutput,
-        &InspectableDebugState {
-            categories: categories.clone(),
-        },
-    )?;
     workspace.save_stage(RunStage::GeneratePlacements, &placements)?;
     workspace.save_stage(RunStage::BuildPlan, &actions)?;
     workspace.save_report(&report)?;
@@ -229,7 +229,10 @@ fn build_debug_plan_actions(
         .collect()
 }
 
-async fn simulate_debug_tui_run(debug_run: &DebugRunData, verbosity: Verbosity) {
+async fn simulate_debug_tui_run(
+    debug_run: &DebugRunData,
+    verbosity: Verbosity,
+) -> Result<Vec<CategoryTree>> {
     verbosity.run_line(
         "RUN",
         format!(
@@ -270,6 +273,7 @@ async fn simulate_debug_tui_run(debug_run: &DebugRunData, verbosity: Verbosity) 
             debug_run.categories.len()
         ),
     );
+    let reviewed_categories = simulate_debug_taxonomy_review(&debug_run.categories, verbosity)?;
     simulate_progress_bar(&mut next_progress_id, "placement batches", 2).await;
     verbosity.stage_line(
         "generate-placements",
@@ -289,6 +293,8 @@ async fn simulate_debug_tui_run(debug_run: &DebugRunData, verbosity: Verbosity) 
         "execute-plan",
         "preview mode: no filesystem changes applied".to_string(),
     );
+
+    Ok(reviewed_categories)
 }
 
 async fn simulate_progress_bar(next_progress_id: &mut u64, label: &str, total: usize) {
@@ -318,6 +324,63 @@ struct InspectableDebugState {
 struct DebugRunData {
     categories: Vec<CategoryTree>,
     report: RunReport,
+}
+
+fn simulate_debug_taxonomy_review(
+    categories: &[CategoryTree],
+    verbosity: Verbosity,
+) -> Result<Vec<CategoryTree>> {
+    let mut current_categories = categories.to_vec();
+    verbosity.stage_line(
+        "inspect-output",
+        format!(
+            "reviewing mock taxonomy with {} top-level categor(ies)",
+            current_categories.len()
+        ),
+    );
+    terminal::report::print_category_tree(&current_categories, verbosity);
+
+    loop {
+        match terminal::prompt_inspect_review_action(&current_categories, verbosity)? {
+            InspectReviewPrompt::Accept => break,
+            InspectReviewPrompt::Cancel => {
+                return Err(AppError::Execution("inspect-output cancelled".to_string()));
+            }
+            InspectReviewPrompt::Suggest(suggestion) => {
+                current_categories =
+                    apply_debug_taxonomy_suggestion(&current_categories, suggestion.as_str());
+                terminal::report::print_category_tree(&current_categories, verbosity);
+                if !terminal::prompt_continue_improving()? {
+                    break;
+                }
+            }
+        }
+    }
+
+    verbosity.stage_line(
+        "inspect-output",
+        format!(
+            "accepted mock taxonomy with {} top-level categor(ies)",
+            current_categories.len()
+        ),
+    );
+    Ok(current_categories)
+}
+
+fn apply_debug_taxonomy_suggestion(
+    categories: &[CategoryTree],
+    suggestion: &str,
+) -> Vec<CategoryTree> {
+    let trimmed = suggestion.trim();
+    if trimmed.is_empty() {
+        return categories.to_vec();
+    }
+
+    let mut updated = categories.to_vec();
+    if let Some(first) = updated.first_mut() {
+        first.name = format!("{} ({trimmed})", first.name);
+    }
+    updated
 }
 
 /// Extracts and prints text for the provided PDFs without running the full workflow.
@@ -411,15 +474,25 @@ fn absolutize_path(cwd: &Path, path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::VecDeque,
+        sync::{Arc, Mutex},
+    };
+
     use tempfile::tempdir;
 
-    use super::seed_debug_stages;
+    use super::{
+        apply_debug_taxonomy_suggestion, seed_debug_stages, simulate_debug_taxonomy_review,
+    };
     use crate::{
         config::AppConfig,
         llm::LlmProvider,
         papers::placement::PlacementMode,
-        papers::taxonomy::TaxonomyMode,
+        papers::taxonomy::{CategoryTree, TaxonomyMode},
         session::{RunStage, RunWorkspace},
+        terminal::{
+            AlertSeverity, InspectReviewPrompt, TerminalBackend, Verbosity, install_backend,
+        },
     };
 
     #[test]
@@ -460,6 +533,9 @@ mod tests {
             .load_stage::<Vec<crate::report::PlanAction>>(RunStage::BuildPlan)
             .expect("load build plan")
             .expect("saved build plan");
+        let saved_review = workspace
+            .load_stage::<serde_json::Value>(RunStage::InspectOutput)
+            .expect("load inspect output");
 
         assert!(debug_run.report.dry_run);
         assert_eq!(debug_run.report.scanned, 4);
@@ -467,5 +543,137 @@ mod tests {
         assert_eq!(debug_run.report.skipped, 1);
         assert_eq!(debug_run.report.actions.len(), 3);
         assert_eq!(saved_actions.len(), 3);
+        assert!(saved_review.is_none());
+    }
+
+    #[test]
+    fn debug_taxonomy_suggestion_updates_first_root_label() {
+        let categories = vec![
+            CategoryTree {
+                name: "debug".to_string(),
+                children: vec![],
+            },
+            CategoryTree {
+                name: "notes".to_string(),
+                children: vec![],
+            },
+        ];
+
+        let updated = apply_debug_taxonomy_suggestion(&categories, "merge workflow");
+
+        assert_eq!(updated[0].name, "debug (merge workflow)");
+        assert_eq!(updated[1].name, "notes");
+    }
+
+    #[test]
+    fn debug_taxonomy_review_uses_prompt_loop_and_returns_reviewed_categories() {
+        let backend = Arc::new(DebugReviewBackend::new(
+            vec![
+                InspectReviewPrompt::Suggest("merge workflow".to_string()),
+                InspectReviewPrompt::Accept,
+            ],
+            vec![true],
+        ));
+        let _guard = install_backend(backend.clone());
+        let categories = vec![CategoryTree {
+            name: "debug".to_string(),
+            children: vec![],
+        }];
+
+        let reviewed =
+            simulate_debug_taxonomy_review(&categories, Verbosity::new(false, false, false))
+                .expect("debug review should complete");
+
+        assert_eq!(reviewed[0].name, "debug (merge workflow)");
+        assert_eq!(*backend.inspect_calls.lock().expect("inspect calls"), 2);
+        assert_eq!(*backend.continue_calls.lock().expect("continue calls"), 1);
+        assert_eq!(backend.tree_renders.lock().expect("tree renders").len(), 2);
+    }
+
+    struct DebugReviewBackend {
+        inspect_replies: Mutex<VecDeque<InspectReviewPrompt>>,
+        continue_replies: Mutex<VecDeque<bool>>,
+        tree_renders: Mutex<Vec<Vec<CategoryTree>>>,
+        inspect_calls: Mutex<usize>,
+        continue_calls: Mutex<usize>,
+    }
+
+    impl DebugReviewBackend {
+        fn new(inspect_replies: Vec<InspectReviewPrompt>, continue_replies: Vec<bool>) -> Self {
+            Self {
+                inspect_replies: Mutex::new(inspect_replies.into()),
+                continue_replies: Mutex::new(continue_replies.into()),
+                tree_renders: Mutex::new(Vec::new()),
+                inspect_calls: Mutex::new(0),
+                continue_calls: Mutex::new(0),
+            }
+        }
+    }
+
+    impl TerminalBackend for DebugReviewBackend {
+        fn stdout_is_terminal(&self) -> bool {
+            false
+        }
+
+        fn stderr_is_terminal(&self) -> bool {
+            false
+        }
+
+        fn supports_progress(&self) -> bool {
+            false
+        }
+
+        fn is_interactive(&self) -> bool {
+            true
+        }
+
+        fn write_stdout_line(&self, _line: &str) {}
+
+        fn write_stderr_line(&self, _line: &str) {}
+
+        fn start_progress(&self, _id: u64, _total: usize, _label: &str) {}
+
+        fn advance_progress(&self, _id: u64, _delta: usize) {}
+
+        fn finish_progress(&self, _id: u64) {}
+
+        fn show_report(&self, _report: &crate::report::RunReport, _verbosity: Verbosity) {}
+
+        fn show_category_tree(&self, categories: &[CategoryTree], _verbosity: Verbosity) {
+            self.tree_renders
+                .lock()
+                .expect("tree renders")
+                .push(categories.to_vec());
+        }
+
+        fn update_stage_status(&self, _stage: &str, _message: &str) {}
+
+        fn record_alert(&self, _severity: AlertSeverity, _label: &str, _message: &str) {}
+
+        fn prompt_inspect_review_action(
+            &self,
+            _categories: &[CategoryTree],
+            _verbosity: Verbosity,
+        ) -> crate::error::Result<InspectReviewPrompt> {
+            *self.inspect_calls.lock().expect("inspect calls") += 1;
+            self.inspect_replies
+                .lock()
+                .expect("inspect replies")
+                .pop_front()
+                .ok_or_else(|| {
+                    crate::error::AppError::Execution("missing debug inspect reply".to_string())
+                })
+        }
+
+        fn prompt_continue_improving(&self) -> crate::error::Result<bool> {
+            *self.continue_calls.lock().expect("continue calls") += 1;
+            self.continue_replies
+                .lock()
+                .expect("continue replies")
+                .pop_front()
+                .ok_or_else(|| {
+                    crate::error::AppError::Execution("missing debug continue reply".to_string())
+                })
+        }
     }
 }
