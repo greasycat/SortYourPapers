@@ -3,9 +3,8 @@ use std::path::PathBuf;
 use clap::{ArgAction, Args, Parser, Subcommand};
 
 use crate::{
-    domain::{LlmProvider, PlacementMode, TaxonomyMode},
-    papers::extract::ExtractorMode,
-    session::RunStage,
+    llm::LlmProvider, papers::extract::ExtractorMode, placement::PlacementMode, session::RunStage,
+    taxonomy::TaxonomyMode,
 };
 
 pub(crate) const DEFAULT_INPUT: &str = ".";

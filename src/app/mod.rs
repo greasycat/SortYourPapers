@@ -418,8 +418,11 @@ mod tests {
 
     use super::seed_debug_stages;
     use crate::{
-        domain::{AppConfig, LlmProvider, PlacementMode, TaxonomyMode},
+        config::AppConfig,
+        llm::LlmProvider,
+        placement::PlacementMode,
         run_state::{RunStage, RunWorkspace},
+        taxonomy::TaxonomyMode,
     };
 
     #[test]

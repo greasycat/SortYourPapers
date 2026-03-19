@@ -5,23 +5,54 @@ mod xdg;
 #[cfg(test)]
 mod tests;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
+pub use crate::cli::{Cli, CliArgs, Commands, ExtractTextArgs, InitArgs, SessionCommands};
 use crate::{
     cli::{
         DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT,
         DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER,
-        DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OUTPUT, DEFAULT_PAGE_CUTOFF,
-        DEFAULT_PDF_EXTRACT_WORKERS, DEFAULT_PLACEMENT_BATCH_SIZE, DEFAULT_REBUILD,
-        DEFAULT_RECURSIVE, DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER,
-        DEFAULT_TAXONOMY_BATCH_SIZE,
+        DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OUTPUT, DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS,
+        DEFAULT_PLACEMENT_BATCH_SIZE, DEFAULT_REBUILD, DEFAULT_RECURSIVE,
+        DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER, DEFAULT_TAXONOMY_BATCH_SIZE,
     },
-    domain::{AppConfig, LlmProvider, PlacementMode, TaxonomyMode},
     error::Result,
+    llm::LlmProvider,
+    placement::PlacementMode,
+    taxonomy::TaxonomyMode,
 };
-pub use crate::cli::{Cli, CliArgs, Commands, ExtractTextArgs, InitArgs, SessionCommands};
 
 use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppConfig {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    pub recursive: bool,
+    pub max_file_size_mb: u64,
+    pub page_cutoff: u8,
+    pub pdf_extract_workers: usize,
+    pub category_depth: u8,
+    pub taxonomy_mode: TaxonomyMode,
+    pub taxonomy_batch_size: usize,
+    pub placement_batch_size: usize,
+    pub placement_mode: PlacementMode,
+    pub rebuild: bool,
+    pub dry_run: bool,
+    pub llm_provider: LlmProvider,
+    pub llm_model: String,
+    pub llm_base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub keyword_batch_size: usize,
+    pub batch_start_delay_ms: u64,
+    pub subcategories_suggestion_number: usize,
+    #[serde(default)]
+    pub verbose: bool,
+    #[serde(default)]
+    pub debug: bool,
+    #[serde(default)]
+    pub quiet: bool,
+}
 
 #[derive(Debug, Default, Deserialize, Clone)]
 struct FileConfig {

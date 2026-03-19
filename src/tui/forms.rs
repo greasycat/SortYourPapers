@@ -2,9 +2,11 @@ mod extract_form;
 mod run_form;
 
 use crate::{
-    domain::{LlmProvider, PlacementMode, TaxonomyMode},
     error::{AppError, Result},
+    llm::LlmProvider,
     papers::extract::ExtractorMode,
+    placement::PlacementMode,
+    taxonomy::TaxonomyMode,
 };
 
 pub(super) use self::{extract_form::ExtractForm, run_form::RunForm};

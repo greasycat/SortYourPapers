@@ -7,9 +7,13 @@ mod validation;
 #[cfg(test)]
 mod tests;
 
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-use crate::models::{KeywordSet, LlmUsageSummary, PreliminaryCategoryPair};
+use crate::{
+    llm::LlmUsageSummary,
+    papers::{KeywordSet, PreliminaryCategoryPair},
+};
 
 const MAX_JSON_ATTEMPTS: usize = 3;
 const MAX_SEMANTIC_ATTEMPTS: usize = 3;
@@ -17,6 +21,21 @@ const MAX_TEXT_CHARS_PER_FILE: usize = 4_000;
 const MAX_TOTAL_BATCH_TEXT_CHARS: usize = 60_000;
 const MAX_CONCURRENT_KEYWORD_BATCH_REQUESTS: usize = 4;
 const GLOBAL_TAXONOMY_LABEL: &str = "taxonomy/global";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TaxonomyMode {
+    Global,
+    #[default]
+    BatchMerge,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryTree {
+    pub name: String,
+    #[serde(default)]
+    pub children: Vec<CategoryTree>,
+}
 
 #[derive(Debug, Deserialize)]
 struct KeywordPair {

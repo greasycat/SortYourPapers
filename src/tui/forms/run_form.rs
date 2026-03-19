@@ -15,8 +15,11 @@ use crate::{
         DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER, DEFAULT_TAXONOMY_BATCH_SIZE,
     },
     config,
-    domain::{AppConfig, LlmProvider, PlacementMode, TaxonomyMode},
+    config::AppConfig,
     error::Result,
+    llm::LlmProvider,
+    placement::PlacementMode,
+    taxonomy::TaxonomyMode,
 };
 
 use super::{

@@ -7,16 +7,28 @@ mod validation;
 #[cfg(test)]
 mod tests;
 
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    logging::Verbosity,
-    models::{CategoryTree, LlmUsageSummary, PlacementDecision, PlacementMode},
-};
+use crate::{llm::LlmUsageSummary, logging::Verbosity, taxonomy::CategoryTree};
 
 const MAX_JSON_ATTEMPTS: usize = 3;
 const MAX_SEMANTIC_ATTEMPTS: usize = 3;
 const PLACEMENT_LABEL: &str = "generate-placements";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum PlacementMode {
+    #[default]
+    ExistingOnly,
+    AllowNew,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlacementDecision {
+    pub file_id: String,
+    pub target_rel_path: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputSnapshot {

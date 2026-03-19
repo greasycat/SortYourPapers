@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 
 use crate::{
-    domain::{AppConfig, LlmCallMetrics, LlmProvider},
+    config::AppConfig,
     error::Result,
+    llm::{LlmCallMetrics, LlmProvider},
 };
 
 use super::{providers, schema::JsonResponseSchema};

@@ -3,8 +3,8 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use crate::{
-    domain::LlmCallMetrics,
     error::{AppError, Result},
+    llm::LlmCallMetrics,
 };
 
 use super::{
