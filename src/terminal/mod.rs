@@ -7,7 +7,8 @@ use std::{
 };
 
 pub use backend::{
-    BackendGuard, InspectReviewPrompt, TerminalBackend, current_backend, install_backend,
+    AlertSeverity, BackendGuard, InspectReviewPrompt, TerminalBackend, current_backend,
+    install_backend,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +93,7 @@ impl Verbosity {
     }
 
     pub fn stage_line(self, stage: &str, message: impl AsRef<str>) {
+        current_backend().update_stage_status(stage, message.as_ref());
         if !self.show_stage_output() {
             return;
         }
@@ -117,11 +119,13 @@ impl Verbosity {
     }
 
     pub fn warn_line(self, label: &str, message: impl AsRef<str>) {
+        current_backend().record_alert(AlertSeverity::Warning, label, message.as_ref());
         let tag = self.paint(label, "1;33");
         current_backend().write_stderr_line(&format!("{tag} {}", message.as_ref()));
     }
 
     pub fn error_line(self, label: &str, message: impl AsRef<str>) {
+        current_backend().record_alert(AlertSeverity::Error, label, message.as_ref());
         let tag = self.paint(label, "1;31");
         current_backend().write_stderr_line(&format!("{tag} {}", message.as_ref()));
     }

@@ -15,6 +15,12 @@ use crate::{
 
 use super::{Verbosity, report};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertSeverity {
+    Warning,
+    Error,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InspectReviewPrompt {
     Accept,
@@ -34,6 +40,8 @@ pub trait TerminalBackend: Send + Sync {
     fn finish_progress(&self, id: u64);
     fn show_report(&self, report: &RunReport, verbosity: Verbosity);
     fn show_category_tree(&self, categories: &[CategoryTree], verbosity: Verbosity);
+    fn update_stage_status(&self, _stage: &str, _message: &str) {}
+    fn record_alert(&self, _severity: AlertSeverity, _label: &str, _message: &str) {}
     fn prompt_inspect_review_action(
         &self,
         categories: &[CategoryTree],

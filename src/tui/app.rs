@@ -5,9 +5,16 @@ use crate::error::Result;
 use super::{
     backend::BackendEvent,
     forms::RunForm,
-    model::{OperationDetail, OperationOutcome, OperationState, Overlay, ProgressEntry, Screen},
+    model::{
+        OperationAlert, OperationDetail, OperationOutcome, OperationState, OperationTab, Overlay,
+        ProgressEntry, Screen,
+    },
     session_view::SessionView,
 };
+
+const MAX_LOG_LINES: usize = 400;
+const MAX_PINNED_ALERTS: usize = 20;
+const LOG_FOLLOW_WINDOW: usize = 18;
 
 pub(super) struct App {
     pub(super) screen: Screen,
@@ -78,6 +85,22 @@ impl App {
                 }
                 BackendEvent::ProgressFinish { id } => {
                     self.progress.retain(|entry| entry.id != id);
+                }
+                BackendEvent::StageStatus { stage, message } => {
+                    self.operation.stage_label = stage;
+                    self.operation.stage_message = message;
+                }
+                BackendEvent::Alert {
+                    severity,
+                    label,
+                    message,
+                } => {
+                    self.operation
+                        .alerts
+                        .push_back(OperationAlert::new(severity, label, message));
+                    while self.operation.alerts.len() > MAX_PINNED_ALERTS {
+                        self.operation.alerts.pop_front();
+                    }
                 }
                 BackendEvent::Report(report) => {
                     self.last_report = Some(report);
@@ -163,6 +186,7 @@ impl App {
     }
 
     fn prepare_operation(&mut self, title: &str) {
+        let origin = self.screen;
         self.screen = Screen::Operation;
         self.overlay = None;
         self.operation = super::model::OperationView {
@@ -170,6 +194,14 @@ impl App {
             state: OperationState::Running,
             summary: "running".to_string(),
             detail: OperationDetail::None,
+            active_tab: OperationTab::Summary,
+            log_scroll: 0,
+            taxonomy_scroll: 0,
+            report_scroll: 0,
+            alerts: VecDeque::new(),
+            stage_label: String::new(),
+            stage_message: String::new(),
+            origin,
         };
         self.logs.clear();
         self.progress.clear();
@@ -179,8 +211,15 @@ impl App {
 
     fn push_log(&mut self, line: String) {
         self.logs.push_back(line);
-        while self.logs.len() > 400 {
+        while self.logs.len() > MAX_LOG_LINES {
             self.logs.pop_front();
+        }
+        if matches!(self.operation.active_tab, OperationTab::Logs) {
+            self.operation.log_scroll = self
+                .logs
+                .len()
+                .saturating_sub(LOG_FOLLOW_WINDOW)
+                .min(u16::MAX as usize) as u16;
         }
     }
 }

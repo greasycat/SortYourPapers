@@ -1,8 +1,12 @@
-use std::sync::mpsc;
+use std::{collections::VecDeque, sync::mpsc};
 
 use ratatui::prelude::{Color, Style};
 
-use crate::{papers::taxonomy::CategoryTree, session::RunStage, terminal::InspectReviewPrompt};
+use crate::{
+    papers::taxonomy::CategoryTree,
+    session::RunStage,
+    terminal::{AlertSeverity, InspectReviewPrompt},
+};
 
 #[derive(Clone, Copy)]
 pub(super) enum Screen {
@@ -10,6 +14,40 @@ pub(super) enum Screen {
     RunForm,
     Sessions,
     Operation,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum OperationTab {
+    Summary,
+    Logs,
+    Taxonomy,
+    Report,
+}
+
+impl OperationTab {
+    pub(super) const ALL: [Self; 4] = [Self::Summary, Self::Logs, Self::Taxonomy, Self::Report];
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Summary => "Summary",
+            Self::Logs => "Logs",
+            Self::Taxonomy => "Taxonomy",
+            Self::Report => "Report",
+        }
+    }
+
+    pub(super) fn index(self) -> usize {
+        match self {
+            Self::Summary => 0,
+            Self::Logs => 1,
+            Self::Taxonomy => 2,
+            Self::Report => 3,
+        }
+    }
+
+    pub(super) fn from_index(index: usize) -> Self {
+        Self::ALL[index.min(Self::ALL.len() - 1)]
+    }
 }
 
 #[derive(Default)]
@@ -41,12 +79,66 @@ impl OperationState {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone)]
+pub(super) struct OperationAlert {
+    pub(super) severity: AlertSeverity,
+    pub(super) label: String,
+    pub(super) message: String,
+}
+
+impl OperationAlert {
+    pub(super) fn new(severity: AlertSeverity, label: String, message: String) -> Self {
+        Self {
+            severity,
+            label,
+            message,
+        }
+    }
+
+    pub(super) fn line(&self) -> String {
+        format!("{} {}", self.label, self.message)
+    }
+
+    pub(super) fn color(&self) -> Color {
+        match self.severity {
+            AlertSeverity::Warning => Color::Yellow,
+            AlertSeverity::Error => Color::Red,
+        }
+    }
+}
+
 pub(super) struct OperationView {
     pub(super) title: String,
     pub(super) state: OperationState,
     pub(super) summary: String,
     pub(super) detail: OperationDetail,
+    pub(super) active_tab: OperationTab,
+    pub(super) log_scroll: u16,
+    pub(super) taxonomy_scroll: u16,
+    pub(super) report_scroll: u16,
+    pub(super) alerts: VecDeque<OperationAlert>,
+    pub(super) stage_label: String,
+    pub(super) stage_message: String,
+    pub(super) origin: Screen,
+}
+
+impl Default for OperationView {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            state: OperationState::Idle,
+            summary: String::new(),
+            detail: OperationDetail::None,
+            active_tab: OperationTab::Summary,
+            log_scroll: 0,
+            taxonomy_scroll: 0,
+            report_scroll: 0,
+            alerts: VecDeque::new(),
+            stage_label: String::new(),
+            stage_message: String::new(),
+            origin: Screen::Home,
+        }
+    }
 }
 
 #[derive(Default)]

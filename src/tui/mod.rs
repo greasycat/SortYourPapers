@@ -107,6 +107,7 @@ mod tests {
                 state: OperationState::Idle,
                 summary: "waiting for work".to_string(),
                 detail: OperationDetail::None,
+                ..OperationView::default()
             },
             logs: VecDeque::new(),
             progress: Vec::new(),

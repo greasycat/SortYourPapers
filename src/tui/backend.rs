@@ -4,7 +4,7 @@ use crate::{
     error::{AppError, Result},
     papers::taxonomy::CategoryTree,
     report::RunReport,
-    terminal::{InspectReviewPrompt, TerminalBackend, Verbosity},
+    terminal::{AlertSeverity, InspectReviewPrompt, TerminalBackend, Verbosity},
 };
 
 #[derive(Debug)]
@@ -22,6 +22,15 @@ pub(super) enum BackendEvent {
     },
     ProgressFinish {
         id: u64,
+    },
+    StageStatus {
+        stage: String,
+        message: String,
+    },
+    Alert {
+        severity: AlertSeverity,
+        label: String,
+        message: String,
     },
     Report(RunReport),
     CategoryTree(Vec<CategoryTree>),
@@ -88,6 +97,21 @@ impl TerminalBackend for TuiBackend {
 
     fn finish_progress(&self, id: u64) {
         self.send(BackendEvent::ProgressFinish { id });
+    }
+
+    fn update_stage_status(&self, stage: &str, message: &str) {
+        self.send(BackendEvent::StageStatus {
+            stage: stage.to_string(),
+            message: message.to_string(),
+        });
+    }
+
+    fn record_alert(&self, severity: AlertSeverity, label: &str, message: &str) {
+        self.send(BackendEvent::Alert {
+            severity,
+            label: label.to_string(),
+            message: message.to_string(),
+        });
     }
 
     fn show_report(&self, report: &RunReport, _verbosity: Verbosity) {
