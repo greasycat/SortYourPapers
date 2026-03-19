@@ -84,7 +84,9 @@ fn render_tree_items(
 fn reset_state_for_items(state: &mut TaxonomyTreeState, items: &[TreeItem<'static, usize>]) {
     *state = TaxonomyTreeState::default();
     open_all(state, items, &[]);
-    let _ = state.select_first();
+    if let Some(first) = items.first() {
+        let _ = state.select(vec![*first.identifier()]);
+    }
 }
 
 fn open_all(state: &mut TaxonomyTreeState, items: &[TreeItem<'static, usize>], prefix: &[usize]) {

@@ -277,6 +277,18 @@ impl TaxonomyReviewView {
         }
     }
 
+    pub(super) fn toggle_focused_tree(&mut self) {
+        if !matches!(self.focused_pane, ReviewPane::IterationTaxonomy) {
+            return;
+        }
+
+        if self.iteration_tree_state.borrow_mut().toggle_selected() {
+            self.iteration_tree_state
+                .borrow_mut()
+                .scroll_selected_into_view();
+        }
+    }
+
     pub(super) fn focus_next(&mut self) {
         let next = self.focused_pane.index() + 1;
         self.focused_pane = ReviewPane::from_index(next);
@@ -474,6 +486,7 @@ impl TaxonomyReviewView {
                 ReviewPhase::Drafting if self.has_pending_inspect_prompt() => &[
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
+                    ("Space", "fold"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                     ("s", "edit suggestion"),
@@ -483,18 +496,21 @@ impl TaxonomyReviewView {
                 ReviewPhase::Drafting => &[
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
+                    ("Space", "fold"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                 ],
                 ReviewPhase::WaitingForModel => &[
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
+                    ("Space", "fold"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                 ],
                 ReviewPhase::PostSuggestionDecision => &[
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
+                    ("Space", "fold"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                     ("a", "accept candidate"),

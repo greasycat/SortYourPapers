@@ -107,6 +107,7 @@ mod tests {
         Overlay, ProgressEntry, RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
         model::{OperationTab, StageTiming},
         render::stage_timing_bars,
+        taxonomy_tree::reset_state_for_categories,
         taxonomy_review::{
             PendingReviewReply, ReviewIteration, ReviewPane, ReviewPhase, TaxonomyReviewView,
         },
@@ -1427,6 +1428,32 @@ mod tests {
     }
 
     #[test]
+    fn taxonomy_review_space_toggles_iteration_tree_visibility() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.focused_pane = ReviewPane::IterationTaxonomy;
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+
+        let expanded_lines = render_lines(&app, 120, 32);
+        assert!(expanded_lines.iter().any(|line| line.contains("Vision")));
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)))
+            .expect("space should fold the selected iteration taxonomy node");
+        let collapsed_lines = render_lines(&app, 120, 32);
+        assert!(!collapsed_lines.iter().any(|line| line.contains("Vision")));
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)))
+            .expect("space should unfold the selected iteration taxonomy node");
+        let reopened_lines = render_lines(&app, 120, 32);
+        assert!(reopened_lines.iter().any(|line| line.contains("Vision")));
+    }
+
+    #[test]
     fn history_panel_selects_iterations_for_iteration_taxonomy_panel() {
         let mut app = test_app();
         let (inspect_tx, _inspect_rx) = mpsc::channel();
@@ -1543,6 +1570,35 @@ mod tests {
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)))
             .expect("g should jump to log start");
         assert_eq!(app.operation.log_scroll, 0);
+    }
+
+    #[test]
+    fn operation_taxonomy_space_toggles_tree_visibility() {
+        let mut app = test_app();
+        let categories = sample_taxonomy_categories();
+        app.screen = Screen::Operation;
+        app.operation.active_tab = OperationTab::Taxonomy;
+        app.operation.detail = OperationDetail::Tree(categories.clone());
+        reset_state_for_categories(
+            &mut app.operation.taxonomy_tree_state.borrow_mut(),
+            &categories,
+        );
+        let runtime = test_runtime();
+
+        let expanded_lines = render_lines(&app, 100, 24);
+        assert!(expanded_lines.iter().any(|line| line.contains("Vision")));
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)))
+            .expect("space should fold the selected taxonomy node");
+        let collapsed_lines = render_lines(&app, 100, 24);
+        assert!(!collapsed_lines.iter().any(|line| line.contains("Vision")));
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)))
+            .expect("space should unfold the selected taxonomy node");
+        let reopened_lines = render_lines(&app, 100, 24);
+        assert!(reopened_lines.iter().any(|line| line.contains("Vision")));
     }
 
     #[test]

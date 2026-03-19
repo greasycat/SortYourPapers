@@ -268,6 +268,25 @@ impl App {
         }
     }
 
+    pub(super) fn toggle_active_operation_taxonomy(&mut self) {
+        if !matches!(self.operation.active_tab, OperationTab::Taxonomy) {
+            return;
+        }
+        if !matches!(
+            self.operation.detail,
+            OperationDetail::Tree(_) | OperationDetail::None
+        ) {
+            return;
+        }
+
+        if self.operation.taxonomy_tree_state.borrow_mut().toggle_selected() {
+            self.operation
+                .taxonomy_tree_state
+                .borrow_mut()
+                .scroll_selected_into_view();
+        }
+    }
+
     pub(super) fn operation_log_lines(&self) -> Vec<String> {
         self.logs.iter().cloned().collect()
     }

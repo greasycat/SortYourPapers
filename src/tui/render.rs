@@ -714,6 +714,7 @@ impl App {
                 ("Tab/h/l", "switch"),
                 ("1-4", "jump tab"),
                 ("j/k", "scroll"),
+                ("Space", "fold"),
                 ("PgUp/PgDn", "page"),
                 ("g/G", "start/end"),
                 ("s", "sessions"),
