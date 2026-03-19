@@ -86,11 +86,13 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend, layout::Position};
     use tempfile::tempdir;
 
-    use crate::{papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode};
+    use crate::{
+        papers::placement::PlacementMode, papers::taxonomy::TaxonomyMode, terminal::AlertSeverity,
+    };
 
     use super::{
         App, BackendEvent, OperationDetail, OperationState, OperationView, Overlay, ProgressEntry,
-        RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
+        RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity, model::OperationTab,
     };
 
     fn test_app() -> App {
@@ -146,6 +148,13 @@ mod tests {
             .draw(|frame| app.draw(frame))
             .expect("test frame should render");
         terminal
+    }
+
+    fn test_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build")
     }
 
     #[test]
@@ -362,10 +371,7 @@ mod tests {
             buffer: "papers".to_string(),
         });
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime should build");
+        let runtime = test_runtime();
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
             .expect("enter should commit edit");
@@ -385,10 +391,7 @@ mod tests {
             buffer: "papers".to_string(),
         });
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime should build");
+        let runtime = test_runtime();
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)))
             .expect("escape should close editor");
@@ -431,10 +434,7 @@ mod tests {
         let mut app = test_app();
         app.screen = Screen::Home;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime should build");
+        let runtime = test_runtime();
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)))
             .expect("escape should open quit confirmation");
@@ -455,10 +455,7 @@ mod tests {
         app.screen = Screen::Home;
         app.home_index = 2;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime should build");
+        let runtime = test_runtime();
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
             .expect("enter should open quit confirmation");
@@ -484,10 +481,7 @@ mod tests {
             action: super::model::ConfirmAction::Quit,
         });
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime should build");
+        let runtime = test_runtime();
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
             .expect("enter should confirm quit");
@@ -501,10 +495,7 @@ mod tests {
         let mut app = test_app();
         app.screen = Screen::Home;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime should build");
+        let runtime = test_runtime();
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)))
             .expect("q should be ignored");
@@ -554,15 +545,163 @@ mod tests {
         app.run_form.input = temp.path().join("missing-input").display().to_string();
         app.run_form.output = temp.path().join("sorted").display().to_string();
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime should build");
+        let runtime = test_runtime();
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)))
             .expect("run hotkey should be handled");
 
         assert!(matches!(app.screen, Screen::RunForm));
         assert!(matches!(app.overlay, Some(Overlay::Notice { .. })));
+    }
+
+    #[test]
+    fn operation_screen_renders_tabs_and_success_actions() {
+        let mut app = test_app();
+        app.operation.state = OperationState::Success;
+        app.operation.summary = "run completed".to_string();
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(lines.iter().any(|line| line.contains("Views")));
+        assert!(lines.iter().any(|line| line.contains("1 Summary")));
+        assert!(lines.iter().any(|line| line.contains("2 Logs")));
+        assert!(lines.iter().any(|line| line.contains("3 Taxonomy")));
+        assert!(lines.iter().any(|line| line.contains("4 Report")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Next actions: 3 Taxonomy, 4 Report, s Sessions."))
+        );
+    }
+
+    #[test]
+    fn stage_status_and_alert_events_feed_summary_panels() {
+        let mut app = test_app();
+        let (backend_tx, backend_rx) = mpsc::channel();
+        app.backend_rx = backend_rx;
+
+        backend_tx
+            .send(BackendEvent::StageStatus {
+                stage: "extract-keywords".to_string(),
+                message: "running keyword extraction".to_string(),
+            })
+            .expect("stage status should send");
+        backend_tx
+            .send(BackendEvent::Alert {
+                severity: AlertSeverity::Warning,
+                label: "KEYWORDS".to_string(),
+                message: "batch 2/4 retry 2/3".to_string(),
+            })
+            .expect("alert should send");
+
+        app.drain_backend_events();
+        assert_eq!(app.operation.alerts.len(), 1);
+        assert_eq!(app.operation.alerts[0].label, "KEYWORDS");
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(lines.iter().any(|line| line.contains("extract-keywords")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("running keyword extraction"))
+        );
+    }
+
+    #[test]
+    fn operation_tab_hotkeys_switch_views_and_scroll_logs() {
+        let mut app = test_app();
+        app.logs = (0..40)
+            .map(|index| format!("log line {index:02}"))
+            .collect::<VecDeque<_>>();
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)))
+            .expect("tab hotkey should switch to logs");
+        assert_eq!(app.operation.active_tab, OperationTab::Logs);
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)))
+            .expect("j should scroll logs");
+        assert_eq!(app.operation.log_scroll, 1);
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)))
+            .expect("G should jump to log end");
+        assert_eq!(app.operation.log_scroll, 39);
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)))
+            .expect("g should jump to log start");
+        assert_eq!(app.operation.log_scroll, 0);
+    }
+
+    #[test]
+    fn operation_logs_tab_renders_scrolled_content() {
+        let mut app = test_app();
+        app.operation.active_tab = OperationTab::Logs;
+        app.operation.log_scroll = 12;
+        app.logs = (0..30)
+            .map(|index| format!("log line {index:02}"))
+            .collect::<VecDeque<_>>();
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(!lines.iter().any(|line| line.contains("log line 00")));
+        assert!(lines.iter().any(|line| line.contains("log line 12")));
+    }
+
+    #[test]
+    fn operation_tabs_show_empty_states_for_missing_taxonomy_and_report() {
+        let mut app = test_app();
+
+        app.operation.active_tab = OperationTab::Taxonomy;
+        let taxonomy_lines = render_lines(&app, 100, 24);
+        assert!(
+            taxonomy_lines
+                .iter()
+                .any(|line| line.contains("Taxonomy not available yet."))
+        );
+
+        app.operation.active_tab = OperationTab::Report;
+        let report_lines = render_lines(&app, 100, 24);
+        assert!(
+            report_lines
+                .iter()
+                .any(|line| line.contains("Report not available yet."))
+        );
+    }
+
+    #[test]
+    fn escape_from_operation_returns_to_origin_screen() {
+        let mut app = test_app();
+        app.operation.state = OperationState::Success;
+        app.operation.origin = Screen::RunForm;
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)))
+            .expect("escape should return to origin");
+
+        assert!(matches!(app.screen, Screen::RunForm));
+    }
+
+    #[test]
+    fn operation_sessions_shortcut_requires_idle_state() {
+        let mut app = test_app();
+        let runtime = test_runtime();
+
+        app.operation.state = OperationState::Running;
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)))
+            .expect("running operation should ignore sessions shortcut");
+        assert!(matches!(app.screen, Screen::Operation));
+
+        app.operation.state = OperationState::Success;
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)))
+            .expect("idle operation should open sessions");
+        assert!(matches!(app.screen, Screen::Sessions));
     }
 }

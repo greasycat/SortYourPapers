@@ -16,7 +16,7 @@ pub(super) enum Screen {
     Operation,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OperationTab {
     Summary,
     Logs,
