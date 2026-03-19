@@ -431,10 +431,10 @@ impl App {
             match key.code {
                 KeyCode::Esc => review.stop_editing(),
                 KeyCode::Enter => {
-                    if let Some(suggestion) = review.submit_suggestion()
+                    if let Some(request) = review.submit_review_request()
                         && let Some(reply) = review.take_inspect_reply()
                     {
-                        let _ = reply.send(Ok(InspectReviewPrompt::Suggest(suggestion)));
+                        let _ = reply.send(Ok(InspectReviewPrompt::Suggest(request)));
                     }
                 }
                 KeyCode::Backspace => review.pop_input(),
@@ -454,6 +454,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => review.scroll_focused(1),
             KeyCode::Up | KeyCode::Char('k') => review.scroll_focused(-1),
             KeyCode::Char(' ') => review.toggle_focused_tree(),
+            KeyCode::Char('x') => review.toggle_selected_removal(),
             KeyCode::PageDown => review.scroll_focused(10),
             KeyCode::PageUp => review.scroll_focused(-10),
             KeyCode::Char('g') => review.jump_focused(false),
@@ -463,7 +464,13 @@ impl App {
             }
             KeyCode::Char('a') => match review.phase {
                 ReviewPhase::Drafting => {
-                    if let Some(reply) = review.take_inspect_reply() {
+                    if review.has_marked_removals() {
+                        if let Some(request) = review.submit_review_request()
+                            && let Some(reply) = review.take_inspect_reply()
+                        {
+                            let _ = reply.send(Ok(InspectReviewPrompt::Suggest(request)));
+                        }
+                    } else if let Some(reply) = review.take_inspect_reply() {
                         let _ = reply.send(Ok(InspectReviewPrompt::Accept));
                         self.finish_taxonomy_review();
                     }

@@ -12,8 +12,8 @@ use super::{
     app::App,
     model::{OperationDetail, OperationState, OperationTab, Overlay, Screen},
     session_view::rerun_stage_name,
-    taxonomy_tree::{render_category_tree, render_section_tree},
     taxonomy_review::ReviewPane,
+    taxonomy_tree::{render_category_tree, render_section_tree},
     ui_widgets::{muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs},
 };
 
@@ -868,42 +868,41 @@ fn draw_taxonomy_review_suggestion_panel(
     area: Rect,
     review: &super::taxonomy_review::TaxonomyReviewView,
 ) -> Option<(u16, u16)> {
-        let block =
-            focused_panel_block("Suggestion", review.focused_pane == ReviewPane::Suggestion);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        if inner.width == 0 || inner.height == 0 {
-            return None;
-        }
-
-        let mut constraints = vec![Constraint::Min(3)];
-        if review.editing {
-            constraints.push(Constraint::Length(3));
-        }
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints)
-            .split(inner);
-
-        frame.render_widget(
-            Paragraph::new(
-                review
-                    .suggestion_lines()
-                    .into_iter()
-                    .map(Line::from)
-                    .collect::<Vec<_>>(),
-            )
-            .wrap(Wrap { trim: false })
-            .scroll((review.focused_scroll().unwrap_or(0), 0)),
-            chunks[0],
-        );
-
-        if review.editing && chunks.len() > 1 {
-            return draw_text_field(frame, chunks[1], "Draft", &review.suggestion_buffer);
-        }
-
-        None
+    let block = focused_panel_block("Suggestion", review.focused_pane == ReviewPane::Suggestion);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return None;
     }
+
+    let mut constraints = vec![Constraint::Min(3)];
+    if review.editing {
+        constraints.push(Constraint::Length(3));
+    }
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(
+            review
+                .suggestion_lines()
+                .into_iter()
+                .map(Line::from)
+                .collect::<Vec<_>>(),
+        )
+        .wrap(Wrap { trim: false })
+        .scroll((review.focused_scroll().unwrap_or(0), 0)),
+        chunks[0],
+    );
+
+    if review.editing && chunks.len() > 1 {
+        return draw_text_field(frame, chunks[1], "Draft", &review.suggestion_buffer);
+    }
+
+    None
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct StageTimingSnapshot {
@@ -1145,14 +1144,7 @@ fn draw_scrolled_panel_with_block(
     } else {
         lines.into_iter().map(Line::from).collect::<Vec<_>>()
     };
-    render_scrolled_paragraph(
-        frame,
-        area,
-        block,
-        content,
-        scroll,
-        true,
-    );
+    render_scrolled_paragraph(frame, area, block, content, scroll, true);
 }
 
 fn focused_panel_block<'a>(title: &'a str, focused: bool) -> Block<'a> {

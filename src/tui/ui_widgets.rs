@@ -71,7 +71,12 @@ pub(super) fn render_scrolled_paragraph<'a>(
 
     let needs_scrollbar = content_len > usize::from(inner.height) && inner.width > 1;
     let text_area = if needs_scrollbar {
-        Rect::new(inner.x, inner.y, inner.width.saturating_sub(1), inner.height)
+        Rect::new(
+            inner.x,
+            inner.y,
+            inner.width.saturating_sub(1),
+            inner.height,
+        )
     } else {
         inner
     };

@@ -131,10 +131,11 @@ where
             InspectReviewPrompt::Cancel => {
                 return Err(AppError::Execution("inspect-output cancelled".to_string()));
             }
-            InspectReviewPrompt::Suggest(suggestion) => {
+            InspectReviewPrompt::Suggest(request) => {
+                let llm_request = request.llm_request();
                 let (improved_categories, usage) = improve_categories(
                     &partial_categories,
-                    suggestion.as_str(),
+                    llm_request.as_str(),
                     &categories,
                     verbosity,
                 )
@@ -419,7 +420,9 @@ mod tests {
                 0 => {
                     prompt_calls.set(1);
                     Ok(InspectReviewPrompt::Suggest(
-                        "Merge speech categories".to_string(),
+                        crate::terminal::InspectReviewRequest::from_user_suggestion(
+                            "Merge speech categories".to_string(),
+                        ),
                     ))
                 }
                 _ => Ok(InspectReviewPrompt::Accept),

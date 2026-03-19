@@ -22,10 +22,72 @@ pub enum AlertSeverity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InspectReviewRequest {
+    pub user_suggestion: Option<String>,
+    pub removals: Vec<String>,
+}
+
+impl InspectReviewRequest {
+    pub fn from_user_suggestion(user_suggestion: String) -> Self {
+        Self {
+            user_suggestion: Some(user_suggestion),
+            removals: Vec::new(),
+        }
+    }
+
+    pub fn new(user_suggestion: Option<String>, removals: Vec<String>) -> Self {
+        Self {
+            user_suggestion,
+            removals,
+        }
+    }
+
+    pub fn llm_request(&self) -> String {
+        let mut sections = Vec::new();
+        if let Some(suggestion) = self
+            .user_suggestion
+            .as_deref()
+            .map(str::trim)
+            .filter(|suggestion| !suggestion.is_empty())
+        {
+            sections.push(suggestion.to_string());
+        }
+        if !self.removals.is_empty() {
+            let removals = self
+                .removals
+                .iter()
+                .map(|path| format!("- {path}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            sections.push(format!(
+                "Remove these taxonomy sections from the merged taxonomy:\n{removals}\nKeep the rest of the taxonomy unless restructuring is necessary to stay consistent."
+            ));
+        }
+        sections.join("\n\n")
+    }
+
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(suggestion) = self
+            .user_suggestion
+            .as_deref()
+            .map(str::trim)
+            .filter(|suggestion| !suggestion.is_empty())
+        {
+            parts.push(suggestion.to_string());
+        }
+        if !self.removals.is_empty() {
+            parts.push(format!("remove: {}", self.removals.join(", ")));
+        }
+        parts.join("; ")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InspectReviewPrompt {
     Accept,
     Cancel,
-    Suggest(String),
+    Suggest(InspectReviewRequest),
 }
 
 pub trait TerminalBackend: Send + Sync {
@@ -300,7 +362,9 @@ fn resolve_inspect_review_action(input: &str) -> Result<InspectReviewPrompt> {
         return Ok(InspectReviewPrompt::Cancel);
     }
 
-    Ok(InspectReviewPrompt::Suggest(input.to_string()))
+    Ok(InspectReviewPrompt::Suggest(
+        InspectReviewRequest::from_user_suggestion(input.to_string()),
+    ))
 }
 
 fn resolve_continue_improving(input: &str) -> Result<InspectLoopDecision> {

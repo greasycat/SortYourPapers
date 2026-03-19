@@ -7,8 +7,8 @@ mod input;
 mod model;
 mod render;
 mod session_view;
-mod taxonomy_tree;
 mod taxonomy_review;
+mod taxonomy_tree;
 mod ui_widgets;
 
 use std::{
@@ -99,7 +99,7 @@ mod tests {
         session::{
             RunStage, RunSummary, SessionConfigSummary, SessionDetails, SessionStatusSummary,
         },
-        terminal::{AlertSeverity, InspectReviewPrompt},
+        terminal::{AlertSeverity, InspectReviewPrompt, InspectReviewRequest},
     };
 
     use super::{
@@ -107,10 +107,10 @@ mod tests {
         Overlay, ProgressEntry, RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
         model::{OperationTab, StageTiming},
         render::stage_timing_bars,
-        taxonomy_tree::reset_state_for_categories,
         taxonomy_review::{
             PendingReviewReply, ReviewIteration, ReviewPane, ReviewPhase, TaxonomyReviewView,
         },
+        taxonomy_tree::reset_state_for_categories,
     };
 
     fn test_app() -> App {
@@ -210,6 +210,25 @@ mod tests {
         lines
             .iter()
             .any(|line| line.contains('║') || line.contains('█'))
+    }
+
+    fn contains_symbol_with_fg(
+        app: &App,
+        width: u16,
+        height: u16,
+        symbol: &str,
+        fg: Color,
+    ) -> bool {
+        let terminal = render_app(app, width, height);
+        let buffer = terminal.backend().buffer();
+        let area = buffer.area();
+
+        (0..area.height).any(|y| {
+            (0..area.width).any(|x| {
+                let cell = &buffer[(x, y)];
+                cell.symbol() == symbol && cell.fg == fg
+            })
+        })
     }
 
     fn test_runtime() -> tokio::runtime::Runtime {
@@ -1214,7 +1233,9 @@ mod tests {
         assert!(!review.editing);
         assert_eq!(
             reply_rx.recv().expect("reply should send"),
-            Ok(InspectReviewPrompt::Suggest("Merge vision".to_string()))
+            Ok(InspectReviewPrompt::Suggest(
+                InspectReviewRequest::from_user_suggestion("Merge vision".to_string()),
+            ))
         );
     }
 
@@ -1308,6 +1329,72 @@ mod tests {
         assert_eq!(
             reply_rx.recv().expect("reply should send"),
             Ok(InspectReviewPrompt::Accept)
+        );
+    }
+
+    #[test]
+    fn taxonomy_review_x_marks_selected_taxonomy_node_red() {
+        let mut app = test_app();
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), reply_tx);
+        review.focused_pane = ReviewPane::IterationTaxonomy;
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+        let _ = render_lines(&app, 120, 32);
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)))
+            .expect("down should select the first taxonomy node");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)))
+            .expect("x should mark the selected taxonomy node");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)))
+            .expect("up should move selection away from the marked node");
+
+        let lines = render_lines(&app, 120, 32);
+        assert!(lines.iter().any(|line| line.contains("x AI")));
+        assert!(contains_symbol_with_fg(&app, 120, 32, "x", Color::Red));
+    }
+
+    #[test]
+    fn drafting_taxonomy_review_accept_with_removal_sends_improvement_request() {
+        let mut app = test_app();
+        let (reply_tx, reply_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), reply_tx);
+        review.focused_pane = ReviewPane::IterationTaxonomy;
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+        let _ = render_lines(&app, 120, 32);
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)))
+            .expect("down should select the first taxonomy node");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)))
+            .expect("x should mark the selected taxonomy node");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
+            .expect("a should submit the removal request");
+
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("review should remain open while waiting for the model");
+        assert!(matches!(app.screen, Screen::TaxonomyReview));
+        assert_eq!(review.phase, ReviewPhase::WaitingForModel);
+        assert_eq!(
+            review.last_submitted_suggestion.as_deref(),
+            Some("remove: AI")
+        );
+        assert_eq!(
+            reply_rx.recv().expect("reply should send"),
+            Ok(InspectReviewPrompt::Suggest(InspectReviewRequest::new(
+                None,
+                vec!["AI".to_string()],
+            )))
         );
     }
 

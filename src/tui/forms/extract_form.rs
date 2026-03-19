@@ -50,9 +50,7 @@ impl ExtractForm {
         let items = EXTRACT_FIELD_LABELS
             .iter()
             .enumerate()
-            .map(|(index, label)| {
-                ListItem::new(format!("{label}: {}", self.value(index)))
-            })
+            .map(|(index, label)| ListItem::new(format!("{label}: {}", self.value(index))))
             .collect::<Vec<_>>();
         render_selectable_list(
             frame,

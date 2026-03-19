@@ -17,7 +17,7 @@ use crate::{
 };
 
 use super::forms::bool_label;
-use super::taxonomy_tree::{render_category_tree, reset_state_for_categories, TaxonomyTreeState};
+use super::taxonomy_tree::{TaxonomyTreeState, render_category_tree, reset_state_for_categories};
 use super::ui_widgets::{
     muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs,
 };

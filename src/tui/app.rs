@@ -11,8 +11,8 @@ use super::{
         OperationTab, Overlay, ProgressEntry, Screen, StageTiming,
     },
     session_view::SessionView,
-    taxonomy_tree::reset_state_for_categories,
     taxonomy_review::TaxonomyReviewView,
+    taxonomy_tree::reset_state_for_categories,
 };
 
 const MAX_LOG_LINES: usize = 400;
@@ -243,9 +243,17 @@ impl App {
             )
         {
             if to_end {
-                let _ = self.operation.taxonomy_tree_state.borrow_mut().select_last();
+                let _ = self
+                    .operation
+                    .taxonomy_tree_state
+                    .borrow_mut()
+                    .select_last();
             } else {
-                let _ = self.operation.taxonomy_tree_state.borrow_mut().select_first();
+                let _ = self
+                    .operation
+                    .taxonomy_tree_state
+                    .borrow_mut()
+                    .select_first();
             }
             self.operation
                 .taxonomy_tree_state
@@ -279,7 +287,12 @@ impl App {
             return;
         }
 
-        if self.operation.taxonomy_tree_state.borrow_mut().toggle_selected() {
+        if self
+            .operation
+            .taxonomy_tree_state
+            .borrow_mut()
+            .toggle_selected()
+        {
             self.operation
                 .taxonomy_tree_state
                 .borrow_mut()

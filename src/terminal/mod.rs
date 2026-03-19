@@ -7,8 +7,8 @@ use std::{
 };
 
 pub use backend::{
-    AlertSeverity, BackendGuard, InspectReviewPrompt, TerminalBackend, current_backend,
-    install_backend,
+    AlertSeverity, BackendGuard, InspectReviewPrompt, InspectReviewRequest, TerminalBackend,
+    current_backend, install_backend,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

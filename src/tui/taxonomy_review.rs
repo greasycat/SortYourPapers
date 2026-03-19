@@ -1,6 +1,9 @@
-use std::{cell::RefCell, sync::mpsc};
+use std::{cell::RefCell, collections::BTreeSet, sync::mpsc};
 
-use crate::{papers::taxonomy::CategoryTree, terminal::InspectReviewPrompt};
+use crate::{
+    papers::taxonomy::CategoryTree,
+    terminal::{InspectReviewPrompt, InspectReviewRequest},
+};
 
 use super::taxonomy_tree::{TaxonomySection, TaxonomyTreeState, reset_state_for_sections};
 
@@ -69,6 +72,7 @@ pub(super) struct TaxonomyReviewView {
     pub(super) history_selection: usize,
     pub(super) focused_pane: ReviewPane,
     pub(super) iteration_tree_state: RefCell<TaxonomyTreeState>,
+    pub(super) marked_removals: BTreeSet<Vec<String>>,
     pub(super) phase: ReviewPhase,
     pub(super) editing: bool,
     pub(super) pending_reply: Option<PendingReviewReply>,
@@ -90,6 +94,7 @@ impl TaxonomyReviewView {
             history_selection: 0,
             focused_pane: ReviewPane::Suggestion,
             iteration_tree_state: RefCell::new(TaxonomyTreeState::default()),
+            marked_removals: BTreeSet::new(),
             phase: ReviewPhase::Drafting,
             editing: false,
             pending_reply: Some(PendingReviewReply::Inspect(reply)),
@@ -109,6 +114,7 @@ impl TaxonomyReviewView {
         self.iteration_scroll = 0;
         self.history_selection = 0;
         self.history_scroll = 0;
+        self.marked_removals.clear();
         self.focused_pane = ReviewPane::Suggestion;
         self.phase = ReviewPhase::Drafting;
         self.editing = false;
@@ -123,6 +129,7 @@ impl TaxonomyReviewView {
 
         self.candidate_categories = Some(categories.clone());
         self.iteration_scroll = 0;
+        self.marked_removals.clear();
         if let Some(suggestion) = self.last_submitted_suggestion.clone() {
             self.history.push(ReviewIteration {
                 number: self.history.len() + 1,
@@ -140,6 +147,7 @@ impl TaxonomyReviewView {
         &mut self,
         reply: mpsc::Sender<std::result::Result<bool, String>>,
     ) {
+        self.marked_removals.clear();
         self.focused_pane = ReviewPane::IterationTaxonomy;
         self.phase = ReviewPhase::PostSuggestionDecision;
         self.editing = false;
@@ -166,18 +174,24 @@ impl TaxonomyReviewView {
         self.suggestion_buffer.pop();
     }
 
-    pub(super) fn submit_suggestion(&mut self) -> Option<String> {
-        let suggestion = self.suggestion_buffer.trim().to_string();
-        if suggestion.is_empty() {
+    pub(super) fn has_marked_removals(&self) -> bool {
+        !self.marked_removals.is_empty()
+    }
+
+    pub(super) fn submit_review_request(&mut self) -> Option<InspectReviewRequest> {
+        let request = self.build_review_request(Some(self.suggestion_buffer.trim().to_string()))?;
+        let summary = request.summary();
+
+        if summary.is_empty() {
             return None;
         }
 
-        self.last_submitted_suggestion = Some(suggestion.clone());
+        self.last_submitted_suggestion = Some(summary);
         self.phase = ReviewPhase::WaitingForModel;
         self.focused_pane = ReviewPane::IterationTaxonomy;
         self.iteration_scroll = 0;
         self.editing = false;
-        Some(suggestion)
+        Some(request)
     }
 
     pub(super) fn promote_candidate_to_accepted(&mut self) {
@@ -188,6 +202,7 @@ impl TaxonomyReviewView {
         self.iteration_scroll = 0;
         self.history_selection = 0;
         self.history_scroll = 0;
+        self.marked_removals.clear();
         self.phase = ReviewPhase::Drafting;
         self.focused_pane = ReviewPane::Suggestion;
         self.editing = false;
@@ -289,6 +304,23 @@ impl TaxonomyReviewView {
         }
     }
 
+    pub(super) fn toggle_selected_removal(&mut self) {
+        if !matches!(self.phase, ReviewPhase::Drafting)
+            || !matches!(self.focused_pane, ReviewPane::IterationTaxonomy)
+        {
+            return;
+        }
+
+        let selected = self.iteration_tree_state.borrow().selected().to_vec();
+        let Some(path) = self.selected_category_path(&selected) else {
+            return;
+        };
+
+        if !self.marked_removals.remove(&path) {
+            self.marked_removals.insert(path);
+        }
+    }
+
     pub(super) fn focus_next(&mut self) {
         let next = self.focused_pane.index() + 1;
         self.focused_pane = ReviewPane::from_index(next);
@@ -318,7 +350,58 @@ impl TaxonomyReviewView {
             .clamp(0, max_index.min(isize::MAX as usize) as isize)
             as usize;
         self.sync_history_scroll();
+        self.marked_removals.clear();
         self.refresh_iteration_tree_state();
+    }
+
+    fn build_review_request(&self, suggestion: Option<String>) -> Option<InspectReviewRequest> {
+        let user_suggestion = suggestion
+            .map(|suggestion| suggestion.trim().to_string())
+            .filter(|suggestion| !suggestion.is_empty());
+        let removals = self
+            .marked_removals
+            .iter()
+            .map(|path| path.join(" > "))
+            .collect::<Vec<_>>();
+
+        if user_suggestion.is_none() && removals.is_empty() {
+            return None;
+        }
+
+        Some(InspectReviewRequest::new(user_suggestion, removals))
+    }
+
+    fn current_iteration_categories(&self) -> &[CategoryTree] {
+        if let Some(iteration) = self.selected_iteration() {
+            if iteration.suggested_categories.is_empty() {
+                &iteration.accepted_categories
+            } else {
+                &iteration.suggested_categories
+            }
+        } else if let Some(categories) = self
+            .candidate_categories
+            .as_ref()
+            .filter(|categories| !categories.is_empty())
+        {
+            categories
+        } else {
+            &self.accepted_categories
+        }
+    }
+
+    fn selected_category_path(&self, selected: &[usize]) -> Option<Vec<String>> {
+        if selected.len() < 2 {
+            return None;
+        }
+
+        let mut categories = self.current_iteration_categories();
+        let mut path = Vec::new();
+        for index in &selected[1..] {
+            let category = categories.get(*index)?;
+            path.push(category.name.clone());
+            categories = &category.children;
+        }
+        Some(path)
     }
 
     pub(super) fn iteration_summary_lines(&self) -> Vec<String> {
@@ -344,11 +427,13 @@ impl TaxonomyReviewView {
                 TaxonomySection::Categories {
                     title: "Accepted Taxonomy".to_string(),
                     categories: iteration.accepted_categories.clone(),
+                    marked_paths: BTreeSet::new(),
                 }
             } else {
                 TaxonomySection::Categories {
                     title: "Suggested Taxonomy".to_string(),
                     categories: iteration.suggested_categories.clone(),
+                    marked_paths: BTreeSet::new(),
                 }
             }];
         }
@@ -357,10 +442,12 @@ impl TaxonomyReviewView {
             Some(categories) if !categories.is_empty() => TaxonomySection::Categories {
                 title: "Suggested Taxonomy".to_string(),
                 categories: categories.clone(),
+                marked_paths: self.marked_removals.clone(),
             },
             _ => TaxonomySection::Categories {
                 title: "Accepted Taxonomy".to_string(),
                 categories: self.accepted_categories.clone(),
+                marked_paths: self.marked_removals.clone(),
             },
         }]
     }
@@ -402,6 +489,7 @@ impl TaxonomyReviewView {
         match self.phase {
             ReviewPhase::Drafting if self.has_pending_inspect_prompt() => {
                 lines.push("Compare the current taxonomy and draft a focused change.".to_string());
+                lines.push("Press `x` on a taxonomy node to mark it for removal.".to_string());
                 lines
                     .push("Accept with `a`, or press `s` to draft the next iteration.".to_string());
             }
@@ -439,6 +527,9 @@ impl TaxonomyReviewView {
                 lines.push(
                     "Press `s` to edit a suggestion or `a` to accept the current taxonomy."
                         .to_string(),
+                );
+                lines.push(
+                    "Use `x` on a taxonomy node to request removing that section.".to_string(),
                 );
             }
             ReviewPhase::WaitingForModel => {
@@ -487,6 +578,7 @@ impl TaxonomyReviewView {
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
                     ("Space", "fold"),
+                    ("x", "mark remove"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                     ("s", "edit suggestion"),
@@ -497,6 +589,7 @@ impl TaxonomyReviewView {
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
                     ("Space", "fold"),
+                    ("x", "mark remove"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                 ],

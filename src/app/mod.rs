@@ -20,7 +20,7 @@ use crate::{
     },
     report::{FileAction, PlanAction, RunReport},
     session::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace, run_with_workspace},
-    terminal::{self, InspectReviewPrompt, Verbosity},
+    terminal::{self, InspectReviewPrompt, InspectReviewRequest, Verbosity},
 };
 
 const DEBUG_TUI_PROGRESS_DELAY: Duration = Duration::from_millis(200);
@@ -346,9 +346,8 @@ fn simulate_debug_taxonomy_review(
             InspectReviewPrompt::Cancel => {
                 return Err(AppError::Execution("inspect-output cancelled".to_string()));
             }
-            InspectReviewPrompt::Suggest(suggestion) => {
-                current_categories =
-                    apply_debug_taxonomy_suggestion(&current_categories, suggestion.as_str());
+            InspectReviewPrompt::Suggest(request) => {
+                current_categories = apply_debug_taxonomy_suggestion(&current_categories, &request);
                 terminal::report::print_category_tree(&current_categories, verbosity);
                 if !terminal::prompt_continue_improving()? {
                     break;
@@ -369,18 +368,50 @@ fn simulate_debug_taxonomy_review(
 
 fn apply_debug_taxonomy_suggestion(
     categories: &[CategoryTree],
-    suggestion: &str,
+    request: &InspectReviewRequest,
 ) -> Vec<CategoryTree> {
-    let trimmed = suggestion.trim();
-    if trimmed.is_empty() {
-        return categories.to_vec();
+    let mut updated = categories.to_vec();
+
+    for removal in &request.removals {
+        let segments = removal
+            .split(" > ")
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty())
+            .collect::<Vec<_>>();
+        if !segments.is_empty() {
+            remove_category_path(&mut updated, &segments);
+        }
     }
 
-    let mut updated = categories.to_vec();
-    if let Some(first) = updated.first_mut() {
-        first.name = format!("{} ({trimmed})", first.name);
+    if let Some(suggestion) = request
+        .user_suggestion
+        .as_deref()
+        .map(str::trim)
+        .filter(|suggestion| !suggestion.is_empty())
+        && let Some(first) = updated.first_mut()
+    {
+        first.name = format!("{} ({suggestion})", first.name);
     }
     updated
+}
+
+fn remove_category_path(categories: &mut Vec<CategoryTree>, path: &[&str]) -> bool {
+    let Some((head, tail)) = path.split_first() else {
+        return false;
+    };
+    let Some(index) = categories
+        .iter()
+        .position(|category| category.name == *head)
+    else {
+        return false;
+    };
+
+    if tail.is_empty() {
+        categories.remove(index);
+        true
+    } else {
+        remove_category_path(&mut categories[index].children, tail)
+    }
 }
 
 /// Extracts and prints text for the provided PDFs without running the full workflow.
@@ -491,7 +522,8 @@ mod tests {
         papers::taxonomy::{CategoryTree, TaxonomyMode},
         session::{RunStage, RunWorkspace},
         terminal::{
-            AlertSeverity, InspectReviewPrompt, TerminalBackend, Verbosity, install_backend,
+            AlertSeverity, InspectReviewPrompt, InspectReviewRequest, TerminalBackend, Verbosity,
+            install_backend,
         },
     };
 
@@ -559,7 +591,10 @@ mod tests {
             },
         ];
 
-        let updated = apply_debug_taxonomy_suggestion(&categories, "merge workflow");
+        let updated = apply_debug_taxonomy_suggestion(
+            &categories,
+            &InspectReviewRequest::from_user_suggestion("merge workflow".to_string()),
+        );
 
         assert_eq!(updated[0].name, "debug (merge workflow)");
         assert_eq!(updated[1].name, "notes");
@@ -569,7 +604,9 @@ mod tests {
     fn debug_taxonomy_review_uses_prompt_loop_and_returns_reviewed_categories() {
         let backend = Arc::new(DebugReviewBackend::new(
             vec![
-                InspectReviewPrompt::Suggest("merge workflow".to_string()),
+                InspectReviewPrompt::Suggest(InspectReviewRequest::from_user_suggestion(
+                    "merge workflow".to_string(),
+                )),
                 InspectReviewPrompt::Accept,
             ],
             vec![true],
