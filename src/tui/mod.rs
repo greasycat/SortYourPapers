@@ -207,6 +207,36 @@ mod tests {
     }
 
     #[test]
+    fn run_form_column_navigation_moves_across_matching_rows() {
+        let mut form = RunForm::default();
+
+        form.selected = 4;
+        form.move_column_right();
+        assert_eq!(form.selected, 18);
+
+        form.move_column_right();
+        assert_eq!(form.selected, 11);
+
+        form.move_column_left();
+        assert_eq!(form.selected, 18);
+
+        form.move_column_left();
+        assert_eq!(form.selected, 4);
+    }
+
+    #[test]
+    fn run_form_column_navigation_clamps_to_shorter_columns() {
+        let mut form = RunForm::default();
+
+        form.selected = 10;
+        form.move_column_right();
+        assert_eq!(form.selected, 12);
+
+        form.move_column_left();
+        assert_eq!(form.selected, 9);
+    }
+
+    #[test]
     fn run_form_renders_three_column_sections() {
         let mut app = test_app();
         app.screen = Screen::RunForm;

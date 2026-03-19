@@ -256,7 +256,9 @@ impl App {
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let help = match self.screen {
             Screen::Home => "↑/↓ move  Enter open  q quit",
-            Screen::RunForm => "↑/↓ select  Enter edit/run  ←/→ cycle  space toggle  Esc back",
+            Screen::RunForm => {
+                "↑/↓ or j/k move  ←/→ or h/l column  Enter edit/run  space toggle  Esc back"
+            }
             Screen::Sessions => {
                 "↑/↓ select  p preview  a apply  r rerun  x rerun-apply  v review  d delete  c clear  g refresh  Esc back"
             }

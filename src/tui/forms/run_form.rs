@@ -83,6 +83,16 @@ impl Default for RunForm {
 }
 
 impl RunForm {
+    const COLUMN_FIELDS: [&'static [usize]; 3] = [
+        &[0, 1, 2, 3, 4, 5],
+        &[6, 7, 8, 17, 18, 9, 10],
+        &[13, 14, 15, 16, 11, 12],
+    ];
+
+    const VISIBLE_FIELDS: [usize; 19] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 9, 10, 13, 14, 15, 16, 11, 12,
+    ];
+
     pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -144,31 +154,33 @@ impl RunForm {
     }
 
     pub(crate) fn select_next(&mut self) {
-        const VISIBLE_FIELDS: [usize; 19] = [
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 9, 10, 13, 14, 15, 16, 11, 12,
-        ];
-        if let Some(index) = VISIBLE_FIELDS
+        if let Some(index) = Self::VISIBLE_FIELDS
             .iter()
             .position(|field| *field == self.selected)
         {
-            self.selected = VISIBLE_FIELDS[(index + 1).min(VISIBLE_FIELDS.len() - 1)];
+            self.selected = Self::VISIBLE_FIELDS[(index + 1).min(Self::VISIBLE_FIELDS.len() - 1)];
         } else {
-            self.selected = VISIBLE_FIELDS[0];
+            self.selected = Self::VISIBLE_FIELDS[0];
         }
     }
 
     pub(crate) fn select_previous(&mut self) {
-        const VISIBLE_FIELDS: [usize; 19] = [
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 9, 10, 13, 14, 15, 16, 11, 12,
-        ];
-        if let Some(index) = VISIBLE_FIELDS
+        if let Some(index) = Self::VISIBLE_FIELDS
             .iter()
             .position(|field| *field == self.selected)
         {
-            self.selected = VISIBLE_FIELDS[index.saturating_sub(1)];
+            self.selected = Self::VISIBLE_FIELDS[index.saturating_sub(1)];
         } else {
-            self.selected = VISIBLE_FIELDS[0];
+            self.selected = Self::VISIBLE_FIELDS[0];
         }
+    }
+
+    pub(crate) fn move_column_left(&mut self) {
+        self.move_column(-1);
+    }
+
+    pub(crate) fn move_column_right(&mut self) {
+        self.move_column(1);
     }
 
     pub(crate) fn editable(&self, index: usize) -> bool {
@@ -289,5 +301,37 @@ impl RunForm {
                 .block(block),
             area,
         );
+    }
+
+    fn move_column(&mut self, direction: i8) {
+        let Some((column_index, row_index)) = Self::column_position(self.selected) else {
+            self.selected = Self::VISIBLE_FIELDS[0];
+            return;
+        };
+
+        let target_column = if direction < 0 {
+            column_index.saturating_sub(1)
+        } else {
+            (column_index + 1).min(Self::COLUMN_FIELDS.len() - 1)
+        };
+
+        if target_column == column_index {
+            return;
+        }
+
+        let target_fields = Self::COLUMN_FIELDS[target_column];
+        self.selected = target_fields[row_index.min(target_fields.len() - 1)];
+    }
+
+    fn column_position(field: usize) -> Option<(usize, usize)> {
+        Self::COLUMN_FIELDS
+            .iter()
+            .enumerate()
+            .find_map(|(column_index, fields)| {
+                fields
+                    .iter()
+                    .position(|candidate| *candidate == field)
+                    .map(|row_index| (column_index, row_index))
+            })
     }
 }

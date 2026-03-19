@@ -163,8 +163,8 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.run_form.select_previous();
             }
-            KeyCode::Left => self.run_form.cycle_selected(-1),
-            KeyCode::Right => self.run_form.cycle_selected(1),
+            KeyCode::Left | KeyCode::Char('h') => self.run_form.move_column_left(),
+            KeyCode::Right | KeyCode::Char('l') => self.run_form.move_column_right(),
             KeyCode::Char(' ') => self.run_form.toggle_selected(),
             KeyCode::Char('r') => {
                 let config = self.run_form.build_config()?;
