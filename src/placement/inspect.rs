@@ -2,10 +2,9 @@ use std::{collections::BTreeSet, fs, path::Path};
 
 use walkdir::WalkDir;
 
-use crate::{
-    error::{AppError, Result},
-    place::OutputSnapshot,
-};
+use crate::error::{AppError, Result};
+
+use super::OutputSnapshot;
 
 /// Inspects the current output directory tree for placement decisions.
 ///

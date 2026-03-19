@@ -4,14 +4,16 @@ use std::{
 };
 
 use crate::{
-    app_run::run_with_workspace,
-    app_run::stages::stage_sequence,
+    app::run_with_workspace,
+    app::stages::stage_sequence,
     config,
+    config::AppConfig,
     error::{AppError, Result},
-    logging::Verbosity,
-    models::{AppConfig, LlmUsageSummary, RunReport, SynthesizeCategoriesState},
-    report,
-    run_state::{RunStage, RunSummary, RunWorkspace},
+    llm::LlmUsageSummary,
+    papers::SynthesizeCategoriesState,
+    report::RunReport,
+    session::{RunStage, RunSummary, RunWorkspace},
+    terminal::{self, Verbosity},
 };
 
 const KEYWORD_BATCH_PROGRESS_FILE: &str = "06-extract-keywords-partial-batches.json";
@@ -165,7 +167,7 @@ pub fn review_session(run_id: Option<String>) -> Result<()> {
         workspace.run_id(),
         workspace.root_dir().display()
     );
-    report::print_category_tree(&categories.categories, verbosity);
+    terminal::report::print_category_tree(&categories.categories, verbosity);
     Ok(())
 }
 

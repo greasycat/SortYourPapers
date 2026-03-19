@@ -11,17 +11,18 @@ use serde::Serialize;
 use crate::{
     cli::{CliArgs, ExtractTextArgs},
     config,
+    config::AppConfig,
     error::{AppError, Result},
-    logging::Verbosity,
-    models::{
-        AppConfig, CategoryTree, FileAction, KeywordSet, KeywordStageState, PaperText,
-        PdfCandidate, PlacementDecision, PlanAction, PreliminaryCategoryPair, RunReport,
+    papers::extract::{extract_text_batch, reset_debug_extract_log},
+    papers::{
+        KeywordSet, KeywordStageState, PaperText, PdfCandidate, PreliminaryCategoryPair,
         SynthesizeCategoriesState,
     },
-    pdf_extract::{extract_text_batch, reset_debug_extract_log},
-    report,
-    run_state::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace},
-    terminal,
+    placement::PlacementDecision,
+    report::{FileAction, PlanAction, RunReport},
+    session::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace},
+    taxonomy::CategoryTree,
+    terminal::{self, Verbosity},
 };
 
 pub(crate) use stages::run_with_workspace;
@@ -67,8 +68,8 @@ pub(crate) async fn run_debug_tui(config: AppConfig) -> Result<RunReport> {
     let debug_run = seed_debug_stages(&mut workspace, &config)?;
 
     simulate_debug_tui_run(&debug_run, verbosity).await;
-    report::print_report(&debug_run.report, verbosity);
-    report::print_category_tree(&debug_run.categories, verbosity);
+    terminal::report::print_report(&debug_run.report, verbosity);
+    terminal::report::print_category_tree(&debug_run.categories, verbosity);
     workspace.save_report(&debug_run.report)?;
     workspace.mark_completed()?;
 
@@ -421,7 +422,7 @@ mod tests {
         config::AppConfig,
         llm::LlmProvider,
         placement::PlacementMode,
-        run_state::{RunStage, RunWorkspace},
+        session::{RunStage, RunWorkspace},
         taxonomy::TaxonomyMode,
     };
 
@@ -460,7 +461,7 @@ mod tests {
 
         let debug_run = seed_debug_stages(&mut workspace, &config).expect("seed debug stages");
         let saved_actions = workspace
-            .load_stage::<Vec<crate::models::PlanAction>>(RunStage::BuildPlan)
+            .load_stage::<Vec<crate::report::PlanAction>>(RunStage::BuildPlan)
             .expect("load build plan")
             .expect("saved build plan");
 

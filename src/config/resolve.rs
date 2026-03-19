@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use crate::{
+    config::AppConfig,
     error::{AppError, Result},
-    models::AppConfig,
 };
 
 use super::{

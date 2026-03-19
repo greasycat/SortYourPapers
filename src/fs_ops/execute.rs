@@ -2,8 +2,8 @@ use std::fs;
 
 use crate::{
     error::{AppError, Result},
-    logging::{ProgressTracker, Verbosity},
-    models::{FileAction, PlanAction},
+    report::{FileAction, PlanAction},
+    terminal::{ProgressTracker, Verbosity},
 };
 
 pub fn execute_plan(actions: &[PlanAction], dry_run: bool, verbosity: Verbosity) -> Result<usize> {
@@ -67,8 +67,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::execute_plan;
-    use crate::logging::Verbosity;
-    use crate::models::{FileAction, PlanAction};
+    use crate::report::{FileAction, PlanAction};
+    use crate::terminal::Verbosity;
 
     #[test]
     fn dry_run_keeps_source_file() {

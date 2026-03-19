@@ -2,7 +2,9 @@ use std::{env, path::PathBuf};
 
 use crate::{
     error::{AppError, Result},
-    models::{LlmProvider, PlacementMode, TaxonomyMode},
+    llm::LlmProvider,
+    placement::PlacementMode,
+    taxonomy::TaxonomyMode,
 };
 
 use super::EnvConfig;

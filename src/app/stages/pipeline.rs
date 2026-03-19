@@ -1,21 +1,22 @@
 use std::{path::Path, sync::Arc, time::Instant};
 
 use crate::{
-    categorize::{
+    config::AppConfig,
+    error::{AppError, Result},
+    llm::{self, build_client},
+    papers::extract::{ExtractorMode, extract_text_batch, reset_debug_extract_log},
+    papers::{
+        KeywordStageState, PdfCandidate, SynthesizeCategoriesState, discovery::dedupe_candidates,
+        discovery::discover_pdf_candidates, discovery::split_by_size,
+    },
+    placement::PlacementDecision,
+    report::RunReport,
+    session::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace, StageFailure},
+    taxonomy::{
         KeywordBatchProgress, TaxonomyBatchProgress, extract_keywords_with_progress,
         merge_category_batches, synthesize_category_batches_with_progress,
     },
-    discovery::{dedupe_candidates, discover_pdf_candidates, split_by_size},
-    error::{AppError, Result},
-    llm::{self, build_client},
-    logging::Verbosity,
-    models::{
-        AppConfig, KeywordStageState, PdfCandidate, PlacementDecision, RunReport,
-        SynthesizeCategoriesState,
-    },
-    pdf_extract::{ExtractorMode, extract_text_batch, reset_debug_extract_log},
-    report,
-    run_state::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace, StageFailure},
+    terminal::{self, Verbosity},
 };
 
 use super::{
@@ -144,8 +145,8 @@ pub(crate) async fn run_with_workspace(
     execute_plan_stage(&report, &config, workspace, verbosity, &stage_plan)?;
 
     if !verbosity.quiet() {
-        report::print_report(&report, verbosity);
-        report::print_category_tree(&categories, verbosity);
+        terminal::report::print_report(&report, verbosity);
+        terminal::report::print_category_tree(&categories, verbosity);
     }
     log_timing(verbosity, "total", run_started.elapsed());
     workspace.save_report(&report)?;

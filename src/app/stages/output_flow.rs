@@ -7,22 +7,21 @@ use std::{
 };
 
 use crate::{
-    categorize::merge_category_batches,
+    config::AppConfig,
     error::{AppError, Result},
-    execute, llm,
-    logging::Verbosity,
-    models::{
-        AppConfig, CategoryTree, KeywordSet, LlmUsageSummary, PlacementDecision,
-        PreliminaryCategoryPair, RunReport, SynthesizeCategoriesState,
-    },
-    place::{
+    fs_ops::{execute::execute_plan, planner::build_move_plan},
+    llm,
+    llm::LlmUsageSummary,
+    papers::{KeywordSet, PreliminaryCategoryPair, SynthesizeCategoriesState},
+    placement::PlacementDecision,
+    placement::{
         OutputSnapshot, PlacementBatchProgress, PlacementOptions,
         generate_placements_with_progress, inspect_output,
     },
-    planner::build_move_plan,
-    report,
-    run_state::{ExtractTextState, RunStage, RunWorkspace},
-    terminal::{self, InspectReviewPrompt},
+    report::{PlanAction, RunReport},
+    session::{ExtractTextState, RunStage, RunWorkspace},
+    taxonomy::{CategoryTree, merge_category_batches},
+    terminal::{self, InspectReviewPrompt, Verbosity},
 };
 
 use super::planning::{StagePlan, log_resume, log_stage, log_timing};
@@ -164,7 +163,7 @@ where
 
 fn render_inspect_taxonomy(categories: &[CategoryTree], verbosity: Verbosity) {
     if !verbosity.quiet() || terminal::terminal_is_interactive() {
-        report::print_category_tree(categories, verbosity);
+        terminal::report::print_category_tree(categories, verbosity);
     }
 }
 
@@ -250,7 +249,7 @@ pub(super) fn build_plan_stage(
     workspace: &mut RunWorkspace,
     verbosity: Verbosity,
     stage_plan: &StagePlan,
-) -> Result<Vec<crate::models::PlanAction>> {
+) -> Result<Vec<PlanAction>> {
     stage_plan.announce(verbosity, RunStage::BuildPlan);
     if let Some(saved) = workspace.load_stage::<Vec<_>>(RunStage::BuildPlan)? {
         log_resume(verbosity, "build-plan", workspace);
@@ -292,7 +291,7 @@ pub(super) fn execute_plan_stage(
             if config.dry_run { "preview" } else { "apply" }
         ),
     );
-    execute::execute_plan(&report.actions, config.dry_run, verbosity)?;
+    execute_plan(&report.actions, config.dry_run, verbosity)?;
     workspace.mark_stage(RunStage::ExecutePlan)?;
     log_stage(verbosity, "execute-plan", "execution complete".to_string());
     log_timing(verbosity, "execute-plan", stage_started.elapsed());
@@ -306,7 +305,7 @@ pub(super) fn finalize_empty_run(
     elapsed: Duration,
 ) -> Result<RunReport> {
     if !verbosity.quiet() {
-        report::print_report(&report, verbosity);
+        terminal::report::print_report(&report, verbosity);
     }
     workspace.save_report(&report)?;
     workspace.mark_completed()?;
@@ -345,15 +344,17 @@ mod tests {
 
     use super::{InspectReviewState, inspect_output_stage_with_interaction};
     use crate::{
-        app_run::stages::planning::StagePlan,
+        app::stages::planning::StagePlan,
+        config::AppConfig,
         error::AppError,
-        logging::Verbosity,
-        models::{
-            AppConfig, CategoryTree, LlmProvider, PlacementMode, RunReport,
-            SynthesizeCategoriesState, TaxonomyMode,
-        },
-        run_state::{RunStage, RunWorkspace},
+        llm::{LlmProvider, LlmUsageSummary},
+        papers::SynthesizeCategoriesState,
+        placement::PlacementMode,
+        report::RunReport,
+        session::{RunStage, RunWorkspace},
+        taxonomy::{CategoryTree, TaxonomyMode},
         terminal::InspectReviewPrompt,
+        terminal::Verbosity,
     };
 
     #[tokio::test]
@@ -549,8 +550,8 @@ mod tests {
         }
     }
 
-    fn sample_usage() -> crate::models::LlmUsageSummary {
-        let mut usage = crate::models::LlmUsageSummary::default();
+    fn sample_usage() -> LlmUsageSummary {
+        let mut usage = LlmUsageSummary::default();
         usage.call_count = 1;
         usage
     }

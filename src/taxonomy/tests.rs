@@ -28,11 +28,10 @@ use super::{
     },
 };
 use crate::error::Result;
-use crate::llm::{JsonResponseSchema, LlmClient, LlmResponse};
-use crate::logging::Verbosity;
-use crate::models::{
-    CategoryTree, KeywordSet, LlmCallMetrics, LlmUsageSummary, PaperText, PreliminaryCategoryPair,
-};
+use crate::llm::{JsonResponseSchema, LlmCallMetrics, LlmClient, LlmResponse, LlmUsageSummary};
+use crate::papers::{KeywordSet, PaperText, PreliminaryCategoryPair};
+use crate::taxonomy::CategoryTree;
+use crate::terminal::Verbosity;
 
 struct ConcurrentKeywordProbeClient {
     calls: AtomicUsize,

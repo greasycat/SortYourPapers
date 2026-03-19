@@ -63,7 +63,7 @@ pub(crate) struct TaxonomyBatchResult {
     pub(crate) input_count: usize,
     #[serde(default)]
     pub(crate) input_fingerprint: Option<String>,
-    pub(crate) categories: Vec<crate::models::CategoryTree>,
+    pub(crate) categories: Vec<CategoryTree>,
     pub(crate) elapsed_ms: u64,
 }
 

@@ -8,11 +8,13 @@ use tokio::time::timeout;
 
 use crate::{
     error::{AppError, Result},
+    llm::LlmUsageSummary,
     llm::{
         JsonResponseSchema, LlmClient, call_json_with_retry, call_text_with_retry, strip_code_fence,
     },
-    logging::{ProgressTracker, Verbosity, format_duration},
-    models::{CategoryTree, LlmUsageSummary, PreliminaryCategoryPair},
+    papers::PreliminaryCategoryPair,
+    taxonomy::CategoryTree,
+    terminal::{ProgressTracker, Verbosity, format_duration},
 };
 
 use super::{

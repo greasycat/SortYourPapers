@@ -5,10 +5,10 @@ use std::{
 
 use crate::{
     error::{AppError, Result},
-    models::{PaperText, PlacementDecision, PlacementMode},
+    papers::PaperText,
 };
 
-use super::OutputSnapshot;
+use super::{OutputSnapshot, PlacementDecision, PlacementMode};
 
 pub(super) fn validate_placements(
     placements: &[PlacementDecision],

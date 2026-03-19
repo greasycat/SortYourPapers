@@ -1,9 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    app_run::stages::stage_sequence,
+    app::stages::stage_sequence,
     error::{AppError, Result},
-    run_state::RunWorkspace,
+    papers::SynthesizeCategoriesState,
+    session::RunWorkspace,
     session::workspace::RunStage as WorkspaceRunStage,
     terminal::InspectReviewPrompt,
 };
@@ -117,7 +118,7 @@ impl App {
                             )));
                         }
                         let categories = workspace
-                            .load_stage::<crate::models::SynthesizeCategoriesState>(
+                            .load_stage::<SynthesizeCategoriesState>(
                                 WorkspaceRunStage::SynthesizeCategories,
                             )?
                             .ok_or_else(|| {

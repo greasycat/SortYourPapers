@@ -15,9 +15,8 @@ use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::{
     error::AppError,
-    logging::{ProgressTracker, Verbosity},
-    models::{PaperText, PdfCandidate},
-    text_preprocess::preprocess_for_llm,
+    papers::{PaperText, PdfCandidate, preprocess::preprocess_for_llm},
+    terminal::{ProgressTracker, Verbosity},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

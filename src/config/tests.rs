@@ -7,9 +7,11 @@ use super::{
     Cli, CliArgs, Commands, EnvConfig, FileConfig, SessionCommands, resolve::resolve_from_sources,
     xdg::write_default_config_at,
 };
-use crate::models::{LlmProvider, PlacementMode, TaxonomyMode};
-use crate::pdf_extract::ExtractorMode;
-use crate::run_state::RunStage;
+use crate::llm::LlmProvider;
+use crate::papers::extract::ExtractorMode;
+use crate::placement::PlacementMode;
+use crate::session::RunStage;
+use crate::taxonomy::TaxonomyMode;
 
 #[test]
 fn cli_overrides_env_and_file() {

@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     config,
+    config::AppConfig,
     error::{AppError, Result},
-    models::{AppConfig, PaperText, PdfCandidate, RunReport},
+    papers::{PaperText, PdfCandidate},
+    report::RunReport,
 };
 
 const RESUME_ROOT_DIR: &str = "resume";
@@ -634,10 +636,12 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{FilterSizeState, RunStage, RunWorkspace, StageFailure};
-    use crate::categorize::KeywordBatchProgress;
-    use crate::models::{
-        AppConfig, LlmProvider, PdfCandidate, PlacementMode, RunReport, TaxonomyMode,
-    };
+    use crate::config::AppConfig;
+    use crate::llm::LlmProvider;
+    use crate::papers::PdfCandidate;
+    use crate::placement::PlacementMode;
+    use crate::report::RunReport;
+    use crate::taxonomy::{KeywordBatchProgress, TaxonomyMode};
 
     fn sample_config() -> AppConfig {
         AppConfig {

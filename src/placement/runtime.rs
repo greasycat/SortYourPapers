@@ -5,17 +5,16 @@ use serde_json::Value;
 
 use crate::{
     error::{AppError, Result},
+    llm::LlmUsageSummary,
     llm::{JsonResponseSchema, LlmClient, call_json_with_retry},
-    logging::{ProgressTracker, format_duration},
-    models::{
-        CategoryTree, KeywordSet, LlmUsageSummary, PaperText, PlacementDecision,
-        PreliminaryCategoryPair,
-    },
+    papers::{KeywordSet, PaperText, PreliminaryCategoryPair},
+    taxonomy::CategoryTree,
+    terminal::{ProgressTracker, format_duration},
 };
 
 use super::{
     MAX_JSON_ATTEMPTS, MAX_SEMANTIC_ATTEMPTS, OutputSnapshot, PlacementBatchProgress,
-    PlacementBatchResult, PlacementBatchRuntime, PlacementOptions,
+    PlacementBatchResult, PlacementBatchRuntime, PlacementDecision, PlacementOptions,
     batching::{batch_dispatch_spacing, wait_for_dispatch_slot},
     prompts::{
         build_allowed_targets, build_file_context, build_placement_prompt, format_paper_batch_span,
@@ -327,7 +326,7 @@ async fn generate_placement_batch(
 fn validate_saved_placement_progress(
     prepared_batches: &[PreparedPlacementBatch],
     snapshot: &OutputSnapshot,
-    placement_mode: crate::models::PlacementMode,
+    placement_mode: crate::placement::PlacementMode,
     category_depth: u8,
     mut progress: PlacementBatchProgress,
 ) -> Result<PlacementBatchProgress> {

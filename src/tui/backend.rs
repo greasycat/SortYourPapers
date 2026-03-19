@@ -2,7 +2,8 @@ use std::sync::mpsc::{self, Sender};
 
 use crate::{
     error::{AppError, Result},
-    models::{CategoryTree, RunReport},
+    report::RunReport,
+    taxonomy::CategoryTree,
     terminal::{InspectReviewPrompt, TerminalBackend, Verbosity},
 };
 

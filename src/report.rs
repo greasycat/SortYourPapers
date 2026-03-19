@@ -42,5 +42,3 @@ impl RunReport {
         }
     }
 }
-
-pub use crate::terminal::report::*;

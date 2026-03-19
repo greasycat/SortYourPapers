@@ -6,7 +6,7 @@ use ratatui::{
 
 use crate::{
     error::Result,
-    run_state::{RunStage, RunSummary, RunWorkspace},
+    session::{RunStage, RunSummary, RunWorkspace},
 };
 
 use super::forms::bool_label;

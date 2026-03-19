@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 use std::time::Duration;
 
 use crate::error::{AppError, Result};
-use crate::models::LlmCallMetrics;
+use crate::llm::LlmCallMetrics;
 
 use crate::llm::{JsonResponseSchema, LlmClient, LlmResponse};
 

@@ -4,10 +4,11 @@ use serde_json::Value;
 
 use crate::{
     error::{AppError, Result},
-    models::{CategoryTree, PaperText, PlacementMode},
+    papers::PaperText,
+    taxonomy::CategoryTree,
 };
 
-use super::{OutputSnapshot, PLACEMENT_LABEL};
+use super::{OutputSnapshot, PLACEMENT_LABEL, PlacementMode};
 
 pub(super) fn format_placement_request_debug_message(system: &str, user: &str) -> String {
     format!("{PLACEMENT_LABEL} request\nsystem:\n{system}\nuser:\n{user}")

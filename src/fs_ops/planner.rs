@@ -5,7 +5,9 @@ use std::{
 
 use crate::{
     error::{AppError, Result},
-    models::{FileAction, PaperText, PlacementDecision, PlanAction},
+    papers::PaperText,
+    placement::PlacementDecision,
+    report::{FileAction, PlanAction},
 };
 
 pub fn build_move_plan(

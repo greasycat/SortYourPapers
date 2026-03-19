@@ -6,7 +6,7 @@ use std::{
 
 use walkdir::WalkDir;
 
-use crate::{error::Result, models::PdfCandidate};
+use crate::{error::Result, papers::PdfCandidate};
 
 pub fn discover_pdf_candidates(root: &Path, recursive: bool) -> Result<Vec<PdfCandidate>> {
     let mut out = Vec::new();
@@ -105,11 +105,11 @@ mod tests {
     #[test]
     fn max_size_includes_exact_limit() {
         let accepted = vec![
-            crate::models::PdfCandidate {
+            crate::papers::PdfCandidate {
                 path: "a.pdf".into(),
                 size_bytes: 8 * 1024 * 1024,
             },
-            crate::models::PdfCandidate {
+            crate::papers::PdfCandidate {
                 path: "b.pdf".into(),
                 size_bytes: 8 * 1024 * 1024 + 1,
             },

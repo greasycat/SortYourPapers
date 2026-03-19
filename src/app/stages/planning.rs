@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use crate::{
-    logging::{Verbosity, format_duration},
-    models::AppConfig,
-    run_state::{RunStage, RunWorkspace},
+    config::AppConfig,
+    session::{RunStage, RunWorkspace},
+    terminal::{Verbosity, format_duration},
 };
 
 pub(crate) struct StagePlan {

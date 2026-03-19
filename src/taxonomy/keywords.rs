@@ -5,9 +5,10 @@ use tokio::task::JoinSet;
 
 use crate::{
     error::{AppError, Result},
+    llm::LlmUsageSummary,
     llm::{JsonResponseSchema, LlmClient, call_json_with_retry},
-    logging::{ProgressTracker, Verbosity, format_duration},
-    models::{KeywordSet, KeywordStageState, LlmUsageSummary, PaperText, PreliminaryCategoryPair},
+    papers::{KeywordSet, KeywordStageState, PaperText, PreliminaryCategoryPair},
+    terminal::{ProgressTracker, Verbosity, format_duration},
 };
 
 use super::{

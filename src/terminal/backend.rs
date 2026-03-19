@@ -9,7 +9,8 @@ use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 
 use crate::{
     error::{AppError, Result},
-    models::{CategoryTree, RunReport},
+    report::RunReport,
+    taxonomy::CategoryTree,
 };
 
 use super::{Verbosity, report};

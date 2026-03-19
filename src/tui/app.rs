@@ -20,7 +20,7 @@ pub(super) struct App {
     pub(super) operation: super::model::OperationView,
     pub(super) logs: VecDeque<String>,
     pub(super) progress: Vec<ProgressEntry>,
-    pub(super) last_report: Option<crate::models::RunReport>,
+    pub(super) last_report: Option<crate::report::RunReport>,
     pub(super) last_category_tree: Option<String>,
     pub(super) should_quit: bool,
     pub(super) backend_rx: mpsc::Receiver<BackendEvent>,

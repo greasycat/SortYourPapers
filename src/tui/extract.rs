@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use crate::{
     ExtractTextArgs,
     error::{AppError, Result},
-    pdf_extract::{extract_text_batch, reset_debug_extract_log},
+    papers::extract::{extract_text_batch, reset_debug_extract_log},
+    papers::{PaperText, PdfCandidate},
     terminal,
 };
 
 pub(super) struct ExtractPreview {
-    pub(super) papers: Vec<crate::models::PaperText>,
+    pub(super) papers: Vec<PaperText>,
     pub(super) failures: Vec<(PathBuf, String)>,
 }
 
@@ -31,7 +32,7 @@ pub(super) async fn collect_extract_preview(args: ExtractTextArgs) -> Result<Ext
     let candidates = args
         .files
         .iter()
-        .map(|path| crate::models::PdfCandidate {
+        .map(|path| PdfCandidate {
             path: path.clone(),
             size_bytes: 0,
         })

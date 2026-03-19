@@ -12,14 +12,13 @@ use super::{
     },
     validation::{path_depth, validate_placements},
 };
+use super::{PlacementDecision, PlacementMode};
 use crate::{
     error::{AppError, Result},
-    llm::{LlmClient, LlmResponse},
-    logging::Verbosity,
-    models::{
-        CategoryTree, KeywordSet, LlmCallMetrics, PaperText, PlacementDecision, PlacementMode,
-        PreliminaryCategoryPair,
-    },
+    llm::{LlmCallMetrics, LlmClient, LlmResponse},
+    papers::{KeywordSet, PaperText, PreliminaryCategoryPair},
+    taxonomy::CategoryTree,
+    terminal::Verbosity,
 };
 
 struct StubLlmClient {
@@ -464,9 +463,9 @@ async fn placement_resume_skips_saved_batches() {
             ],
             elapsed_ms: 10,
         }],
-        usage: crate::models::LlmUsageSummary {
+        usage: crate::llm::LlmUsageSummary {
             call_count: 1,
-            ..crate::models::LlmUsageSummary::default()
+            ..crate::llm::LlmUsageSummary::default()
         },
     };
 
