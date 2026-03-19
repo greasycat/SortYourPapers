@@ -388,17 +388,19 @@ impl App {
                 match key.code {
                     KeyCode::Char('y') | KeyCode::Enter => {
                         self.confirm_action(action.clone())?;
+                        return Ok(true);
                     }
-                    KeyCode::Esc => {}
+                    KeyCode::Esc => {
+                        return Ok(true);
+                    }
                     _ => {
                         self.overlay = Some(overlay);
                         return Ok(true);
                     }
                 }
-                false
             }
             Overlay::Notice { .. } => match key.code {
-                KeyCode::Enter | KeyCode::Esc => false,
+                KeyCode::Enter | KeyCode::Esc => true,
                 _ => {
                     self.overlay = Some(overlay);
                     return Ok(true);

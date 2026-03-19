@@ -528,6 +528,24 @@ mod tests {
     }
 
     #[test]
+    fn second_escape_on_home_dismisses_quit_confirmation() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+
+        let runtime = test_runtime();
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)))
+            .expect("first escape should open quit confirmation");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)))
+            .expect("second escape should dismiss quit confirmation");
+
+        assert!(matches!(app.screen, Screen::Home));
+        assert!(app.overlay.is_none());
+        assert!(!app.should_quit);
+    }
+
+    #[test]
     fn selecting_quit_from_home_requires_confirmation() {
         let mut app = test_app();
         app.screen = Screen::Home;
