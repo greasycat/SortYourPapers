@@ -962,9 +962,9 @@ mod tests {
 
         let lines = render_lines(&app, 100, 24);
 
-        assert!(lines.iter().any(|line| line.contains("discover-input")));
+        assert!(lines.iter().any(|line| line.contains("1. discover-input")));
         assert!(lines.iter().any(|line| line.contains("500.0ms")));
-        assert!(lines.iter().any(|line| line.contains("extract-text")));
+        assert!(lines.iter().any(|line| line.contains("2. extract-text")));
         assert!(lines.iter().any(|line| line.contains("2.000s")));
     }
 
@@ -977,6 +977,11 @@ mod tests {
                 running: false,
             },
             super::render::StageTimingSnapshot {
+                stage: "inspect-output".to_string(),
+                elapsed: Duration::from_secs(10),
+                running: false,
+            },
+            super::render::StageTimingSnapshot {
                 stage: "extract-text".to_string(),
                 elapsed: Duration::from_secs(4),
                 running: false,
@@ -984,9 +989,9 @@ mod tests {
         ]);
 
         assert_eq!(bars.len(), 2);
-        assert_eq!(bars[0].stage, "discover-input");
+        assert_eq!(bars[0].stage, "1. discover-input");
         assert_eq!(bars[0].elapsed_label, "2.000s");
-        assert_eq!(bars[1].stage, "extract-text");
+        assert_eq!(bars[1].stage, "2. extract-text");
         assert_eq!(bars[1].elapsed_label, "4.000s");
         assert!((bars[0].ratio - (2.0 / 6.0)).abs() < 0.000_001);
         assert!((bars[1].ratio - (4.0 / 6.0)).abs() < 0.000_001);

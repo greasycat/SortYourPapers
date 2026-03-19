@@ -736,6 +736,10 @@ impl StageTimingBar {
 }
 
 pub(super) fn stage_timing_bars(timings: Vec<StageTimingSnapshot>) -> Vec<StageTimingBar> {
+    let timings = timings
+        .into_iter()
+        .filter(|timing| timing.stage != "inspect-output")
+        .collect::<Vec<_>>();
     let max_elapsed = timings
         .iter()
         .map(|timing| timing.elapsed)
@@ -745,8 +749,9 @@ pub(super) fn stage_timing_bars(timings: Vec<StageTimingSnapshot>) -> Vec<StageT
 
     timings
         .into_iter()
-        .map(|timing| StageTimingBar {
-            stage: timing.stage,
+        .enumerate()
+        .map(|(index, timing)| StageTimingBar {
+            stage: format!("{}. {}", index + 1, timing.stage),
             elapsed_label: format!(
                 "{}{}",
                 terminal::format_duration(timing.elapsed),
