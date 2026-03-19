@@ -291,26 +291,6 @@ fn parses_extract_text_subcommand() {
 }
 
 #[test]
-fn parses_legacy_lopdf_extractor_alias() {
-    let cli = Cli::parse_from([
-        "sortyourpapers",
-        "extract-text",
-        "--extractor",
-        "lopdf",
-        "/tmp/a.pdf",
-    ]);
-
-    match cli.command {
-        Some(Commands::ExtractText(args)) => {
-            assert_eq!(args.extractor, ExtractorMode::PdfOxide);
-            assert_eq!(args.pdf_extract_workers, 8);
-            assert_eq!(args.files.len(), 1);
-        }
-        _ => panic!("expected extract-text command"),
-    }
-}
-
-#[test]
 fn parses_session_resume_subcommand() {
     let cli = Cli::parse_from(["sortyourpapers", "session", "resume", "run-123"]);
 
@@ -406,34 +386,6 @@ fn rejects_completed_rerun_stage() {
     .expect_err("completed should not be a valid rerun stage");
 
     assert!(err.to_string().contains("invalid value"));
-}
-
-#[test]
-fn parses_session_aliases() {
-    let cli = Cli::parse_from(["sortyourpapers", "ses", "ls"]);
-
-    match cli.command {
-        Some(Commands::Session(args)) => match args.command {
-            SessionCommands::List => {}
-            _ => panic!("expected session list command"),
-        },
-        _ => panic!("expected session command"),
-    }
-}
-
-#[test]
-fn parses_session_remove_alias_with_multiple_run_ids() {
-    let cli = Cli::parse_from(["sortyourpapers", "session", "rm", "run-1", "run-2"]);
-
-    match cli.command {
-        Some(Commands::Session(args)) => match args.command {
-            SessionCommands::Remove(args) => {
-                assert_eq!(args.run_ids, vec!["run-1", "run-2"]);
-            }
-            _ => panic!("expected session remove command"),
-        },
-        _ => panic!("expected session command"),
-    }
 }
 
 #[test]

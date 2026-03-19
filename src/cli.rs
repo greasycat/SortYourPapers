@@ -37,7 +37,6 @@ pub struct Cli {
 pub enum Commands {
     Init(InitArgs),
     ExtractText(ExtractTextArgs),
-    #[command(alias = "ses")]
     Session(SessionArgs),
 }
 
@@ -76,11 +75,8 @@ pub enum SessionCommands {
     Resume(ResumeArgs),
     Rerun(RerunArgs),
     Review(SessionReviewArgs),
-    #[command(alias = "ls")]
     List,
-    #[command(alias = "rm")]
     Remove(SessionRemoveArgs),
-    #[command(alias = "clr")]
     Clear,
 }
 

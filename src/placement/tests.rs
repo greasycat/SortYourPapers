@@ -87,20 +87,6 @@ fn debug_message_formats_placement_request() {
 }
 
 #[test]
-fn placement_decision_deserializes_legacy_optional_fields() {
-    let placement: PlacementDecision = serde_json::from_value(serde_json::json!({
-        "file_id": "f1",
-        "target_rel_path": ".",
-        "confidence": 0.8,
-        "rationale": "legacy"
-    }))
-    .expect("legacy placement should deserialize");
-
-    assert_eq!(placement.file_id, "f1");
-    assert_eq!(placement.target_rel_path, ".");
-}
-
-#[test]
 fn placement_prompt_uses_allowed_targets_without_extra_context() {
     let papers = vec![PaperText {
         file_id: "f1".to_string(),

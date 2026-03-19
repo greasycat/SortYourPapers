@@ -6,8 +6,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde::Deserialize;
-
 use crate::{
     categorize::merge_category_batches,
     error::{AppError, Result},
@@ -32,50 +30,8 @@ use super::planning::{StagePlan, log_resume, log_stage, log_timing};
 const PLACEMENT_BATCH_PROGRESS_FILE: &str = "09-generate-placements-partial-batches.json";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(from = "InspectReviewStateRepr")]
 pub(super) struct InspectReviewState {
     pub(super) categories: Vec<CategoryTree>,
-    #[serde(skip)]
-    pub(super) is_current: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum InspectReviewStateRepr {
-    Current {
-        categories: Vec<CategoryTree>,
-    },
-    LegacyReview {
-        #[serde(rename = "batch_categories")]
-        _batch_categories: Vec<Vec<CategoryTree>>,
-        #[serde(default, rename = "last_suggestion")]
-        _last_suggestion: Option<String>,
-    },
-    Legacy {
-        #[serde(rename = "is_empty")]
-        _is_empty: bool,
-        #[serde(rename = "existing_folders")]
-        _existing_folders: Vec<String>,
-        #[serde(rename = "tree_map")]
-        _tree_map: String,
-    },
-}
-
-impl From<InspectReviewStateRepr> for InspectReviewState {
-    fn from(value: InspectReviewStateRepr) -> Self {
-        match value {
-            InspectReviewStateRepr::Current { categories } => Self {
-                categories,
-                is_current: true,
-            },
-            InspectReviewStateRepr::LegacyReview { .. } | InspectReviewStateRepr::Legacy { .. } => {
-                Self {
-                    categories: Vec::new(),
-                    is_current: false,
-                }
-            }
-        }
-    }
 }
 
 pub(super) async fn inspect_output_stage(
@@ -148,14 +104,8 @@ where
 {
     stage_plan.announce(verbosity, RunStage::InspectOutput);
     if let Some(saved) = workspace.load_stage::<InspectReviewState>(RunStage::InspectOutput)? {
-        if saved.is_current {
-            log_resume(verbosity, "inspect-output", workspace);
-            return Ok(saved.categories);
-        }
-        verbosity.stage_line(
-            "inspect-output",
-            "legacy inspect-output state detected; rerendering merged taxonomy".to_string(),
-        );
+        log_resume(verbosity, "inspect-output", workspace);
+        return Ok(saved.categories);
     }
 
     let stage_started = Instant::now();
@@ -206,7 +156,6 @@ where
         RunStage::InspectOutput,
         &InspectReviewState {
             categories: categories.clone(),
-            is_current: true,
         },
     )?;
     log_timing(verbosity, "inspect-output", stage_started.elapsed());

@@ -24,7 +24,6 @@ use crate::{
 #[value(rename_all = "kebab-case")]
 pub enum ExtractorMode {
     Auto,
-    #[value(alias = "lopdf")]
     PdfOxide,
     Pdftotext,
 }
