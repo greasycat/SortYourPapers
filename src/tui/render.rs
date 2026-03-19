@@ -1,0 +1,393 @@
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
+    widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap},
+};
+
+use crate::terminal;
+
+use super::{
+    app::App,
+    forms::HOME_ITEMS,
+    model::{OperationDetail, Overlay, Screen},
+    session_view::rerun_stage_name,
+};
+
+impl App {
+    pub(super) fn draw(&self, frame: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(10),
+                Constraint::Length(11),
+            ])
+            .split(frame.area());
+
+        self.draw_header(frame, chunks[0]);
+        match self.screen {
+            Screen::Home => self.draw_home(frame, chunks[1]),
+            Screen::RunForm => self.run_form.draw(frame, chunks[1]),
+            Screen::Sessions => self.session_view.draw(frame, chunks[1]),
+            Screen::ExtractForm => self.extract_form.draw(frame, chunks[1]),
+            Screen::Init => self.draw_init(frame, chunks[1]),
+            Screen::Operation => self.draw_operation(frame, chunks[1]),
+        }
+        self.draw_footer(frame, chunks[2]);
+
+        if let Some(overlay) = &self.overlay {
+            self.draw_overlay(frame, overlay);
+        }
+    }
+
+    fn draw_header(&self, frame: &mut Frame, area: Rect) {
+        let title = match self.screen {
+            Screen::Home => "Home",
+            Screen::RunForm => "Run Configuration",
+            Screen::Sessions => "Sessions",
+            Screen::ExtractForm => "Extract Text",
+            Screen::Init => "Init Config",
+            Screen::Operation => &self.operation.title,
+        };
+        let status = if self.operation.running {
+            "busy"
+        } else if self.operation.success {
+            "ready"
+        } else {
+            "idle"
+        };
+        let header = Paragraph::new(Line::from(vec![
+            Span::styled(
+                " SortYourPapers ",
+                Style::default().fg(Color::Black).bg(Color::Cyan),
+            ),
+            Span::raw(format!(" {title}")),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{status}]"),
+                Style::default().fg(if self.operation.running {
+                    Color::Yellow
+                } else {
+                    Color::Green
+                }),
+            ),
+        ]))
+        .block(Block::default().borders(Borders::ALL));
+        frame.render_widget(header, area);
+    }
+
+    fn draw_home(&self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+            .split(area);
+
+        let menu_lines = HOME_ITEMS
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                if index == self.home_index {
+                    Line::from(Span::styled(
+                        format!("> {item}"),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                } else {
+                    Line::from(format!("  {item}"))
+                }
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(
+            Paragraph::new(menu_lines)
+                .block(Block::default().title("Actions").borders(Borders::ALL)),
+            chunks[0],
+        );
+
+        let help = Paragraph::new(Text::from(vec![
+            Line::from("`syp` is the interactive terminal frontend."),
+            Line::from(""),
+            Line::from("Run: configure the full sorting workflow."),
+            Line::from("Sessions: resume, rerun, review, remove, or clear saved runs."),
+            Line::from("Extract Text: preview manual extraction output."),
+            Line::from("Init Config: write the default XDG config file."),
+            Line::from(""),
+            Line::from("Keys: ↑/↓ move, Enter open, q quit."),
+        ]))
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("Overview").borders(Borders::ALL));
+        frame.render_widget(help, chunks[1]);
+    }
+
+    fn draw_init(&self, frame: &mut Frame, area: Rect) {
+        let body = Paragraph::new(Text::from(vec![
+            Line::from("Create or overwrite the default XDG config file."),
+            Line::from(""),
+            Line::from(format!(
+                "force overwrite: {}",
+                if self.init_force { "yes" } else { "no" }
+            )),
+            Line::from(""),
+            Line::from("Keys: space toggle, Enter run, Esc back."),
+        ]))
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("Init Config").borders(Borders::ALL));
+        frame.render_widget(body, area);
+    }
+
+    fn draw_operation(&self, frame: &mut Frame, area: Rect) {
+        let status_height = operation_status_height(area.height, self.progress.len());
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(status_height),
+                Constraint::Percentage(45),
+                Constraint::Percentage(55),
+            ])
+            .split(area);
+
+        self.draw_operation_status(frame, chunks[0]);
+
+        let detail_lines = self.operation_detail_lines();
+        frame.render_widget(
+            Paragraph::new(detail_lines)
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title("Details").borders(Borders::ALL)),
+            chunks[1],
+        );
+
+        let log_lines = self
+            .logs
+            .iter()
+            .rev()
+            .take(18)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|line| Line::from(line.clone()))
+            .collect::<Vec<_>>();
+        frame.render_widget(
+            Paragraph::new(log_lines)
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title("Logs").borders(Borders::ALL)),
+            chunks[2],
+        );
+    }
+
+    fn operation_detail_lines(&self) -> Text<'static> {
+        if let OperationDetail::Text(lines) = &self.operation.detail {
+            return Text::from(lines.iter().cloned().map(Line::from).collect::<Vec<_>>());
+        }
+
+        if let OperationDetail::Tree(categories) = &self.operation.detail {
+            return Text::from(
+                crate::terminal::report::render_category_tree(categories)
+                    .lines()
+                    .map(|line| Line::from(line.to_string()))
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        if let Some(report) = &self.last_report {
+            return Text::from(
+                crate::terminal::report::render_report_lines(
+                    report,
+                    terminal::Verbosity::new(false, false, false),
+                )
+                .into_iter()
+                .map(Line::from)
+                .collect::<Vec<_>>(),
+            );
+        }
+
+        if let Some(tree) = &self.last_category_tree {
+            return Text::from(
+                tree.lines()
+                    .map(|line| Line::from(line.to_string()))
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        Text::from(vec![Line::from(self.operation.summary.clone())])
+    }
+
+    fn draw_operation_status(&self, frame: &mut Frame, area: Rect) {
+        if self.progress.is_empty() {
+            frame.render_widget(
+                Paragraph::new(vec![Line::from(self.operation.summary.clone())])
+                    .wrap(Wrap { trim: false })
+                    .block(Block::default().title("Status").borders(Borders::ALL)),
+                area,
+            );
+            return;
+        }
+
+        let block = Block::default().title("Status").borders(Borders::ALL);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if inner.height == 0 || inner.width == 0 {
+            return;
+        }
+
+        let visible = usize::from(inner.height).min(self.progress.len());
+        let progress_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Length(1); visible])
+            .split(inner);
+
+        for (progress, chunk) in self
+            .progress
+            .iter()
+            .take(visible)
+            .zip(progress_chunks.iter().copied())
+        {
+            frame.render_widget(
+                Gauge::default()
+                    .ratio(progress.ratio())
+                    .label(progress.label())
+                    .gauge_style(progress.gauge_style())
+                    .use_unicode(true),
+                chunk,
+            );
+        }
+    }
+
+    fn draw_footer(&self, frame: &mut Frame, area: Rect) {
+        let help = match self.screen {
+            Screen::Home => "↑/↓ move  Enter open  q quit",
+            Screen::RunForm => "↑/↓ select  Enter edit/run  ←/→ cycle  space toggle  Esc back",
+            Screen::Sessions => {
+                "↑/↓ select  p preview  a apply  r rerun  x rerun-apply  v review  d delete  c clear  g refresh  Esc back"
+            }
+            Screen::ExtractForm => "↑/↓ select  Enter edit/run  ←/→ cycle  Esc back",
+            Screen::Init => "space toggle  Enter run  Esc back",
+            Screen::Operation => "b/Esc back when idle  q quit when idle",
+        };
+        frame.render_widget(
+            Paragraph::new(help).block(Block::default().borders(Borders::ALL)),
+            area,
+        );
+    }
+
+    fn draw_overlay(&self, frame: &mut Frame, overlay: &Overlay) {
+        let area = centered_rect(70, 60, frame.area());
+        frame.render_widget(Clear, area);
+
+        match overlay {
+            Overlay::EditField { label, buffer } => {
+                let widget = Paragraph::new(Text::from(vec![
+                    Line::from(format!("Editing {label}")),
+                    Line::from(""),
+                    Line::from(buffer.clone()),
+                    Line::from(""),
+                    Line::from("Enter save  Esc cancel"),
+                ]))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title("Edit Field").borders(Borders::ALL));
+                frame.render_widget(widget, area);
+            }
+            Overlay::InspectPrompt {
+                categories, input, ..
+            } => {
+                let tree = crate::terminal::report::render_category_tree(categories);
+                let widget = Paragraph::new(Text::from(vec![
+                    Line::from("Review the current taxonomy."),
+                    Line::from(""),
+                    Line::from(tree),
+                    Line::from(""),
+                    Line::from("Enter suggestion text, press Enter to accept current taxonomy, or q to cancel."),
+                    Line::from(""),
+                    Line::from(format!("Suggestion: {input}")),
+                ]))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title("Inspect Taxonomy").borders(Borders::ALL));
+                frame.render_widget(widget, area);
+            }
+            Overlay::ContinuePrompt { .. } => {
+                let widget = Paragraph::new(Text::from(vec![
+                    Line::from("Continue improving this taxonomy?"),
+                    Line::from(""),
+                    Line::from("y continue"),
+                    Line::from("Enter or n finish"),
+                    Line::from("q cancel"),
+                ]))
+                .block(
+                    Block::default()
+                        .title("Continue Improving")
+                        .borders(Borders::ALL),
+                );
+                frame.render_widget(widget, area);
+            }
+            Overlay::Confirm { title, message, .. } => {
+                let widget = Paragraph::new(Text::from(vec![
+                    Line::from(message.clone()),
+                    Line::from(""),
+                    Line::from("Enter or y confirm"),
+                    Line::from("Esc, n, or q cancel"),
+                ]))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title(title.clone()).borders(Borders::ALL));
+                frame.render_widget(widget, area);
+            }
+            Overlay::SelectRerunStage {
+                stages, selected, ..
+            } => {
+                let lines = stages
+                    .iter()
+                    .enumerate()
+                    .map(|(index, stage)| {
+                        let line = format!("{} {}", rerun_stage_name(*stage), stage.description());
+                        if index == *selected {
+                            Line::from(Span::styled(
+                                format!("> {line}"),
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            ))
+                        } else {
+                            Line::from(format!("  {line}"))
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                frame.render_widget(
+                    Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+                        Block::default()
+                            .title("Select Rerun Stage")
+                            .borders(Borders::ALL),
+                    ),
+                    area,
+                );
+            }
+        }
+    }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+fn operation_status_height(area_height: u16, progress_count: usize) -> u16 {
+    let preferred = if progress_count == 0 {
+        5
+    } else {
+        progress_count as u16 + 2
+    };
+    let max_height = area_height.saturating_sub(6).max(3);
+    preferred.clamp(3, max_height)
+}

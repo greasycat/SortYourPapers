@@ -1,0 +1,497 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+use crate::{
+    app_run::stages::stage_sequence,
+    error::{AppError, Result},
+    run_state::RunWorkspace,
+    session::workspace::RunStage as WorkspaceRunStage,
+    terminal::InspectReviewPrompt,
+};
+
+use super::{
+    app::App,
+    extract::{collect_extract_preview, render_extract_result_lines},
+    forms::{EXTRACT_FIELD_LABELS, HOME_ITEMS, RUN_FIELD_LABELS},
+    model::{ConfirmAction, OperationDetail, OperationOutcome, Overlay, Screen},
+    session_view::rerun_stage_name,
+};
+
+impl App {
+    pub(super) async fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
+        if self.handle_overlay_key(key).await? {
+            return Ok(());
+        }
+
+        match self.screen {
+            Screen::Home => self.handle_home_key(key).await,
+            Screen::RunForm => self.handle_run_form_key(key).await,
+            Screen::Sessions => self.handle_sessions_key(key).await,
+            Screen::ExtractForm => self.handle_extract_form_key(key).await,
+            Screen::Init => self.handle_init_key(key).await,
+            Screen::Operation => self.handle_operation_key(key),
+        }
+    }
+
+    async fn handle_home_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.home_index = (self.home_index + 1).min(HOME_ITEMS.len() - 1);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.home_index = self.home_index.saturating_sub(1);
+            }
+            KeyCode::Enter => {
+                self.screen = match self.home_index {
+                    0 => Screen::RunForm,
+                    1 => {
+                        self.session_view.refresh()?;
+                        Screen::Sessions
+                    }
+                    2 => Screen::ExtractForm,
+                    3 => Screen::Init,
+                    _ => {
+                        self.should_quit = true;
+                        Screen::Home
+                    }
+                };
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_sessions_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => self.screen = Screen::Home,
+            KeyCode::Char('g') => self.session_view.refresh()?,
+            KeyCode::Down | KeyCode::Char('j') => self.session_view.move_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.session_view.move_selection(-1),
+            KeyCode::Char('p') => {
+                if let Some(run_id) = self.session_view.selected_run_id() {
+                    self.start_async_operation("Resume Session", move |tx| async move {
+                        match crate::resume_run(Some(run_id.clone()), false, 0, false).await {
+                            Ok(_) => tx.send(OperationOutcome::success(
+                                "Resume Session",
+                                format!("resumed {run_id} in preview mode"),
+                                OperationDetail::None,
+                            )),
+                            Err(err) => tx.send(OperationOutcome::failure(
+                                "Resume Session",
+                                err.to_string(),
+                                OperationDetail::None,
+                            )),
+                        }
+                        .ok();
+                    });
+                }
+            }
+            KeyCode::Char('a') => {
+                if let Some(run_id) = self.session_view.selected_run_id() {
+                    self.start_async_operation("Resume Session", move |tx| async move {
+                        match crate::resume_run(Some(run_id.clone()), true, 0, false).await {
+                            Ok(_) => tx.send(OperationOutcome::success(
+                                "Resume Session",
+                                format!("resumed {run_id} in apply mode"),
+                                OperationDetail::None,
+                            )),
+                            Err(err) => tx.send(OperationOutcome::failure(
+                                "Resume Session",
+                                err.to_string(),
+                                OperationDetail::None,
+                            )),
+                        }
+                        .ok();
+                    });
+                }
+            }
+            KeyCode::Char('r') => self.open_rerun_overlay(false)?,
+            KeyCode::Char('x') => self.open_rerun_overlay(true)?,
+            KeyCode::Char('v') => {
+                if let Some(run_id) = self.session_view.selected_run_id() {
+                    self.start_blocking_operation("Review Session", move || {
+                        let workspace = RunWorkspace::open(&run_id)?;
+                        if workspace.last_completed_stage() != Some(WorkspaceRunStage::Completed) {
+                            return Err(AppError::Execution(format!(
+                                "run '{run_id}' is not completed"
+                            )));
+                        }
+                        let categories = workspace
+                            .load_stage::<crate::models::SynthesizeCategoriesState>(
+                                WorkspaceRunStage::SynthesizeCategories,
+                            )?
+                            .ok_or_else(|| {
+                                AppError::Execution(format!(
+                                    "run '{run_id}' has no saved synthesized categories"
+                                ))
+                            })?;
+                        Ok(OperationOutcome::success(
+                            "Review Session",
+                            format!("loaded taxonomy for {run_id}"),
+                            OperationDetail::Tree(categories.categories),
+                        ))
+                    });
+                }
+            }
+            KeyCode::Char('d') => {
+                if let Some(run_id) = self.session_view.selected_run_id() {
+                    self.overlay = Some(Overlay::Confirm {
+                        title: "Remove Session".to_string(),
+                        message: format!("Remove saved session {run_id}?"),
+                        action: ConfirmAction::RemoveRun(run_id),
+                    });
+                }
+            }
+            KeyCode::Char('c') => {
+                self.overlay = Some(Overlay::Confirm {
+                    title: "Clear Incomplete Sessions".to_string(),
+                    message: "Clear all incomplete saved sessions for this workspace?".to_string(),
+                    action: ConfirmAction::ClearIncomplete,
+                });
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_run_form_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => self.screen = Screen::Home,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.run_form.selected =
+                    (self.run_form.selected + 1).min(RUN_FIELD_LABELS.len() - 1);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.run_form.selected = self.run_form.selected.saturating_sub(1);
+            }
+            KeyCode::Left => self.run_form.cycle_selected(-1),
+            KeyCode::Right => self.run_form.cycle_selected(1),
+            KeyCode::Char(' ') => self.run_form.toggle_selected(),
+            KeyCode::Char('r') => {
+                let config = self.run_form.build_config()?;
+                let use_debug_tui = self.debug_tui;
+                let op_tx = self.op_tx.clone();
+                self.start_async_operation("Run Papers", move |_tx| async move {
+                    let outcome = match if use_debug_tui {
+                        crate::app::run_debug_tui(config).await
+                    } else {
+                        crate::run(config).await
+                    } {
+                        Ok(_) => OperationOutcome::success(
+                            "Run Papers",
+                            "run completed".to_string(),
+                            OperationDetail::None,
+                        ),
+                        Err(err) => OperationOutcome::failure(
+                            "Run Papers",
+                            err.to_string(),
+                            OperationDetail::None,
+                        ),
+                    };
+                    let _ = op_tx.send(outcome);
+                });
+            }
+            KeyCode::Enter => {
+                if self.run_form.editable(self.run_form.selected) {
+                    self.overlay = Some(Overlay::EditField {
+                        label: RUN_FIELD_LABELS[self.run_form.selected].to_string(),
+                        buffer: self.run_form.value(self.run_form.selected),
+                    });
+                } else {
+                    self.run_form.toggle_selected();
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_extract_form_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => self.screen = Screen::Home,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.extract_form.selected =
+                    (self.extract_form.selected + 1).min(EXTRACT_FIELD_LABELS.len() - 1);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.extract_form.selected = self.extract_form.selected.saturating_sub(1);
+            }
+            KeyCode::Left => self.extract_form.cycle_selected(-1),
+            KeyCode::Right => self.extract_form.cycle_selected(1),
+            KeyCode::Char('r') => {
+                let args = self.extract_form.build_args()?;
+                let op_tx = self.op_tx.clone();
+                self.start_async_operation("Extract Text", move |_tx| async move {
+                    let outcome = match collect_extract_preview(args).await {
+                        Ok(result) => OperationOutcome::success(
+                            "Extract Text",
+                            format!(
+                                "processed {} file(s), {} failure(s)",
+                                result.papers.len(),
+                                result.failures.len()
+                            ),
+                            OperationDetail::Text(render_extract_result_lines(&result)),
+                        ),
+                        Err(err) => OperationOutcome::failure(
+                            "Extract Text",
+                            err.to_string(),
+                            OperationDetail::None,
+                        ),
+                    };
+                    let _ = op_tx.send(outcome);
+                });
+            }
+            KeyCode::Enter => {
+                if self.extract_form.selected == 2 || self.extract_form.selected == 4 {
+                    self.extract_form.cycle_selected(1);
+                } else {
+                    self.overlay = Some(Overlay::EditField {
+                        label: EXTRACT_FIELD_LABELS[self.extract_form.selected].to_string(),
+                        buffer: self.extract_form.value(self.extract_form.selected),
+                    });
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_init_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => self.screen = Screen::Home,
+            KeyCode::Char(' ') => self.init_force = !self.init_force,
+            KeyCode::Enter | KeyCode::Char('r') => {
+                let force = self.init_force;
+                self.start_blocking_operation("Init Config", move || {
+                    let path = crate::init_config(force)?;
+                    Ok(OperationOutcome::success(
+                        "Init Config",
+                        format!("wrote config to {}", path.display()),
+                        OperationDetail::None,
+                    ))
+                });
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_operation_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Char('q') => {
+                if !self.operation.running {
+                    self.should_quit = true;
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('b') => {
+                if !self.operation.running {
+                    self.screen = Screen::Home;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_overlay_key(&mut self, key: KeyEvent) -> Result<bool> {
+        let Some(mut overlay) = self.overlay.take() else {
+            return Ok(false);
+        };
+
+        let handled = match &mut overlay {
+            Overlay::EditField { buffer, .. } => {
+                match key.code {
+                    KeyCode::Esc => {}
+                    KeyCode::Enter => {
+                        self.apply_edit(buffer.clone())?;
+                    }
+                    KeyCode::Backspace => {
+                        buffer.pop();
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                    KeyCode::Char(c) => {
+                        if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                            buffer.push(c);
+                            self.overlay = Some(overlay);
+                        }
+                        return Ok(true);
+                    }
+                    _ => {
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                }
+                return Ok(true);
+            }
+            Overlay::InspectPrompt { input, reply, .. } => {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        let _ = reply.send(Err("inspect-output cancelled".to_string()));
+                    }
+                    KeyCode::Enter => {
+                        let response = if input.trim().is_empty() {
+                            InspectReviewPrompt::Accept
+                        } else {
+                            InspectReviewPrompt::Suggest(input.trim().to_string())
+                        };
+                        let _ = reply.send(Ok(response));
+                    }
+                    KeyCode::Backspace => {
+                        input.pop();
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                    KeyCode::Char(c) => {
+                        if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                            input.push(c);
+                        }
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                    _ => {
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                }
+                false
+            }
+            Overlay::ContinuePrompt { reply } => {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        let _ = reply.send(Ok(true));
+                    }
+                    KeyCode::Enter | KeyCode::Char('n') | KeyCode::Char('N') => {
+                        let _ = reply.send(Ok(false));
+                    }
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        let _ = reply.send(Err("inspect-output cancelled".to_string()));
+                    }
+                    _ => {
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                }
+                false
+            }
+            Overlay::Confirm { action, .. } => {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Enter => {
+                        self.confirm_action(action.clone())?;
+                    }
+                    KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => {}
+                    _ => {
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                }
+                false
+            }
+            Overlay::SelectRerunStage {
+                stages,
+                selected,
+                run_id,
+                apply,
+            } => {
+                match key.code {
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        *selected = (*selected + 1).min(stages.len().saturating_sub(1));
+                        self.overlay = Some(overlay);
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        *selected = selected.saturating_sub(1);
+                        self.overlay = Some(overlay);
+                    }
+                    KeyCode::Enter => {
+                        if let Some(stage) = stages.get(*selected).copied() {
+                            let run_id = run_id.clone();
+                            let apply = *apply;
+                            self.start_async_operation("Rerun Session", move |tx| async move {
+                                match crate::rerun_run(
+                                    Some(run_id.clone()),
+                                    Some(stage),
+                                    apply,
+                                    0,
+                                    false,
+                                )
+                                .await
+                                {
+                                    Ok(_) => tx.send(OperationOutcome::success(
+                                        "Rerun Session",
+                                        format!(
+                                            "reran {run_id} from {} in {} mode",
+                                            rerun_stage_name(stage),
+                                            if apply { "apply" } else { "preview" }
+                                        ),
+                                        OperationDetail::None,
+                                    )),
+                                    Err(err) => tx.send(OperationOutcome::failure(
+                                        "Rerun Session",
+                                        err.to_string(),
+                                        OperationDetail::None,
+                                    )),
+                                }
+                                .ok();
+                            });
+                        }
+                    }
+                    KeyCode::Esc | KeyCode::Char('q') => {}
+                    _ => {
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                }
+                return Ok(true);
+            }
+        };
+
+        Ok(handled)
+    }
+
+    fn confirm_action(&mut self, action: ConfirmAction) -> Result<()> {
+        match action {
+            ConfirmAction::RemoveRun(run_id) => {
+                self.start_blocking_operation("Remove Session", move || {
+                    let removed = RunWorkspace::remove_runs(&[run_id.clone()])?;
+                    let summary = if removed.is_empty() {
+                        "no sessions removed".to_string()
+                    } else {
+                        format!("removed {}", removed.join(", "))
+                    };
+                    Ok(OperationOutcome::success(
+                        "Remove Session",
+                        summary,
+                        OperationDetail::None,
+                    ))
+                });
+            }
+            ConfirmAction::ClearIncomplete => {
+                self.start_blocking_operation("Clear Incomplete Sessions", move || {
+                    let removed = RunWorkspace::clear_incomplete_runs()?;
+                    Ok(OperationOutcome::success(
+                        "Clear Incomplete Sessions",
+                        format!("cleared {} incomplete session(s)", removed.len()),
+                        OperationDetail::None,
+                    ))
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn open_rerun_overlay(&mut self, apply: bool) -> Result<()> {
+        let Some(run_id) = self.session_view.selected_run_id() else {
+            return Ok(());
+        };
+        let workspace = RunWorkspace::open(&run_id)?;
+        let config = workspace.load_config()?;
+        let stages = stage_sequence(config.rebuild && config.output.exists(), true);
+        self.overlay = Some(Overlay::SelectRerunStage {
+            run_id,
+            apply,
+            stages,
+            selected: 0,
+        });
+        Ok(())
+    }
+}
