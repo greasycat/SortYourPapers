@@ -488,6 +488,7 @@ impl App {
                     KeyCode::Esc => {}
                     KeyCode::Enter => {
                         self.apply_edit(buffer.clone())?;
+                        return Ok(true);
                     }
                     KeyCode::Backspace => {
                         buffer.pop();
@@ -1983,10 +1984,11 @@ fn operation_status_height(area_height: u16, progress_count: usize) -> u16 {
 mod tests {
     use std::{collections::VecDeque, sync::mpsc};
 
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
 
     use super::{
-        App, BackendEvent, ExtractForm, OperationDetail, OperationView, PlacementMode,
+        App, BackendEvent, ExtractForm, OperationDetail, OperationView, Overlay, PlacementMode,
         ProgressEntry, RunForm, Screen, SessionView, TaxonomyMode, UiVerbosity,
     };
 
@@ -2164,5 +2166,27 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("keyword batches 4/4"))
         );
+    }
+
+    #[test]
+    fn edit_overlay_enter_commits_value_without_reopening_editor() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.selected = 0;
+        app.overlay = Some(Overlay::EditField {
+            label: "Input".to_string(),
+            buffer: "papers".to_string(),
+        });
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
+            .expect("enter should commit edit");
+
+        assert_eq!(app.run_form.input, "papers");
+        assert!(app.overlay.is_none());
     }
 }
