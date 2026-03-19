@@ -84,7 +84,7 @@ mod tests {
     use std::{collections::VecDeque, sync::mpsc};
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui::{Terminal, backend::TestBackend, layout::Position};
+    use ratatui::{Terminal, backend::TestBackend, layout::Position, style::Color};
     use tempfile::tempdir;
 
     use crate::{
@@ -180,6 +180,22 @@ mod tests {
             .map(|offset| title_index + offset)
             .expect("overlay should have a top border");
         end - start + 1
+    }
+
+    fn footer_colored_cell_count(app: &App, width: u16, height: u16) -> usize {
+        let terminal = render_app(app, width, height);
+        let buffer = terminal.backend().buffer();
+        let area = buffer.area();
+        let footer_height = match app.screen {
+            Screen::Operation | Screen::TaxonomyReview => 3,
+            _ => 11,
+        };
+        let footer_start = area.height.saturating_sub(footer_height);
+
+        (footer_start..area.height)
+            .flat_map(|y| (0..area.width).map(move |x| buffer[(x, y)].bg))
+            .filter(|bg| *bg != Color::Reset)
+            .count()
     }
 
     fn test_runtime() -> tokio::runtime::Runtime {
@@ -525,6 +541,30 @@ mod tests {
         terminal
             .backend_mut()
             .assert_cursor_position(Position::new(20, 10));
+    }
+
+    #[test]
+    fn home_overview_no_longer_duplicates_key_help() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+
+        let lines = render_lines(&app, 80, 24);
+
+        assert!(!lines.iter().any(|line| line.contains("Keys:")));
+        assert!(lines.iter().any(|line| line.contains("Quit: exit after confirmation.")));
+    }
+
+    #[test]
+    fn footer_renders_colored_key_hint_chips() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+
+        let lines = render_lines(&app, 80, 24);
+        let colored_cells = footer_colored_cell_count(&app, 80, 24);
+
+        assert!(lines.iter().any(|line| line.contains("↑/↓: move")));
+        assert!(lines.iter().any(|line| line.contains("Enter: open")));
+        assert!(colored_cells > 0, "expected colored footer chips");
     }
 
     #[test]

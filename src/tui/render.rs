@@ -107,8 +107,6 @@ impl App {
             Line::from("Run: configure the full sorting workflow."),
             Line::from("Sessions: resume, rerun, review, remove, or clear saved runs."),
             Line::from("Quit: exit after confirmation."),
-            Line::from(""),
-            Line::from("Keys: ↑/↓ move, Enter open, Esc quit."),
         ]))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Overview").borders(Borders::ALL));
@@ -477,27 +475,53 @@ impl App {
     }
 
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
-        let help = match self.screen {
-            Screen::Home => "↑/↓ move  Enter open  Esc quit",
-            Screen::RunForm => {
-                "↑/↓ or j/k move  ←/→ or h/l column  Enter edit/run  space toggle  Esc back"
-            }
-            Screen::Sessions => {
-                "1-5 filter  Tab/h/l preview tab  PgUp/PgDn preview scroll  ↑/↓ select  p/a resume  r/x rerun  v review  d delete  c clear  g refresh  Esc back"
-            }
-            Screen::Operation => {
-                "Tab/h/l switch  1-4 jump tab  j/k scroll  PgUp/PgDn page  g/G start/end  s sessions  Esc back when idle"
-            }
+        let help = self.footer_actions();
+        frame.render_widget(
+            Paragraph::new(Line::from(footer_spans(help)))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().borders(Borders::ALL)),
+            area,
+        );
+    }
+
+    fn footer_actions(&self) -> &'static [(&'static str, &'static str)] {
+        match self.screen {
+            Screen::Home => &[("↑/↓", "move"), ("Enter", "open"), ("Esc", "quit")],
+            Screen::RunForm => &[
+                ("↑/↓ or j/k", "move"),
+                ("←/→ or h/l", "column"),
+                ("Enter", "edit/run"),
+                ("space", "toggle"),
+                ("Esc", "back"),
+            ],
+            Screen::Sessions => &[
+                ("1-5", "filter"),
+                ("Tab/h/l", "preview tab"),
+                ("PgUp/PgDn", "preview scroll"),
+                ("↑/↓", "select"),
+                ("p/a", "resume"),
+                ("r/x", "rerun"),
+                ("v", "review"),
+                ("d", "delete"),
+                ("c", "clear"),
+                ("g", "refresh"),
+                ("Esc", "back"),
+            ],
+            Screen::Operation => &[
+                ("Tab/h/l", "switch"),
+                ("1-4", "jump tab"),
+                ("j/k", "scroll"),
+                ("PgUp/PgDn", "page"),
+                ("g/G", "start/end"),
+                ("s", "sessions"),
+                ("Esc", "back when idle"),
+            ],
             Screen::TaxonomyReview => self
                 .taxonomy_review
                 .as_ref()
-                .map(|review| review.footer_help())
-                .unwrap_or("Tab/h/l change pane  j/k scroll"),
-        };
-        frame.render_widget(
-            Paragraph::new(help).block(Block::default().borders(Borders::ALL)),
-            area,
-        );
+                .map(|review| review.footer_actions())
+                .unwrap_or(&[("Tab/h/l", "change pane"), ("j/k", "scroll")]),
+        }
     }
 
     fn draw_overlay(&self, frame: &mut Frame, overlay: &Overlay) {
@@ -750,6 +774,34 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+fn footer_spans(actions: &[(&str, &str)]) -> Vec<Span<'static>> {
+    let palette = [
+        Color::LightCyan,
+        Color::LightGreen,
+        Color::LightYellow,
+        Color::LightMagenta,
+        Color::LightBlue,
+        Color::LightRed,
+    ];
+
+    let mut spans = Vec::with_capacity(actions.len() * 2);
+    for (index, (key, action)) in actions.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(" "));
+        }
+
+        spans.push(Span::styled(
+            format!(" {key}: {action} "),
+            Style::default()
+                .fg(Color::Black)
+                .bg(palette[index % palette.len()])
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    spans
 }
 
 fn compact_overlay_rect(area: Rect, title: &str, lines: &[&str]) -> Rect {

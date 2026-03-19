@@ -390,22 +390,52 @@ impl TaxonomyReviewView {
         lines
     }
 
-    pub(super) fn footer_help(&self) -> &'static str {
+    pub(super) fn footer_actions(&self) -> &'static [(&'static str, &'static str)] {
         if self.editing {
-            "Enter submit suggestion  Backspace edit  Esc stop editing"
+            &[
+                ("Enter", "submit suggestion"),
+                ("Backspace", "edit"),
+                ("Esc", "stop editing"),
+            ]
         } else {
             match self.phase {
                 ReviewPhase::Drafting if self.has_pending_inspect_prompt() => {
-                    "Tab/h/l change pane  j/k scroll  PgUp/PgDn page  g/G start/end  s edit suggestion  a accept  c or Esc cancel"
+                    &[
+                        ("Tab/h/l", "change pane"),
+                        ("j/k", "scroll"),
+                        ("PgUp/PgDn", "page"),
+                        ("g/G", "start/end"),
+                        ("s", "edit suggestion"),
+                        ("a", "accept"),
+                        ("c or Esc", "cancel"),
+                    ]
                 }
                 ReviewPhase::Drafting => {
-                    "Tab/h/l change pane  j/k scroll  PgUp/PgDn page  g/G start/end"
+                    &[
+                        ("Tab/h/l", "change pane"),
+                        ("j/k", "scroll"),
+                        ("PgUp/PgDn", "page"),
+                        ("g/G", "start/end"),
+                    ]
                 }
                 ReviewPhase::WaitingForModel => {
-                    "Tab/h/l change pane  j/k scroll  PgUp/PgDn page  g/G start/end"
+                    &[
+                        ("Tab/h/l", "change pane"),
+                        ("j/k", "scroll"),
+                        ("PgUp/PgDn", "page"),
+                        ("g/G", "start/end"),
+                    ]
                 }
                 ReviewPhase::PostSuggestionDecision => {
-                    "Tab/h/l change pane  j/k scroll  PgUp/PgDn page  g/G start/end  a accept candidate  i iterate again  c or Esc cancel"
+                    &[
+                        ("Tab/h/l", "change pane"),
+                        ("j/k", "scroll"),
+                        ("PgUp/PgDn", "page"),
+                        ("g/G", "start/end"),
+                        ("a", "accept candidate"),
+                        ("i", "iterate again"),
+                        ("c or Esc", "cancel"),
+                    ]
                 }
             }
         }
