@@ -568,6 +568,17 @@ mod tests {
     }
 
     #[test]
+    fn run_form_footer_describes_enter_as_edit_only() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(lines.iter().any(|line| line.contains("Enter: edit")));
+        assert!(!lines.iter().any(|line| line.contains("Enter: edit/run")));
+    }
+
+    #[test]
     fn confirm_overlay_renders_compact_popup() {
         let mut app = test_app();
         app.screen = Screen::Home;

@@ -490,7 +490,7 @@ impl App {
             Screen::RunForm => &[
                 ("↑/↓ or j/k", "move"),
                 ("←/→ or h/l", "column"),
-                ("Enter", "edit/run"),
+                ("Enter", "edit"),
                 ("space", "toggle"),
                 ("Esc", "back"),
             ],
