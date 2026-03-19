@@ -62,7 +62,7 @@ impl App {
             return;
         }
 
-        let left_width = (title.chars().count() + self.operation.state.label().chars().count() + 22)
+        let left_width = (title.chars().count() + self.operation.state.label().chars().count() + 8)
             .min(inner.width.saturating_sub(1) as usize) as u16;
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -71,10 +71,6 @@ impl App {
 
         frame.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled(
-                    " SortYourPapers ",
-                    Style::default().fg(Color::Black).bg(Color::Cyan),
-                ),
                 Span::raw(format!(" {title}")),
                 Span::raw(" "),
                 Span::styled(

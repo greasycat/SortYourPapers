@@ -649,7 +649,7 @@ mod tests {
         let lines = render_lines(&app, 80, 24);
         let header_line = lines
             .iter()
-            .find(|line| line.contains("SortYourPapers"))
+            .find(|line| line.contains("Home") && line.contains("[idle]"))
             .expect("header line should exist");
 
         assert!(header_line.contains("↑/↓: move"));
