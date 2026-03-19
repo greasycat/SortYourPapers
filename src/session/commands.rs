@@ -10,10 +10,7 @@ use crate::{
     llm::LlmUsageSummary,
     papers::SynthesizeCategoriesState,
     report::RunReport,
-    session::{
-        RunStage, RunSummary, RunWorkspace,
-        stages::{run_with_workspace, stage_sequence},
-    },
+    session::{RunStage, RunSummary, RunWorkspace, run_with_workspace, stage_sequence},
     terminal::{self, Verbosity},
 };
 

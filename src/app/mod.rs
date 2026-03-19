@@ -18,9 +18,7 @@ use crate::{
     },
     placement::PlacementDecision,
     report::{FileAction, PlanAction, RunReport},
-    session::{
-        ExtractTextState, FilterSizeState, RunStage, RunWorkspace, stages::run_with_workspace,
-    },
+    session::{ExtractTextState, FilterSizeState, RunStage, RunWorkspace, run_with_workspace},
     taxonomy::CategoryTree,
     terminal::{self, Verbosity},
 };

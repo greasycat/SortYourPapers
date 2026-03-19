@@ -24,7 +24,7 @@ use crate::{
     terminal::{self, InspectReviewPrompt, Verbosity},
 };
 
-use super::planning::{StagePlan, log_resume, log_stage, log_timing};
+use super::runtime::{StagePlan, log_resume, log_stage, log_timing};
 
 const PLACEMENT_BATCH_PROGRESS_FILE: &str = "09-generate-placements-partial-batches.json";
 
@@ -350,7 +350,7 @@ mod tests {
         papers::SynthesizeCategoriesState,
         placement::PlacementMode,
         report::RunReport,
-        session::{RunStage, RunWorkspace, stages::planning::StagePlan},
+        session::{RunStage, RunWorkspace, runtime::StagePlan},
         taxonomy::{CategoryTree, TaxonomyMode},
         terminal::InspectReviewPrompt,
         terminal::Verbosity,

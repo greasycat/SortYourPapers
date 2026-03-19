@@ -2,9 +2,9 @@
 Use LLMs to sort papers.
 
 ## Architecture
-- Core types live in `src/domain/`.
 - CLI parsing lives in `src/cli.rs`, while config loading lives in `src/config/`.
 - Run orchestration lives in `src/app/` and persisted resume state lives in `src/session/`.
+- Session orchestration, resume/rerun commands, and persisted run workspace state all live in `src/session/`.
 - Paper ingestion lives in `src/papers/`, taxonomy generation in `src/taxonomy/`, placement logic in `src/placement/`, and filesystem mutation in `src/fs_ops/`.
 - LLM clients live in `src/llm/` and terminal output helpers live in `src/terminal/`.
 

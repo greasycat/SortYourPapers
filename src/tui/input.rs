@@ -4,7 +4,7 @@ use crate::{
     error::{AppError, Result},
     papers::SynthesizeCategoriesState,
     session::workspace::RunStage as WorkspaceRunStage,
-    session::{RunWorkspace, stages::stage_sequence},
+    session::{RunWorkspace, stage_sequence},
     terminal::InspectReviewPrompt,
 };
 
