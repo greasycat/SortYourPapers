@@ -449,9 +449,13 @@ impl App {
                         {
                             let _ = reply.send(Ok(InspectReviewPrompt::Suggest(request)));
                         }
-                    } else if let Some(reply) = review.take_inspect_reply() {
-                        let _ = reply.send(Ok(InspectReviewPrompt::Accept));
-                        self.finish_taxonomy_review();
+                    } else {
+                        self.overlay = Some(Overlay::Confirm {
+                            title: "Accept Taxonomy".to_string(),
+                            message: "Accept the current taxonomy and finish the review?"
+                                .to_string(),
+                            action: ConfirmAction::AcceptTaxonomyBaseline,
+                        });
                     }
                 }
                 ReviewPhase::PostSuggestionDecision => {
@@ -690,6 +694,14 @@ impl App {
                         OperationDetail::None,
                     ))
                 });
+            }
+            ConfirmAction::AcceptTaxonomyBaseline => {
+                if let Some(review) = self.taxonomy_review.as_mut()
+                    && let Some(reply) = review.take_inspect_reply()
+                {
+                    let _ = reply.send(Ok(InspectReviewPrompt::Accept));
+                    self.finish_taxonomy_review();
+                }
             }
             ConfirmAction::AcceptTaxonomyCandidate => {
                 if let Some(review) = self.taxonomy_review.as_mut()
