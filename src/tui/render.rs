@@ -941,16 +941,11 @@ pub(super) struct StageTimingBar {
     pub(super) stage: String,
     pub(super) elapsed_label: String,
     pub(super) ratio: f64,
-    running: bool,
 }
 
 impl StageTimingBar {
     fn style(&self) -> Style {
-        Style::default().fg(if self.running {
-            Color::Yellow
-        } else {
-            Color::Cyan
-        })
+        Style::default().fg(Color::Black).bg(Color::LightCyan)
     }
 }
 
@@ -977,7 +972,6 @@ pub(super) fn stage_timing_bars(timings: Vec<StageTimingSnapshot>) -> Vec<StageT
                 if timing.running { " (running)" } else { "" }
             ),
             ratio: timing_ratio(timing.elapsed, denominator),
-            running: timing.running,
         })
         .collect()
 }

@@ -236,6 +236,33 @@ mod tests {
         })
     }
 
+    fn row_contains_symbol_with_style(
+        app: &App,
+        width: u16,
+        height: u16,
+        row_text: &str,
+        symbol: &str,
+        fg: Color,
+        bg: Color,
+    ) -> bool {
+        let lines = render_lines(app, width, height);
+        let Some((_, y)) = find_text_position(&lines, row_text) else {
+            return false;
+        };
+
+        let terminal = render_app(app, width, height);
+        let buffer = terminal.backend().buffer();
+        let area = buffer.area();
+        if y >= usize::from(area.height) {
+            return false;
+        }
+
+        (0..area.width).any(|x| {
+            let cell = &buffer[(x, y as u16)];
+            cell.symbol() == symbol && cell.fg == fg && cell.bg == bg
+        })
+    }
+
     fn test_runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1407,6 +1434,15 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("summary: run completed"))
         );
+        assert!(row_contains_symbol_with_style(
+            &app,
+            100,
+            24,
+            "1. discover-input",
+            "█",
+            Color::Black,
+            Color::LightCyan,
+        ));
     }
 
     #[test]
