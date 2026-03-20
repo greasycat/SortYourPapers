@@ -578,14 +578,6 @@ impl RunForm {
         }
     }
 
-    pub(crate) fn provider_label(&self) -> &'static str {
-        provider_label(self.llm_provider)
-    }
-
-    pub(crate) fn model_label(&self) -> &str {
-        self.llm_model.trim()
-    }
-
     fn draw_form_workspace(&self, frame: &mut Frame, area: Rect, analysis: &RunFormAnalysis) {
         let outer = Block::default().title("Run Setup").borders(Borders::ALL);
         let inner = outer.inner(area);

@@ -4,7 +4,6 @@ use crate::error::Result;
 
 use super::{
     backend::BackendEvent,
-    config_view::ConfigView,
     forms::{ExtractForm, RunForm},
     model::{
         HomeAction, OperationAlert, OperationDetail, OperationOutcome, OperationState,
@@ -25,7 +24,6 @@ pub(super) struct App {
     pub(super) run_form: RunForm,
     pub(super) extract_form: ExtractForm,
     pub(super) session_view: SessionView,
-    pub(super) config_view: ConfigView,
     pub(super) overlay: Option<Overlay>,
     pub(super) taxonomy_review: Option<TaxonomyReviewView>,
     pub(super) operation: super::model::OperationView,
@@ -56,7 +54,6 @@ impl App {
             run_form: RunForm::default(),
             extract_form: ExtractForm::default(),
             session_view,
-            config_view: ConfigView::default(),
             overlay: None,
             taxonomy_review: None,
             operation: super::model::OperationView::default(),
@@ -169,12 +166,7 @@ impl App {
         match self.screen {
             Screen::RunForm => self.run_form.apply_edit(value)?,
             Screen::ExtractForm => self.extract_form.apply_edit(value)?,
-            Screen::Home
-            | Screen::Sessions
-            | Screen::Config
-            | Screen::Debug
-            | Screen::Operation
-            | Screen::TaxonomyReview => {}
+            Screen::Home | Screen::Sessions | Screen::Operation | Screen::TaxonomyReview => {}
         }
         Ok(())
     }
@@ -455,11 +447,7 @@ impl App {
             HomeAction::RunPapers,
             HomeAction::ExtractText,
             HomeAction::Sessions,
-            HomeAction::Config,
         ];
-        if self.debug_tui {
-            actions.push(HomeAction::DebugTools);
-        }
         actions.push(HomeAction::Quit);
         actions
     }

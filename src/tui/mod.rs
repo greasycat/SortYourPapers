@@ -1,6 +1,5 @@
 mod app;
 mod backend;
-mod config_view;
 mod extract;
 mod forms;
 mod input;
@@ -31,7 +30,6 @@ use self::{app::App, backend::TuiBackend};
 #[cfg(test)]
 use self::{
     backend::BackendEvent,
-    config_view::ConfigView,
     forms::{ExtractForm, RunForm, UiVerbosity, ValidationSeverity},
     model::{OperationDetail, OperationState, OperationView, Overlay, ProgressEntry, Screen},
     session_view::SessionView,
@@ -103,8 +101,8 @@ mod tests {
     };
 
     use super::{
-        App, BackendEvent, ConfigView, ExtractForm, OperationDetail, OperationState, OperationView,
-        Overlay, ProgressEntry, RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
+        App, BackendEvent, ExtractForm, OperationDetail, OperationState, OperationView, Overlay,
+        ProgressEntry, RunForm, Screen, SessionView, UiVerbosity, ValidationSeverity,
         model::{OperationTab, StageTiming},
         render::stage_timing_bars,
         taxonomy_review::{
@@ -122,7 +120,6 @@ mod tests {
             run_form: RunForm::default(),
             extract_form: ExtractForm::default(),
             session_view: SessionView::default(),
-            config_view: ConfigView::default(),
             overlay: None,
             taxonomy_review: None,
             operation: OperationView {
@@ -432,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn home_screen_lists_extract_and_config_actions() {
+    fn home_screen_lists_remaining_actions() {
         let mut app = test_app();
         app.screen = Screen::Home;
 
@@ -441,19 +438,9 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("Run Papers")));
         assert!(lines.iter().any(|line| line.contains("Extract Text")));
         assert!(lines.iter().any(|line| line.contains("Sessions")));
-        assert!(lines.iter().any(|line| line.contains("Config")));
+        assert!(lines.iter().any(|line| line.contains("Quit")));
+        assert!(!lines.iter().any(|line| line.contains("Config")));
         assert!(!lines.iter().any(|line| line.contains("Debug Tools")));
-    }
-
-    #[test]
-    fn home_screen_shows_debug_tools_when_debug_tui_is_enabled() {
-        let mut app = test_app();
-        app.screen = Screen::Home;
-        app.debug_tui = true;
-
-        let lines = render_lines(&app, 120, 28);
-
-        assert!(lines.iter().any(|line| line.contains("Debug Tools")));
     }
 
     #[test]

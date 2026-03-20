@@ -18,8 +18,6 @@ pub(super) enum Screen {
     RunForm,
     ExtractForm,
     Sessions,
-    Config,
-    Debug,
     Operation,
     TaxonomyReview,
 }
@@ -29,8 +27,6 @@ pub(super) enum HomeAction {
     RunPapers,
     ExtractText,
     Sessions,
-    Config,
-    DebugTools,
     Quit,
 }
 
@@ -40,8 +36,6 @@ impl HomeAction {
             Self::RunPapers => "Run Papers",
             Self::ExtractText => "Extract Text",
             Self::Sessions => "Sessions",
-            Self::Config => "Config",
-            Self::DebugTools => "Debug Tools",
             Self::Quit => "Quit",
         }
     }

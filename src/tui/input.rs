@@ -33,8 +33,6 @@ impl App {
             Screen::RunForm => self.handle_run_form_key(key).await,
             Screen::ExtractForm => self.handle_extract_form_key(key).await,
             Screen::Sessions => self.handle_sessions_key(key).await,
-            Screen::Config => self.handle_config_key(key),
-            Screen::Debug => self.handle_debug_key(key).await,
             Screen::Operation => self.handle_operation_key(key),
             Screen::TaxonomyReview => self.handle_taxonomy_review_key(key),
         }
@@ -59,11 +57,6 @@ impl App {
                         self.session_view.refresh()?;
                         Screen::Sessions
                     }
-                    HomeAction::Config => {
-                        self.config_view.refresh()?;
-                        Screen::Config
-                    }
-                    HomeAction::DebugTools => Screen::Debug,
                     HomeAction::Quit => {
                         self.open_quit_confirmation();
                         Screen::Home
@@ -245,76 +238,6 @@ impl App {
                     message: "Clear all incomplete saved sessions for this workspace?".to_string(),
                     action: ConfirmAction::ClearIncomplete,
                 });
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn handle_config_key(&mut self, key: KeyEvent) -> Result<()> {
-        match key.code {
-            KeyCode::Esc => self.screen = Screen::Home,
-            KeyCode::Down | KeyCode::Char('j') => self.config_view.move_selection(1),
-            KeyCode::Up | KeyCode::Char('k') => self.config_view.move_selection(-1),
-            KeyCode::PageDown => self.config_view.scroll(10),
-            KeyCode::PageUp => self.config_view.scroll(-10),
-            KeyCode::Char('g') => {
-                self.config_view.refresh()?;
-                self.config_view
-                    .set_status("Diagnostics refreshed.".to_string());
-            }
-            KeyCode::Enter => match self.config_view.selected_action() {
-                super::config_view::ConfigAction::Refresh => {
-                    self.config_view.refresh()?;
-                    self.config_view
-                        .set_status("Diagnostics refreshed.".to_string());
-                }
-                super::config_view::ConfigAction::Init => match crate::init_config(false) {
-                    Ok(path) => {
-                        self.config_view.refresh()?;
-                        self.config_view
-                            .set_status(format!("Wrote default config to {}", path.display()));
-                    }
-                    Err(err) => {
-                        self.config_view.set_status(err.to_string());
-                        self.overlay = Some(Overlay::Notice {
-                            title: "Config Init".to_string(),
-                            message: err.to_string(),
-                        });
-                    }
-                },
-                super::config_view::ConfigAction::ForceInit => match crate::init_config(true) {
-                    Ok(path) => {
-                        self.config_view.refresh()?;
-                        self.config_view
-                            .set_status(format!("Overwrote config at {}", path.display()));
-                    }
-                    Err(err) => {
-                        self.config_view.set_status(err.to_string());
-                        self.overlay = Some(Overlay::Notice {
-                            title: "Config Init".to_string(),
-                            message: err.to_string(),
-                        });
-                    }
-                },
-            },
-            _ => {}
-        }
-        Ok(())
-    }
-
-    async fn handle_debug_key(&mut self, key: KeyEvent) -> Result<()> {
-        match key.code {
-            KeyCode::Esc => self.screen = Screen::Home,
-            KeyCode::Char('r') => self.screen = Screen::RunForm,
-            KeyCode::Char('e') => self.screen = Screen::ExtractForm,
-            KeyCode::Char('c') => {
-                self.config_view.refresh()?;
-                self.screen = Screen::Config;
-            }
-            KeyCode::Char('s') => {
-                self.session_view.refresh()?;
-                self.screen = Screen::Sessions;
             }
             _ => {}
         }

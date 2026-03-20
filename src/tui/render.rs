@@ -35,8 +35,6 @@ impl App {
             Screen::RunForm => self.run_form.draw(frame, chunks[1]),
             Screen::ExtractForm => self.draw_extract(frame, chunks[1]),
             Screen::Sessions => self.session_view.draw(frame, chunks[1]),
-            Screen::Config => self.config_view.draw(frame, chunks[1]),
-            Screen::Debug => self.draw_debug(frame, chunks[1]),
             Screen::Operation => self.draw_operation(frame, chunks[1]),
             Screen::TaxonomyReview => {
                 if let Some((x, y)) = self.draw_taxonomy_review(frame, chunks[1]) {
@@ -57,8 +55,6 @@ impl App {
             Screen::RunForm => "Run Configuration",
             Screen::ExtractForm => "Extract Text",
             Screen::Sessions => "Sessions",
-            Screen::Config => "Config",
-            Screen::Debug => "Debug Tools",
             Screen::Operation => &self.operation.title,
             Screen::TaxonomyReview => "Taxonomy Review",
         };
@@ -143,19 +139,7 @@ impl App {
                 "Extract Text: preview raw and LLM-ready text without running the full pipeline.",
             ),
             Line::from("Sessions: resume, rerun, review, remove, or clear saved runs."),
-            Line::from(
-                "Config: inspect XDG config status, env overrides, and write the default template.",
-            ),
-            Line::from(if self.debug_tui {
-                "Debug Tools: inspect mock-run behavior enabled by --debug-tui."
-            } else {
-                "Quit: exit after confirmation."
-            }),
-            Line::from(if self.debug_tui {
-                "Quit: exit after confirmation."
-            } else {
-                ""
-            }),
+            Line::from("Quit: exit after confirmation."),
         ]))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Overview").borders(Borders::ALL));
@@ -206,96 +190,6 @@ impl App {
                 .block(
                     Block::default()
                         .title("Preview Output")
-                        .borders(Borders::ALL),
-                ),
-            chunks[1],
-        );
-    }
-
-    fn draw_debug(&self, frame: &mut Frame, area: Rect) {
-        let chunks = if area.width < STACKED_SCREEN_WIDTH {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
-                .split(area)
-        } else {
-            Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
-                .split(area)
-        };
-
-        let status_lines = vec![
-            Line::from(Span::styled(
-                "Debug TUI is enabled",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from("Run Papers launches the seeded mock workflow."),
-            Line::from("The debug path forces preview mode and disables rebuild."),
-            Line::from(
-                "Stage artifacts, taxonomy review, and reports are generated from canned data.",
-            ),
-            Line::from(""),
-            Line::from("This screen is hidden unless `syp tui --debug-tui` is used."),
-        ];
-        frame.render_widget(
-            Paragraph::new(status_lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Debug Mode").borders(Borders::ALL)),
-            chunks[0],
-        );
-
-        let quick_lines = vec![
-            Line::from(Span::styled(
-                "Quick Routes",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from("r open Run Configuration"),
-            Line::from("e open Extract Text"),
-            Line::from("c open Config"),
-            Line::from("s open Sessions"),
-            Line::from("Esc return home"),
-            Line::from(""),
-            Line::from(Span::styled(
-                "Current Run Defaults",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(format!(
-                "input={}  output={}",
-                self.run_form.input.trim(),
-                self.run_form.output.trim()
-            )),
-            Line::from(format!(
-                "provider={}  model={}",
-                self.run_form.provider_label(),
-                self.run_form.model_label()
-            )),
-            Line::from(format!(
-                "mode={}  quiet={}  verbosity={}",
-                if self.run_form.apply {
-                    "apply requested"
-                } else {
-                    "preview requested"
-                },
-                if self.run_form.quiet { "yes" } else { "no" },
-                self.run_form.verbosity.label()
-            )),
-        ];
-        frame.render_widget(
-            Paragraph::new(quick_lines)
-                .wrap(Wrap { trim: false })
-                .block(
-                    Block::default()
-                        .title("Routes & Defaults")
                         .borders(Borders::ALL),
                 ),
             chunks[1],
@@ -751,14 +645,6 @@ impl App {
                 ("g", "refresh"),
                 ("Esc", "back"),
             ],
-            Screen::Config => &[
-                ("↑/↓", "action"),
-                ("Enter", "run action"),
-                ("g", "refresh"),
-                ("PgUp/PgDn", "scroll"),
-                ("Esc", "back"),
-            ],
-            Screen::Debug => &[("r/e/c/s", "route"), ("Esc", "back")],
             Screen::Operation => &[
                 ("Tab/h/l", "switch"),
                 ("1-4", "jump tab"),
