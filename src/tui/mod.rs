@@ -471,24 +471,22 @@ mod tests {
     }
 
     #[test]
-    fn run_form_selected_field_includes_provider_specific_guidance() {
+    fn run_form_selected_field_uses_structured_description_layout() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
-        app.run_form.selected = 13;
-        app.run_form.cycle_selected(-1);
+        app.run_form.selected = 0;
 
         let lines = render_lines(&app, 140, 36);
 
+        assert!(lines.iter().any(|line| line.contains("Description")));
+        assert!(lines.iter().any(|line| line.contains("Current")));
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("Provider Notes (ollama)"))
+                .any(|line| line.contains("Source folder scanned for candidate PDFs."))
         );
-        assert!(
-            lines
-                .iter()
-                .any(|line| line.contains("http://localhost:11434"))
-        );
+        assert!(!lines.iter().any(|line| line.contains("Provider Notes")));
+        assert!(!lines.iter().any(|line| line.contains("Controls")));
     }
 
     #[test]

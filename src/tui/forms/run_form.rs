@@ -811,13 +811,16 @@ impl RunForm {
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
+            section_header_line("Description", Color::LightCyan),
             Line::from(run_field_help(self.selected)),
             Line::from(""),
-            Line::from(format!("Current value: {selected_value}")),
+            section_header_line("Current", Color::LightGreen),
+            Line::from(selected_value),
         ];
 
         if let Some(issue) = analysis.field_issue(self.selected) {
             lines.push(Line::from(""));
+            lines.push(section_header_line("Issue", issue.severity.color()));
             lines.push(Line::from(Span::styled(
                 format!("{}: {}", issue.severity.title(), issue.message),
                 Style::default()
@@ -825,30 +828,6 @@ impl RunForm {
                     .add_modifier(Modifier::BOLD),
             )));
         }
-
-        let provider_guidance = provider_guidance_lines(self.llm_provider);
-        if !provider_guidance.is_empty() {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                format!("Provider Notes ({})", provider_label(self.llm_provider)),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            lines.extend(provider_guidance.into_iter().map(Line::from));
-        }
-
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Controls",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from("Enter edit / toggle"));
-        lines.push(Line::from("Space cycle toggle fields"));
-        lines.push(Line::from("r start run when ready"));
-        lines.push(Line::from("Esc back"));
 
         frame.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }).block(
@@ -1057,27 +1036,6 @@ fn labeled_value_line(
         ),
         Span::styled(value.to_string(), Style::default().fg(value_color)),
     ])
-}
-
-fn provider_guidance_lines(provider: LlmProvider) -> Vec<String> {
-    match provider {
-        LlmProvider::Openai => vec![
-            "Hosted OpenAI requests require an API key.".to_string(),
-            "Leave Base URL blank to use https://api.openai.com/v1.".to_string(),
-            "Models starting with gpt-5 use the Responses API automatically.".to_string(),
-        ],
-        LlmProvider::Gemini => vec![
-            "Gemini requests require an API key.".to_string(),
-            "Leave Base URL blank to use https://generativelanguage.googleapis.com/v1beta."
-                .to_string(),
-            "The model may be entered with or without the models/ prefix.".to_string(),
-        ],
-        LlmProvider::Ollama => vec![
-            "Ollama ignores API Key and expects a local or self-hosted server.".to_string(),
-            "Leave Base URL blank to use http://localhost:11434.".to_string(),
-            "Make sure the selected model has already been pulled into Ollama.".to_string(),
-        ],
-    }
 }
 
 #[cfg(test)]
