@@ -1772,11 +1772,52 @@ mod tests {
 
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
-            .expect("a should accept the candidate taxonomy");
+            .expect("a should open confirmation for accepting the candidate taxonomy");
+
+        assert!(matches!(
+            app.overlay,
+            Some(Overlay::Confirm {
+                action: super::model::ConfirmAction::AcceptTaxonomyCandidate,
+                ..
+            })
+        ));
+        assert!(matches!(app.screen, Screen::TaxonomyReview));
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
+            .expect("enter should confirm accepting the candidate taxonomy");
 
         assert!(matches!(app.screen, Screen::Operation));
         assert!(app.taxonomy_review.is_none());
         assert_eq!(continue_rx.recv().expect("reply should send"), Ok(false));
+    }
+
+    #[test]
+    fn candidate_accept_confirmation_can_be_cancelled() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let (continue_tx, _continue_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.phase = ReviewPhase::PostSuggestionDecision;
+        review.candidate_categories = Some(vec![CategoryTree {
+            name: "AI (candidate)".to_string(),
+            children: vec![],
+        }]);
+        review.pending_reply = Some(PendingReviewReply::Continue(continue_tx));
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
+            .expect("a should open confirmation for accepting the candidate taxonomy");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)))
+            .expect("esc should dismiss the confirmation");
+
+        assert!(app.overlay.is_none());
+        assert!(matches!(app.screen, Screen::TaxonomyReview));
+        assert!(app.taxonomy_review.is_some());
     }
 
     #[test]

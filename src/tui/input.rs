@@ -455,10 +455,12 @@ impl App {
                     }
                 }
                 ReviewPhase::PostSuggestionDecision => {
-                    if let Some(reply) = review.take_continue_reply() {
-                        let _ = reply.send(Ok(false));
-                        self.finish_taxonomy_review();
-                    }
+                    self.overlay = Some(Overlay::Confirm {
+                        title: "Accept Candidate".to_string(),
+                        message:
+                            "Accept this candidate taxonomy and finish the review?".to_string(),
+                        action: ConfirmAction::AcceptTaxonomyCandidate,
+                    });
                 }
                 ReviewPhase::WaitingForModel => {}
             },
@@ -688,6 +690,14 @@ impl App {
                         OperationDetail::None,
                     ))
                 });
+            }
+            ConfirmAction::AcceptTaxonomyCandidate => {
+                if let Some(review) = self.taxonomy_review.as_mut()
+                    && let Some(reply) = review.take_continue_reply()
+                {
+                    let _ = reply.send(Ok(false));
+                    self.finish_taxonomy_review();
+                }
             }
         }
         Ok(())

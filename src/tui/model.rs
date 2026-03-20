@@ -234,6 +234,7 @@ pub(super) enum ConfirmAction {
     SaveRunConfig(AppConfig),
     RemoveRun(String),
     ClearIncomplete,
+    AcceptTaxonomyCandidate,
 }
 
 pub(super) enum Overlay {
