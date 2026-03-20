@@ -5,7 +5,7 @@ Use LLMs to sort papers.
 - CLI parsing lives in `src/cli.rs`, while config loading lives in `src/config/`.
 - Run orchestration lives in `src/app/` and persisted resume state lives in `src/session/`.
 - Session orchestration, resume/rerun commands, and persisted run workspace state all live in `src/session/`.
-- Paper ingestion lives in `src/papers/`, taxonomy generation in `src/taxonomy/`, placement logic in `src/placement/`, and filesystem mutation in `src/fs_ops/`.
+- Paper ingestion lives in `src/papers/`, taxonomy generation in `src/taxonomy/`, placement logic in `src/placement/`, and filesystem mutation in `src/fs/`.
 - LLM clients live in `src/llm/` and terminal output helpers live in `src/terminal/`.
 
 ## What It Does
@@ -15,6 +15,7 @@ Use LLMs to sort papers.
 - Extracts file-keyword pairs plus a per-file preliminary `k`-depth category text in LLM batches (default `20` files per batch)
 - Builds the global taxonomy from the aggregated preliminary category texts, batching those aggregated entries when needed, and returns a linear path array that is rebuilt into a tree
 - Displays the merged taxonomy immediately after synthesis and, in interactive terminals, lets you iteratively suggest improvements until you accept it before placement generation begins
+- Can optionally feed the current output folder tree into taxonomy merge as naming/grouping guidance
 - Remaps papers to final destination folders in stable LLM batches (default `10` files per batch) using each file's keywords, preliminary category text, and the synthesized taxonomy
 - Prints the final synthesized category tree at the end of a successful run
 - Keeps `taxonomy-mode` for CLI/config compatibility, and uses `taxonomy-batch-size` to control batching of aggregated preliminary-category entries during taxonomy synthesis
@@ -149,6 +150,7 @@ cargo run -- extract-text \
 - `-d, --category-depth <u8>` default `2` (used for per-file preliminary category suggestions and the final synthesized taxonomy)  
 - `--taxonomy-mode <global|batch-merge>` default `batch-merge` (both values use the same preliminary-category batching + final merge flow)
 - `--taxonomy-batch-size <usize>` default `4` (aggregated preliminary-category entries per taxonomy batch before the final merge request)
+- `--use-current-folder-tree` default `false` (include the existing output folder tree as optional guidance during taxonomy merge; ignored in rebuild mode)
 - `--subcategories-suggestion-number <usize>` default `5` (taxonomy merge prompt guidance: try to keep subcategory count below this number)
 - `--placement-batch-size <usize>` default `10` (papers per placement request)
 - `-M, --placement-mode <existing-only|allow-new>` default `existing-only`  
@@ -185,6 +187,7 @@ Use `session resume --quiet` if you only want the exit status without the progre
 - `SYP_CATEGORY_DEPTH`
 - `SYP_TAXONOMY_MODE`
 - `SYP_TAXONOMY_BATCH_SIZE`
+- `SYP_USE_CURRENT_FOLDER_TREE`
 - `SYP_PLACEMENT_BATCH_SIZE`
 - `SYP_PLACEMENT_MODE`
 - `SYP_REBUILD`
