@@ -31,7 +31,7 @@ use super::{
     placement_mode_label, provider_label, run_field_help, run_field_key, run_field_label,
     taxonomy_mode_label,
 };
-use crate::tui::ui_widgets::render_selectable_list;
+use crate::tui::ui_widgets::{render_selectable_list, stylized_body_line};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValidationSeverity {
@@ -723,7 +723,7 @@ impl RunForm {
             20 => self.verbosity.label().to_string(),
             21 => bool_label(self.quiet).to_string(),
             22 => bool_label(self.use_current_folder_tree).to_string(),
-            Self::RUN_BUTTON_INDEX => "Press Enter, Space, or r to launch.".to_string(),
+            Self::RUN_BUTTON_INDEX => "Press `Enter`, `Space`, or `r` to launch.".to_string(),
             _ => String::new(),
         }
     }
@@ -975,10 +975,10 @@ impl RunForm {
             )),
             Line::from(""),
             section_header_line("Description", Color::LightCyan),
-            Line::from(run_field_help(self.selected)),
+            stylized_body_line(run_field_help(self.selected)),
             Line::from(""),
             section_header_line("Current", Color::LightGreen),
-            Line::from(selected_value),
+            stylized_body_line(&selected_value),
         ];
 
         if let Some(issue) = analysis.field_issue(self.selected) {

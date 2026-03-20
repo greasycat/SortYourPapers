@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    prelude::{Color, Frame, Line, Modifier, Style},
+    prelude::{Color, Frame, Line, Modifier, Span, Style},
     widgets::{
         Block, HighlightSpacing, List, ListItem, ListState, Paragraph, Scrollbar,
         ScrollbarOrientation, ScrollbarState, Tabs, Wrap,
@@ -16,6 +16,61 @@ pub(super) fn selected_style() -> Style {
 
 pub(super) fn muted_style() -> Style {
     Style::default().fg(Color::Gray)
+}
+
+pub(super) fn stylized_body_line(text: &str) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut rest = text;
+
+    while let Some(start) = rest.find('`') {
+        let (before, after_start) = rest.split_at(start);
+        if !before.is_empty() {
+            spans.push(Span::raw(before.to_string()));
+        }
+
+        let Some(end) = after_start[1..].find('`') else {
+            spans.push(Span::raw(after_start.to_string()));
+            rest = "";
+            break;
+        };
+
+        let token = &after_start[1..=end];
+        spans.push(Span::styled(token.to_string(), inline_token_style(token)));
+        rest = &after_start[end + 2..];
+    }
+
+    if !rest.is_empty() {
+        spans.push(Span::raw(rest.to_string()));
+    }
+
+    if spans.is_empty() {
+        Line::from(String::new())
+    } else {
+        Line::from(spans)
+    }
+}
+
+pub(super) fn stylized_body_lines<I, S>(lines: I) -> Vec<Line<'static>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    lines
+        .into_iter()
+        .map(|line| stylized_body_line(line.as_ref()))
+        .collect()
+}
+
+fn inline_token_style(token: &str) -> Style {
+    let color = if matches!(token, "Enter" | "y") {
+        Color::Blue
+    } else if token == "Esc" {
+        Color::Red
+    } else {
+        Color::Cyan
+    };
+
+    Style::default().fg(color).add_modifier(Modifier::BOLD)
 }
 
 pub(super) fn render_tabs<'a>(

@@ -211,10 +211,10 @@ mod tests {
     }
 
     fn find_text_position(lines: &[String], text: &str) -> Option<(usize, usize)> {
-        lines
-            .iter()
-            .enumerate()
-            .find_map(|(y, line)| line.find(text).map(|x| (x, y)))
+        lines.iter().enumerate().find_map(|(y, line)| {
+            line.find(text)
+                .map(|byte_x| (line[..byte_x].chars().count(), y))
+        })
     }
 
     fn contains_symbol_with_fg(
@@ -261,6 +261,30 @@ mod tests {
             let cell = &buffer[(x, y as u16)];
             cell.symbol() == symbol && cell.fg == fg && cell.bg == bg
         })
+    }
+
+    fn text_starts_with_fg(app: &App, width: u16, height: u16, text: &str, fg: Color) -> bool {
+        let lines = render_lines(app, width, height);
+        let Some((x, y)) = find_text_position(&lines, text) else {
+            return false;
+        };
+
+        let terminal = render_app(app, width, height);
+        let buffer = terminal.backend().buffer();
+        let area = buffer.area();
+        if x >= usize::from(area.width) || y >= usize::from(area.height) {
+            return false;
+        }
+
+        let cell = &buffer[(x as u16, y as u16)];
+        cell.symbol()
+            == text
+                .chars()
+                .next()
+                .map(|ch| ch.to_string())
+                .as_deref()
+                .unwrap_or("")
+            && cell.fg == fg
     }
 
     fn test_runtime() -> tokio::runtime::Runtime {
@@ -1037,6 +1061,20 @@ mod tests {
 
         assert!(app.should_quit);
         assert!(app.overlay.is_none());
+    }
+
+    #[test]
+    fn confirm_overlay_colors_enter_and_y_blue_and_esc_red() {
+        let mut app = test_app();
+        app.overlay = Some(Overlay::Confirm {
+            title: "Confirm".to_string(),
+            message: "Apply this change?".to_string(),
+            action: super::model::ConfirmAction::Quit,
+        });
+
+        assert!(text_starts_with_fg(&app, 80, 24, "Enter", Color::Blue));
+        assert!(text_starts_with_fg(&app, 80, 24, "y confirm", Color::Blue));
+        assert!(text_starts_with_fg(&app, 80, 24, "Esc cancel", Color::Red));
     }
 
     #[test]

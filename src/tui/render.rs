@@ -14,7 +14,10 @@ use super::{
     session_view::rerun_stage_name,
     taxonomy_review::ReviewPane,
     taxonomy_tree::{render_category_tree, render_section_tree},
-    ui_widgets::{muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs},
+    ui_widgets::{
+        muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs,
+        stylized_body_line, stylized_body_lines,
+    },
 };
 
 const STACKED_SCREEN_WIDTH: u16 = 100;
@@ -131,16 +134,14 @@ impl App {
             Some(self.home_index),
         );
 
-        let help = Paragraph::new(Text::from(vec![
-            Line::from("`syp` is the interactive terminal frontend."),
-            Line::from(""),
-            Line::from("Run Papers: configure and launch the full sorting workflow."),
-            Line::from(
-                "Extract Text: preview raw and LLM-ready text without running the full pipeline.",
-            ),
-            Line::from("Sessions: resume, rerun, review, remove, or clear saved runs."),
-            Line::from("Quit: exit after confirmation."),
-        ]))
+        let help = Paragraph::new(Text::from(stylized_body_lines([
+            "`syp` is the interactive terminal frontend.",
+            "",
+            "Run Papers: configure and launch the full sorting workflow.",
+            "Extract Text: preview raw and LLM-ready text without running the full pipeline.",
+            "Sessions: resume, rerun, review, remove, or clear saved runs.",
+            "Quit: exit after confirmation.",
+        ])))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Overview").borders(Borders::ALL));
         frame.render_widget(help, chunks[1]);
@@ -169,9 +170,9 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
-            Line::from("1. Enter one or more PDF paths."),
+            stylized_body_line("1. `Enter` one or more PDF paths."),
             Line::from("2. Choose extractor, page limit, and worker count."),
-            Line::from("3. Press r to collect an extract preview."),
+            stylized_body_line("3. Press `r` to collect an extract preview."),
             Line::from(""),
             Line::from(Span::styled(
                 "Result Surface",
@@ -181,8 +182,8 @@ impl App {
             )),
             Line::from(""),
             Line::from("The preview opens in Operation."),
-            Line::from("Use tab 3 for extracted text and failures."),
-            Line::from("Use tab 2 for raw extractor logs when verbose/debug is enabled."),
+            stylized_body_line("Use tab `3` for extracted text and failures."),
+            stylized_body_line("Use tab `2` for raw extractor logs when verbose/debug is enabled."),
         ];
         frame.render_widget(
             Paragraph::new(preview_lines)
@@ -223,19 +224,13 @@ impl App {
             .split(area);
 
         frame.render_widget(
-            Paragraph::new(
-                review
-                    .status_lines()
-                    .into_iter()
-                    .map(Line::from)
-                    .collect::<Vec<_>>(),
-            )
-            .wrap(Wrap { trim: false })
-            .block(
-                Block::default()
-                    .title("Review Status")
-                    .borders(Borders::ALL),
-            ),
+            Paragraph::new(stylized_body_lines(review.status_lines()))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .title("Review Status")
+                        .borders(Borders::ALL),
+                ),
             chunks[0],
         );
 
@@ -269,15 +264,9 @@ impl App {
             .constraints([Constraint::Length(4), Constraint::Min(0)])
             .split(content[1]);
         frame.render_widget(
-            Paragraph::new(
-                review
-                    .iteration_summary_lines()
-                    .into_iter()
-                    .map(Line::from)
-                    .collect::<Vec<_>>(),
-            )
-            .wrap(Wrap { trim: false })
-            .block(Block::default().title("Iteration").borders(Borders::ALL)),
+            Paragraph::new(stylized_body_lines(review.iteration_summary_lines()))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().title("Iteration").borders(Borders::ALL)),
             right[0],
         );
         let mut tree_state = review.iteration_tree_state.borrow_mut();
@@ -480,31 +469,35 @@ impl App {
     }
 
     fn operation_run_summary_lines(&self) -> Vec<Line<'static>> {
-        let mut lines = vec![Line::from(self.operation.summary.clone())];
+        let mut lines = vec![stylized_body_line(&self.operation.summary)];
         let report_lines = self.operation_report_summary_lines();
         if !report_lines.is_empty() {
             lines.push(Line::from(String::new()));
-            lines.extend(report_lines.into_iter().map(Line::from));
+            lines.extend(
+                report_lines
+                    .into_iter()
+                    .map(|line| stylized_body_line(&line)),
+            );
         }
 
         let guidance = match self.operation.state {
             OperationState::Running => vec![
-                "Use 2 Logs for raw output and retries.".to_string(),
+                "Use `2` Logs for raw output and retries.".to_string(),
                 format!(
-                    "Use 3 {} or 4 Planned Actions as artifacts arrive.",
+                    "Use `3` {} or `4` Planned Actions as artifacts arrive.",
                     self.operation.detail.tab_label()
                 ),
             ],
             OperationState::Success => vec![
                 format!(
-                    "Next actions: 3 {}, 4 Planned Actions, s Sessions.",
+                    "Next actions: `3` {}, `4` Planned Actions, `s` Sessions.",
                     self.operation.detail.tab_label()
                 ),
-                "Esc returns to the screen that launched this operation.".to_string(),
+                "`Esc` returns to the screen that launched this operation.".to_string(),
             ],
             OperationState::Failure => vec![
-                "Use 2 Logs for details and s Sessions for follow-up.".to_string(),
-                "Esc returns after the operation becomes idle.".to_string(),
+                "Use `2` Logs for details and `s` Sessions for follow-up.".to_string(),
+                "`Esc` returns after the operation becomes idle.".to_string(),
             ],
             OperationState::Idle => vec![
                 "No active operation is running.".to_string(),
@@ -515,7 +508,7 @@ impl App {
         if !lines.is_empty() {
             lines.push(Line::from(String::new()));
         }
-        lines.extend(guidance.into_iter().map(Line::from));
+        lines.extend(guidance.into_iter().map(|line| stylized_body_line(&line)));
         lines
     }
 
@@ -673,12 +666,17 @@ impl App {
             Overlay::Confirm { title, message, .. } => compact_overlay_rect(
                 frame.area(),
                 title,
-                &[message.as_str(), "", "Enter or y confirm", "Esc cancel"],
+                &[
+                    message.as_str(),
+                    "",
+                    "`Enter` or `y` confirm",
+                    "`Esc` cancel",
+                ],
             ),
             Overlay::Notice { title, message } => compact_overlay_rect(
                 frame.area(),
                 title,
-                &[message.as_str(), "", "Enter or Esc dismiss"],
+                &[message.as_str(), "", "`Enter` or `Esc` dismiss"],
             ),
         };
         frame.render_widget(Clear, area);
@@ -690,22 +688,22 @@ impl App {
                 }
             }
             Overlay::Confirm { title, message, .. } => {
-                let widget = Paragraph::new(Text::from(vec![
-                    Line::from(message.clone()),
-                    Line::from(""),
-                    Line::from("Enter or y confirm"),
-                    Line::from("Esc cancel"),
-                ]))
+                let widget = Paragraph::new(Text::from(stylized_body_lines([
+                    message.as_str(),
+                    "",
+                    "`Enter` or `y` confirm",
+                    "`Esc` cancel",
+                ])))
                 .wrap(Wrap { trim: false })
                 .block(Block::default().title(title.clone()).borders(Borders::ALL));
                 frame.render_widget(widget, area);
             }
             Overlay::Notice { title, message } => {
-                let widget = Paragraph::new(Text::from(vec![
-                    Line::from(message.clone()),
-                    Line::from(""),
-                    Line::from("Enter or Esc dismiss"),
-                ]))
+                let widget = Paragraph::new(Text::from(stylized_body_lines([
+                    message.as_str(),
+                    "",
+                    "`Enter` or `Esc` dismiss",
+                ])))
                 .wrap(Wrap { trim: false })
                 .block(Block::default().title(title.clone()).borders(Borders::ALL));
                 frame.render_widget(widget, area);
@@ -773,7 +771,7 @@ impl App {
                     .map(|impact| impact.lines())
                     .unwrap_or_else(|| vec!["Could not describe rerun impact.".to_string()]);
                 frame.render_widget(
-                    Paragraph::new(impact_lines.into_iter().map(Line::from).collect::<Vec<_>>())
+                    Paragraph::new(stylized_body_lines(impact_lines))
                         .wrap(Wrap { trim: false })
                         .block(
                             Block::default()
@@ -811,11 +809,11 @@ impl App {
             .split(inner);
 
         frame.render_widget(
-            Paragraph::new(Text::from(vec![
-                Line::from(format!("Editing {label}")),
-                Line::from("Type a new value, then press Enter to save."),
-                Line::from("Esc cancels."),
-            ]))
+            Paragraph::new(Text::from(stylized_body_lines([
+                format!("Editing {label}"),
+                "Type a new value, then press `Enter` to save.".to_string(),
+                "`Esc` cancels.".to_string(),
+            ])))
             .wrap(Wrap { trim: false }),
             chunks[0],
         );
@@ -852,14 +850,13 @@ impl App {
             .split(inner);
 
         frame.render_widget(
-            Paragraph::new(Text::from(vec![
-                Line::from(format!("Choosing {label}")),
-                Line::from(
-                    "Type to filter directories. Relative input keeps relative suggestions.",
-                ),
-                Line::from("Tab, Right, or l selects the highlighted folder."),
-                Line::from("Enter saves the current path. Esc cancels."),
-            ]))
+            Paragraph::new(Text::from(stylized_body_lines([
+                format!("Choosing {label}"),
+                "Type to filter directories. Relative input keeps relative suggestions."
+                    .to_string(),
+                "`Tab`, `Right`, or `l` selects the highlighted folder.".to_string(),
+                "`Enter` saves the current path. `Esc` cancels.".to_string(),
+            ])))
             .wrap(Wrap { trim: false }),
             chunks[0],
         );
@@ -910,15 +907,9 @@ fn draw_taxonomy_review_suggestion_panel(
         .split(inner);
 
     frame.render_widget(
-        Paragraph::new(
-            review
-                .suggestion_lines()
-                .into_iter()
-                .map(Line::from)
-                .collect::<Vec<_>>(),
-        )
-        .wrap(Wrap { trim: false })
-        .scroll((review.focused_scroll().unwrap_or(0), 0)),
+        Paragraph::new(stylized_body_lines(review.suggestion_lines()))
+            .wrap(Wrap { trim: false })
+            .scroll((review.focused_scroll().unwrap_or(0), 0)),
         chunks[0],
     );
 
@@ -1168,9 +1159,9 @@ fn draw_scrolled_panel(
     empty_message: &str,
 ) {
     let content = if lines.is_empty() {
-        vec![Line::from(empty_message.to_string())]
+        vec![stylized_body_line(empty_message)]
     } else {
-        lines.into_iter().map(Line::from).collect::<Vec<_>>()
+        stylized_body_lines(lines)
     };
     render_scrolled_paragraph(
         frame,
@@ -1191,9 +1182,9 @@ fn draw_scrolled_panel_with_block(
     empty_message: &str,
 ) {
     let content = if lines.is_empty() {
-        vec![Line::from(empty_message.to_string())]
+        vec![stylized_body_line(empty_message)]
     } else {
-        lines.into_iter().map(Line::from).collect::<Vec<_>>()
+        stylized_body_lines(lines)
     };
     render_scrolled_paragraph(frame, area, block, content, scroll, true);
 }

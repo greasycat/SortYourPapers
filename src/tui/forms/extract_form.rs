@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    prelude::{Frame, Line, Text},
+    prelude::{Frame, Text},
     widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
@@ -16,7 +16,7 @@ use crate::{
 use super::{
     EXTRACT_FIELD_LABELS, UiVerbosity, cycle_extractor, extractor_label, parse_u8, parse_usize,
 };
-use crate::tui::ui_widgets::render_selectable_list;
+use crate::tui::ui_widgets::{render_selectable_list, stylized_body_lines};
 
 pub(crate) struct ExtractForm {
     pub(crate) selected: usize,
@@ -69,13 +69,13 @@ impl ExtractForm {
             Some(self.selected),
         );
 
-        let help = Paragraph::new(Text::from(vec![
-            Line::from("Files may be separated by commas or new lines."),
-            Line::from("Enter edits text fields."),
-            Line::from("Left/Right cycles extractor and verbosity."),
-            Line::from(""),
-            Line::from("Press r to run extraction."),
-        ]))
+        let help = Paragraph::new(Text::from(stylized_body_lines([
+            "Files may be separated by commas or new lines.",
+            "`Enter` edits text fields.",
+            "`Left`/`Right` cycles extractor and verbosity.",
+            "",
+            "Press `r` to run extraction.",
+        ])))
         .wrap(Wrap { trim: false })
         .block(Block::default().title("Help").borders(Borders::ALL));
         frame.render_widget(help, chunks[1]);

@@ -697,7 +697,8 @@ impl TaxonomyReviewView {
         match self.phase {
             ReviewPhase::Drafting if self.editing => {
                 lines.push(
-                    "Editing suggestion. Press Enter to submit or Esc to stop editing.".to_string(),
+                    "Editing suggestion. Press `Enter` to submit or `Esc` to stop editing."
+                        .to_string(),
                 );
             }
             ReviewPhase::Drafting => {
