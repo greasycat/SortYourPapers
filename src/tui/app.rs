@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, sync::mpsc, thread, time::Instant};
 
-use crate::error::Result;
+use crate::{CliArgs, config, error::Result};
 
 use super::{
     backend::BackendEvent,
@@ -47,11 +47,36 @@ impl App {
     ) -> Result<Self> {
         let mut session_view = SessionView::default();
         session_view.refresh()?;
+        let run_form = RunForm::from_config(&config::resolve_config(CliArgs {
+            input: None,
+            output: None,
+            recursive: None,
+            max_file_size_mb: None,
+            page_cutoff: None,
+            pdf_extract_workers: None,
+            category_depth: None,
+            taxonomy_mode: None,
+            taxonomy_batch_size: None,
+            placement_batch_size: None,
+            placement_mode: None,
+            rebuild: None,
+            apply: false,
+            llm_provider: None,
+            llm_model: None,
+            llm_base_url: None,
+            api_key: None,
+            api_key_command: None,
+            api_key_env: None,
+            keyword_batch_size: None,
+            subcategories_suggestion_number: None,
+            verbosity: 0,
+            quiet: false,
+        })?);
 
         Ok(Self {
             screen: Screen::Home,
             home_index: 0,
-            run_form: RunForm::default(),
+            run_form,
             extract_form: ExtractForm::default(),
             session_view,
             overlay: None,

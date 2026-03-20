@@ -342,6 +342,49 @@ impl RunForm {
         self.draw_selected_field(frame, side_chunks[1], &analysis);
     }
 
+    pub(crate) fn from_config(config: &AppConfig) -> Self {
+        Self {
+            selected: 0,
+            input: config.input.display().to_string(),
+            output: config.output.display().to_string(),
+            recursive: config.recursive,
+            max_file_size_mb: config.max_file_size_mb.to_string(),
+            page_cutoff: config.page_cutoff.to_string(),
+            pdf_extract_workers: config.pdf_extract_workers.to_string(),
+            category_depth: config.category_depth.to_string(),
+            taxonomy_mode: config.taxonomy_mode,
+            taxonomy_batch_size: config.taxonomy_batch_size.to_string(),
+            placement_batch_size: config.placement_batch_size.to_string(),
+            placement_mode: config.placement_mode,
+            rebuild: config.rebuild,
+            apply: !config.dry_run,
+            llm_provider: config.llm_provider,
+            llm_model: config.llm_model.clone(),
+            llm_base_url: config.llm_base_url.clone().unwrap_or_default(),
+            api_key_source: match &config.api_key {
+                Some(crate::config::ApiKeySource::Text(_)) | None => ApiKeySourceMode::Text,
+                Some(crate::config::ApiKeySource::Command(_)) => ApiKeySourceMode::Command,
+                Some(crate::config::ApiKeySource::Env(_)) => ApiKeySourceMode::Env,
+            },
+            api_key_value: match &config.api_key {
+                Some(crate::config::ApiKeySource::Text(value))
+                | Some(crate::config::ApiKeySource::Command(value))
+                | Some(crate::config::ApiKeySource::Env(value)) => value.clone(),
+                None => String::new(),
+            },
+            keyword_batch_size: config.keyword_batch_size.to_string(),
+            subcategories_suggestion_number: config.subcategories_suggestion_number.to_string(),
+            verbosity: if config.debug {
+                UiVerbosity::Debug
+            } else if config.verbose {
+                UiVerbosity::Verbose
+            } else {
+                UiVerbosity::Normal
+            },
+            quiet: config.quiet,
+        }
+    }
+
     pub(crate) fn analysis(&self) -> RunFormAnalysis {
         let mut issues = Vec::new();
 

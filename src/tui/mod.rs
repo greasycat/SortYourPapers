@@ -91,6 +91,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::{
+        config::{ApiKeySource, AppConfig},
         papers::placement::PlacementMode,
         papers::taxonomy::{CategoryTree, TaxonomyMode},
         report::{FileAction, PlanAction, RunReport},
@@ -323,6 +324,49 @@ mod tests {
         assert!(!form.editable(21));
         assert!(form.editable(14));
         assert!(form.editable(18));
+    }
+
+    #[test]
+    fn run_form_can_be_hydrated_from_saved_config() {
+        let config = AppConfig {
+            input: "/tmp/papers".into(),
+            output: "/tmp/sorted".into(),
+            recursive: true,
+            max_file_size_mb: 32,
+            page_cutoff: 4,
+            pdf_extract_workers: 6,
+            category_depth: 3,
+            taxonomy_mode: TaxonomyMode::Global,
+            taxonomy_batch_size: 9,
+            placement_batch_size: 12,
+            placement_mode: PlacementMode::AllowNew,
+            rebuild: true,
+            dry_run: false,
+            llm_provider: crate::llm::LlmProvider::Openai,
+            llm_model: "gpt-test".to_string(),
+            llm_base_url: Some("http://localhost:1234/v1".to_string()),
+            api_key: Some(ApiKeySource::Env("OPENAI_API_KEY".to_string())),
+            keyword_batch_size: 21,
+            batch_start_delay_ms: 250,
+            subcategories_suggestion_number: 7,
+            verbose: true,
+            debug: false,
+            quiet: true,
+        };
+
+        let form = RunForm::from_config(&config);
+
+        assert_eq!(form.input, "/tmp/papers");
+        assert_eq!(form.output, "/tmp/sorted");
+        assert!(form.recursive);
+        assert_eq!(form.value(14), "gpt-test");
+        assert_eq!(form.value(15), "http://localhost:1234/v1");
+        assert_eq!(form.value(16), "env");
+        assert_eq!(form.value(17), "OPENAI_API_KEY");
+        assert_eq!(form.value(20), "verbose");
+        assert_eq!(form.value(21), "yes");
+        assert!(form.apply);
+        assert!(form.rebuild);
     }
 
     #[test]
