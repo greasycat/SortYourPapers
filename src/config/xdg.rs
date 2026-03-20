@@ -4,10 +4,11 @@ use std::{
 };
 
 use directories::BaseDirs;
+use serde::Serialize;
 
 use crate::{
     config::{
-        DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT,
+        AppConfig, DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT,
         DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OUTPUT,
         DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS, DEFAULT_PLACEMENT_BATCH_SIZE,
         DEFAULT_REBUILD, DEFAULT_RECURSIVE, DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER,
@@ -32,6 +33,17 @@ pub(super) fn init_xdg_config(force: bool) -> Result<PathBuf> {
     };
 
     write_default_config_at(&path, force)?;
+    Ok(path)
+}
+
+pub(super) fn save_xdg_config(config: &AppConfig) -> Result<PathBuf> {
+    let Some(path) = xdg_config_path() else {
+        return Err(AppError::Config(
+            "could not resolve XDG config directory".to_string(),
+        ));
+    };
+
+    write_saved_config_at(&path, config)?;
     Ok(path)
 }
 
@@ -112,4 +124,70 @@ pub(super) fn write_default_config_at(path: &Path, force: bool) -> Result<()> {
 
     fs::write(path, default_config_toml())?;
     Ok(())
+}
+
+pub(super) fn write_saved_config_at(path: &Path, config: &AppConfig) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    fs::write(path, saved_config_toml(config)?)?;
+    Ok(())
+}
+
+fn saved_config_toml(config: &AppConfig) -> Result<String> {
+    let serialized = toml::to_string(&PersistedConfig::from(config))
+        .map_err(|err| AppError::Config(format!("failed to serialize config: {err}")))?;
+    Ok(format!(
+        "# SortYourPapers saved configuration\n# Generated from the TUI run form\n\n{serialized}"
+    ))
+}
+
+#[derive(Serialize)]
+struct PersistedConfig<'a> {
+    input: &'a Path,
+    output: &'a Path,
+    recursive: bool,
+    max_file_size_mb: u64,
+    page_cutoff: u8,
+    pdf_extract_workers: usize,
+    category_depth: u8,
+    taxonomy_mode: crate::papers::taxonomy::TaxonomyMode,
+    taxonomy_batch_size: usize,
+    placement_batch_size: usize,
+    placement_mode: crate::papers::placement::PlacementMode,
+    rebuild: bool,
+    llm_provider: crate::llm::LlmProvider,
+    llm_model: &'a str,
+    llm_base_url: Option<&'a str>,
+    api_key: Option<&'a str>,
+    keyword_batch_size: usize,
+    batch_start_delay_ms: u64,
+    subcategories_suggestion_number: usize,
+}
+
+impl<'a> From<&'a AppConfig> for PersistedConfig<'a> {
+    fn from(config: &'a AppConfig) -> Self {
+        Self {
+            input: &config.input,
+            output: &config.output,
+            recursive: config.recursive,
+            max_file_size_mb: config.max_file_size_mb,
+            page_cutoff: config.page_cutoff,
+            pdf_extract_workers: config.pdf_extract_workers,
+            category_depth: config.category_depth,
+            taxonomy_mode: config.taxonomy_mode,
+            taxonomy_batch_size: config.taxonomy_batch_size,
+            placement_batch_size: config.placement_batch_size,
+            placement_mode: config.placement_mode,
+            rebuild: config.rebuild,
+            llm_provider: config.llm_provider,
+            llm_model: config.llm_model.as_str(),
+            llm_base_url: config.llm_base_url.as_deref(),
+            api_key: config.api_key.as_deref(),
+            keyword_batch_size: config.keyword_batch_size,
+            batch_start_delay_ms: config.batch_start_delay_ms,
+            subcategories_suggestion_number: config.subcategories_suggestion_number,
+        }
+    }
 }

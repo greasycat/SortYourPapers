@@ -4,8 +4,9 @@ use clap::Parser;
 use tempfile::tempdir;
 
 use super::{
-    Cli, CliArgs, Commands, EnvConfig, FileConfig, SessionCommands, resolve::resolve_from_sources,
-    xdg::write_default_config_at,
+    AppConfig, Cli, CliArgs, Commands, EnvConfig, FileConfig, SessionCommands,
+    resolve::resolve_from_sources,
+    xdg::{write_default_config_at, write_saved_config_at},
 };
 use crate::llm::LlmProvider;
 use crate::papers::extract::ExtractorMode;
@@ -156,6 +157,54 @@ fn init_refuses_overwrite_without_force() {
     write_default_config_at(&path, true).expect("forced overwrite should work");
     let raw = fs::read_to_string(path).expect("read overwritten config");
     assert!(raw.contains("SortYourPapers default configuration"));
+}
+
+#[test]
+fn save_writes_current_config_values() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    let config = AppConfig {
+        input: PathBuf::from("/papers"),
+        output: PathBuf::from("/sorted"),
+        recursive: true,
+        max_file_size_mb: 32,
+        page_cutoff: 3,
+        pdf_extract_workers: 6,
+        category_depth: 4,
+        taxonomy_mode: TaxonomyMode::Global,
+        taxonomy_batch_size: 9,
+        placement_batch_size: 11,
+        placement_mode: PlacementMode::AllowNew,
+        rebuild: true,
+        dry_run: false,
+        llm_provider: LlmProvider::Openai,
+        llm_model: "gpt-test".to_string(),
+        llm_base_url: Some("http://localhost:1234/v1".to_string()),
+        api_key: Some("secret".to_string()),
+        keyword_batch_size: 21,
+        batch_start_delay_ms: 250,
+        subcategories_suggestion_number: 7,
+        verbose: true,
+        debug: false,
+        quiet: true,
+    };
+
+    write_saved_config_at(&path, &config).expect("save config");
+
+    let raw = fs::read_to_string(path).expect("read config");
+    assert!(raw.contains("SortYourPapers saved configuration"));
+    assert!(raw.contains("input = \"/papers\""));
+    assert!(raw.contains("output = \"/sorted\""));
+    assert!(raw.contains("recursive = true"));
+    assert!(raw.contains("taxonomy_mode = \"global\""));
+    assert!(raw.contains("placement_mode = \"allow-new\""));
+    assert!(raw.contains("llm_provider = \"openai\""));
+    assert!(raw.contains("llm_model = \"gpt-test\""));
+    assert!(raw.contains("llm_base_url = \"http://localhost:1234/v1\""));
+    assert!(raw.contains("api_key = \"secret\""));
+    assert!(raw.contains("batch_start_delay_ms = 250"));
+    assert!(!raw.contains("dry_run ="));
+    assert!(!raw.contains("quiet ="));
 }
 
 #[test]

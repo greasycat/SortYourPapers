@@ -231,6 +231,7 @@ impl OperationOutcome {
 #[derive(Clone)]
 pub(super) enum ConfirmAction {
     Quit,
+    SaveRunConfig(AppConfig),
     RemoveRun(String),
     ClearIncomplete,
 }

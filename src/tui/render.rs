@@ -623,6 +623,7 @@ impl App {
                 ("←/→ or h/l", "column"),
                 ("Enter", "edit"),
                 ("Space", "toggle"),
+                ("s", "save"),
                 ("Esc", "back"),
             ],
             Screen::ExtractForm => &[

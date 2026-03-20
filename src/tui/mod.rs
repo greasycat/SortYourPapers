@@ -429,6 +429,16 @@ mod tests {
     }
 
     #[test]
+    fn run_form_header_includes_save_shortcut() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+
+        let lines = render_lines(&app, 140, 24);
+
+        assert!(lines.iter().any(|line| line.contains("save")));
+    }
+
+    #[test]
     fn home_screen_lists_remaining_actions() {
         let mut app = test_app();
         app.screen = Screen::Home;
@@ -965,6 +975,28 @@ mod tests {
 
         assert!(matches!(app.screen, Screen::RunForm));
         assert!(matches!(app.overlay, Some(Overlay::Notice { .. })));
+    }
+
+    #[test]
+    fn run_form_save_hotkey_opens_config_confirmation() {
+        let temp = tempdir().expect("tempdir should build");
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.input = temp.path().display().to_string();
+        app.run_form.output = temp.path().join("sorted").display().to_string();
+
+        let runtime = test_runtime();
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)))
+            .expect("save hotkey should be handled");
+
+        assert!(matches!(
+            app.overlay,
+            Some(Overlay::Confirm {
+                action: super::model::ConfirmAction::SaveRunConfig(_),
+                ..
+            })
+        ));
     }
 
     #[test]

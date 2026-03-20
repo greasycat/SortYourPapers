@@ -134,3 +134,12 @@ pub fn init_xdg_config(force: bool) -> Result<PathBuf> {
 pub fn default_config_toml() -> String {
     xdg::default_config_toml()
 }
+
+/// Saves the current runtime configuration as the XDG config file.
+///
+/// # Errors
+/// Returns an error when the XDG config path cannot be resolved or the file
+/// cannot be written.
+pub fn save_xdg_config(config: &AppConfig) -> Result<PathBuf> {
+    xdg::save_xdg_config(config)
+}

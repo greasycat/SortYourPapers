@@ -295,6 +295,41 @@ impl App {
                     let _ = op_tx.send(outcome);
                 });
             }
+            KeyCode::Char('s') => {
+                let analysis = self.run_form.analysis();
+                if analysis.has_errors() {
+                    self.overlay = Some(Overlay::Notice {
+                        title: "Fix Validation Errors".to_string(),
+                        message: analysis.blocking_message(),
+                    });
+                    return Ok(());
+                }
+
+                let Some(config) = analysis.config else {
+                    self.overlay = Some(Overlay::Notice {
+                        title: "Save Config".to_string(),
+                        message: "The run configuration is not ready to save yet.".to_string(),
+                    });
+                    return Ok(());
+                };
+
+                let Some(path) = crate::config::xdg_config_path() else {
+                    self.overlay = Some(Overlay::Notice {
+                        title: "Save Config".to_string(),
+                        message: "Could not resolve the XDG config path.".to_string(),
+                    });
+                    return Ok(());
+                };
+
+                self.overlay = Some(Overlay::Confirm {
+                    title: "Save Config".to_string(),
+                    message: format!(
+                        "Save the current run parameters to {}?\nThis overwrites the existing config file.",
+                        path.display()
+                    ),
+                    action: ConfirmAction::SaveRunConfig(config),
+                });
+            }
             KeyCode::Enter => {
                 if self.run_form.editable(self.run_form.selected) {
                     if self.run_form.selected <= 1 {
@@ -607,6 +642,13 @@ impl App {
         match action {
             ConfirmAction::Quit => {
                 self.should_quit = true;
+            }
+            ConfirmAction::SaveRunConfig(config) => {
+                let path = crate::config::save_xdg_config(&config)?;
+                self.overlay = Some(Overlay::Notice {
+                    title: "Config Saved".to_string(),
+                    message: format!("Saved current run parameters to {}", path.display()),
+                });
             }
             ConfirmAction::RemoveRun(run_id) => {
                 self.start_blocking_operation("Remove Session", move || {
