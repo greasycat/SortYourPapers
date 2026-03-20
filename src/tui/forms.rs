@@ -20,7 +20,7 @@ struct RunFieldDescriptor {
     help: &'static str,
 }
 
-const RUN_FIELDS: [RunFieldDescriptor; 22] = [
+const RUN_FIELDS: [RunFieldDescriptor; 23] = [
     RunFieldDescriptor {
         key: "input",
         label: "Input Folder",
@@ -65,6 +65,11 @@ const RUN_FIELDS: [RunFieldDescriptor; 22] = [
         key: "taxonomy_batch_size",
         label: "Taxonomy Batch Size",
         help: "Preliminary category groups sent in each taxonomy synthesis request.",
+    },
+    RunFieldDescriptor {
+        key: "use_current_folder_tree",
+        label: "Use Current Folder Tree",
+        help: "Feed the existing output folder tree into taxonomy merge as optional naming guidance.",
     },
     RunFieldDescriptor {
         key: "placement_batch_size",

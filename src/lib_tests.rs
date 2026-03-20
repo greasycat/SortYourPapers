@@ -275,21 +275,32 @@ fn rerun_impact_describes_reset_scope_for_early_stage_restart() {
     let impact =
         describe_rerun_impact(&sample_config(), RunStage::ExtractText).expect("describe impact");
 
-    assert_eq!(impact.previous_last_completed_stage, Some(RunStage::FilterSize));
+    assert_eq!(
+        impact.previous_last_completed_stage,
+        Some(RunStage::FilterSize)
+    );
     assert!(impact.cleared_stage_files.contains(&RunStage::ExtractText));
     assert!(impact.cleared_stage_files.contains(&RunStage::BuildPlan));
-    assert!(impact
-        .cleared_artifacts
-        .contains(&RerunArtifact::KeywordBatchProgress));
-    assert!(impact
-        .cleared_artifacts
-        .contains(&RerunArtifact::TaxonomyBatchProgress));
-    assert!(impact
-        .cleared_artifacts
-        .contains(&RerunArtifact::PlacementBatchProgress));
-    assert!(impact
-        .report_reset_sections
-        .contains(&"scan and extraction counters"));
+    assert!(
+        impact
+            .cleared_artifacts
+            .contains(&RerunArtifact::KeywordBatchProgress)
+    );
+    assert!(
+        impact
+            .cleared_artifacts
+            .contains(&RerunArtifact::TaxonomyBatchProgress)
+    );
+    assert!(
+        impact
+            .cleared_artifacts
+            .contains(&RerunArtifact::PlacementBatchProgress)
+    );
+    assert!(
+        impact
+            .report_reset_sections
+            .contains(&"scan and extraction counters")
+    );
 }
 
 #[test]
@@ -317,6 +328,7 @@ fn sample_config() -> AppConfig {
         category_depth: 2,
         taxonomy_mode: TaxonomyMode::BatchMerge,
         taxonomy_batch_size: 4,
+        use_current_folder_tree: false,
         placement_batch_size: 10,
         placement_mode: PlacementMode::ExistingOnly,
         rebuild: false,

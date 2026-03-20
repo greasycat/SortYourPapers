@@ -21,6 +21,7 @@ pub(super) fn env_config_from_process() -> Result<EnvConfig> {
         category_depth: parse_env_u8("SYP_CATEGORY_DEPTH")?,
         taxonomy_mode: parse_env_taxonomy_mode("SYP_TAXONOMY_MODE")?,
         taxonomy_batch_size: parse_env_usize("SYP_TAXONOMY_BATCH_SIZE")?,
+        use_current_folder_tree: parse_env_bool("SYP_USE_CURRENT_FOLDER_TREE")?,
         placement_batch_size: parse_env_usize("SYP_PLACEMENT_BATCH_SIZE")?,
         placement_mode: parse_env_placement_mode("SYP_PLACEMENT_MODE")?,
         rebuild: parse_env_bool("SYP_REBUILD")?,

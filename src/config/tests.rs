@@ -35,6 +35,7 @@ fn cli_overrides_env_and_file() {
         "batch-merge",
         "--taxonomy-batch-size",
         "6",
+        "--use-current-folder-tree",
         "--placement-batch-size",
         "14",
         "--placement-mode",
@@ -64,6 +65,7 @@ fn cli_overrides_env_and_file() {
         category_depth: Some(5),
         taxonomy_mode: Some(TaxonomyMode::BatchMerge),
         taxonomy_batch_size: Some(9),
+        use_current_folder_tree: Some(false),
         placement_batch_size: Some(18),
         placement_mode: Some(PlacementMode::ExistingOnly),
         rebuild: Some(false),
@@ -86,6 +88,7 @@ fn cli_overrides_env_and_file() {
         category_depth: Some(6),
         taxonomy_mode: Some(TaxonomyMode::BatchMerge),
         taxonomy_batch_size: Some(8),
+        use_current_folder_tree: Some(false),
         placement_batch_size: Some(16),
         placement_mode: Some(PlacementMode::ExistingOnly),
         rebuild: Some(false),
@@ -109,6 +112,7 @@ fn cli_overrides_env_and_file() {
     assert_eq!(cfg.category_depth, 3);
     assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
     assert_eq!(cfg.taxonomy_batch_size, 6);
+    assert!(cfg.use_current_folder_tree);
     assert_eq!(cfg.placement_batch_size, 14);
     assert_eq!(cfg.placement_mode, PlacementMode::AllowNew);
     assert!(cfg.rebuild);
@@ -138,6 +142,7 @@ fn init_writes_default_config() {
     assert!(raw.contains("llm_model = \"gemini-3-flash-preview\""));
     assert!(raw.contains("taxonomy_mode = \"batch-merge\""));
     assert!(raw.contains("taxonomy_batch_size = 4"));
+    assert!(raw.contains("use_current_folder_tree = false"));
     assert!(raw.contains("placement_batch_size = 10"));
     assert!(raw.contains("keyword_batch_size = 20"));
     assert!(raw.contains("batch_start_delay_ms = 100"));
@@ -173,6 +178,7 @@ fn save_writes_current_config_values() {
         category_depth: 4,
         taxonomy_mode: TaxonomyMode::Global,
         taxonomy_batch_size: 9,
+        use_current_folder_tree: true,
         placement_batch_size: 11,
         placement_mode: PlacementMode::AllowNew,
         rebuild: true,
@@ -197,6 +203,7 @@ fn save_writes_current_config_values() {
     assert!(raw.contains("output = \"/sorted\""));
     assert!(raw.contains("recursive = true"));
     assert!(raw.contains("taxonomy_mode = \"global\""));
+    assert!(raw.contains("use_current_folder_tree = true"));
     assert!(raw.contains("placement_mode = \"allow-new\""));
     assert!(raw.contains("llm_provider = \"openai\""));
     assert!(raw.contains("llm_model = \"gpt-test\""));
@@ -221,6 +228,7 @@ fn resolved_api_key_reads_from_env_source() {
         category_depth: 2,
         taxonomy_mode: TaxonomyMode::BatchMerge,
         taxonomy_batch_size: 4,
+        use_current_folder_tree: false,
         placement_batch_size: 10,
         placement_mode: PlacementMode::ExistingOnly,
         rebuild: false,
@@ -256,6 +264,7 @@ fn resolved_api_key_runs_command_source() {
         category_depth: 2,
         taxonomy_mode: TaxonomyMode::BatchMerge,
         taxonomy_batch_size: 4,
+        use_current_folder_tree: false,
         placement_batch_size: 10,
         placement_mode: PlacementMode::ExistingOnly,
         rebuild: false,
@@ -306,6 +315,7 @@ fn defaults_to_gemini_and_working_model_when_missing() {
     assert_eq!(cfg.pdf_extract_workers, 8);
     assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
     assert_eq!(cfg.taxonomy_batch_size, 4);
+    assert!(!cfg.use_current_folder_tree);
     assert_eq!(cfg.placement_batch_size, 10);
     assert_eq!(cfg.keyword_batch_size, 20);
     assert_eq!(cfg.batch_start_delay_ms, 100);
@@ -336,6 +346,7 @@ fn supports_shorthand_flags() {
         "batch-merge",
         "--taxonomy-batch-size",
         "5",
+        "--use-current-folder-tree",
         "--placement-batch-size",
         "15",
         "-M",
@@ -369,6 +380,7 @@ fn supports_shorthand_flags() {
     assert_eq!(cfg.category_depth, 3);
     assert_eq!(cfg.taxonomy_mode, TaxonomyMode::BatchMerge);
     assert_eq!(cfg.taxonomy_batch_size, 5);
+    assert!(cfg.use_current_folder_tree);
     assert_eq!(cfg.placement_batch_size, 15);
     assert_eq!(cfg.placement_mode, PlacementMode::AllowNew);
     assert!(cfg.rebuild);

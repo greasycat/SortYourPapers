@@ -322,6 +322,7 @@ mod tests {
         assert!(!form.editable(16));
         assert!(!form.editable(20));
         assert!(!form.editable(21));
+        assert!(!form.editable(22));
         assert!(form.editable(14));
         assert!(form.editable(18));
     }
@@ -338,6 +339,7 @@ mod tests {
             category_depth: 3,
             taxonomy_mode: TaxonomyMode::Global,
             taxonomy_batch_size: 9,
+            use_current_folder_tree: true,
             placement_batch_size: 12,
             placement_mode: PlacementMode::AllowNew,
             rebuild: true,
@@ -365,6 +367,7 @@ mod tests {
         assert_eq!(form.value(17), "OPENAI_API_KEY");
         assert_eq!(form.value(20), "verbose");
         assert_eq!(form.value(21), "yes");
+        assert_eq!(form.value(22), "yes");
         assert!(form.apply);
         assert!(form.rebuild);
     }
@@ -396,6 +399,10 @@ mod tests {
         form.selected = 21;
         form.toggle_selected();
         assert!(form.quiet);
+
+        form.selected = 22;
+        form.toggle_selected();
+        assert!(form.use_current_folder_tree);
     }
 
     #[test]
@@ -419,13 +426,13 @@ mod tests {
 
         form.selected = 4;
         form.move_column_right();
-        assert_eq!(form.selected, 19);
+        assert_eq!(form.selected, 18);
 
         form.move_column_right();
         assert_eq!(form.selected, 17);
 
         form.move_column_left();
-        assert_eq!(form.selected, 19);
+        assert_eq!(form.selected, 18);
 
         form.move_column_left();
         assert_eq!(form.selected, 4);
@@ -440,7 +447,7 @@ mod tests {
         assert_eq!(form.selected, 10);
 
         form.move_column_right();
-        assert_eq!(form.selected, 12);
+        assert_eq!(form.selected, 20);
     }
 
     #[test]

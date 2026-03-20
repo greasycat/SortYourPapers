@@ -10,7 +10,7 @@ use super::{
     DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_MAX_FILE_SIZE_MB,
     DEFAULT_OUTPUT, DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS, DEFAULT_PLACEMENT_BATCH_SIZE,
     DEFAULT_REBUILD, DEFAULT_RECURSIVE, DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER,
-    DEFAULT_TAXONOMY_BATCH_SIZE, EnvConfig, FileConfig,
+    DEFAULT_TAXONOMY_BATCH_SIZE, DEFAULT_USE_CURRENT_FOLDER_TREE, EnvConfig, FileConfig,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -73,6 +73,12 @@ pub(super) fn resolve_from_sources(
         .or(env_cfg.taxonomy_batch_size)
         .or(file_cfg.taxonomy_batch_size)
         .unwrap_or(DEFAULT_TAXONOMY_BATCH_SIZE);
+
+    let use_current_folder_tree = cli
+        .use_current_folder_tree
+        .or(env_cfg.use_current_folder_tree)
+        .or(file_cfg.use_current_folder_tree)
+        .unwrap_or(DEFAULT_USE_CURRENT_FOLDER_TREE);
 
     let placement_batch_size = cli
         .placement_batch_size
@@ -154,6 +160,7 @@ pub(super) fn resolve_from_sources(
         category_depth,
         taxonomy_mode,
         taxonomy_batch_size,
+        use_current_folder_tree,
         placement_batch_size,
         placement_mode,
         rebuild,

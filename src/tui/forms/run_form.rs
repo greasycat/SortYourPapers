@@ -179,6 +179,7 @@ pub(crate) struct RunForm {
     category_depth: String,
     pub(crate) taxonomy_mode: TaxonomyMode,
     taxonomy_batch_size: String,
+    pub(crate) use_current_folder_tree: bool,
     placement_batch_size: String,
     pub(crate) placement_mode: PlacementMode,
     pub(crate) rebuild: bool,
@@ -207,6 +208,7 @@ impl Default for RunForm {
             category_depth: DEFAULT_CATEGORY_DEPTH.to_string(),
             taxonomy_mode: TaxonomyMode::BatchMerge,
             taxonomy_batch_size: DEFAULT_TAXONOMY_BATCH_SIZE.to_string(),
+            use_current_folder_tree: false,
             placement_batch_size: DEFAULT_PLACEMENT_BATCH_SIZE.to_string(),
             placement_mode: PlacementMode::ExistingOnly,
             rebuild: false,
@@ -305,12 +307,12 @@ impl DirectoryQuery {
 impl RunForm {
     const COLUMN_FIELDS: [&'static [usize]; 3] = [
         &[0, 1, 2, 3, 4, 5],
-        &[6, 7, 8, 18, 19, 9, 10],
+        &[6, 7, 8, 22, 18, 19, 9, 10],
         &[13, 14, 15, 16, 17, 11, 12, 20, 21],
     ];
 
-    const VISIBLE_FIELDS: [usize; 22] = [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 18, 19, 9, 10, 13, 14, 15, 16, 17, 11, 12, 20, 21,
+    const VISIBLE_FIELDS: [usize; 23] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 22, 18, 19, 9, 10, 13, 14, 15, 16, 17, 11, 12, 20, 21,
     ];
 
     pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
@@ -354,6 +356,7 @@ impl RunForm {
             category_depth: config.category_depth.to_string(),
             taxonomy_mode: config.taxonomy_mode,
             taxonomy_batch_size: config.taxonomy_batch_size.to_string(),
+            use_current_folder_tree: config.use_current_folder_tree,
             placement_batch_size: config.placement_batch_size.to_string(),
             placement_mode: config.placement_mode,
             rebuild: config.rebuild,
@@ -496,6 +499,15 @@ impl RunForm {
             });
         }
 
+        if self.use_current_folder_tree && self.rebuild {
+            issues.push(ValidationIssue {
+                field: Some(22),
+                severity: ValidationSeverity::Info,
+                message: "Rebuild ignores the current output tree, so this taxonomy hint will be inactive."
+                    .to_string(),
+            });
+        }
+
         let config = if issues
             .iter()
             .any(|issue| issue.severity == ValidationSeverity::Error)
@@ -539,6 +551,7 @@ impl RunForm {
                 "taxonomy_batch_size",
                 &self.taxonomy_batch_size,
             )?),
+            use_current_folder_tree: Some(self.use_current_folder_tree),
             placement_batch_size: Some(parse_usize(
                 "placement_batch_size",
                 &self.placement_batch_size,
@@ -600,7 +613,7 @@ impl RunForm {
     }
 
     pub(crate) fn editable(&self, index: usize) -> bool {
-        !matches!(index, 2 | 7 | 10 | 11 | 12 | 13 | 16 | 20 | 21)
+        !matches!(index, 2 | 7 | 10 | 11 | 12 | 13 | 16 | 20 | 21 | 22)
     }
 
     pub(crate) fn toggle_selected(&mut self) {
@@ -609,6 +622,7 @@ impl RunForm {
             11 => self.rebuild = !self.rebuild,
             12 => self.apply = !self.apply,
             21 => self.quiet = !self.quiet,
+            22 => self.use_current_folder_tree = !self.use_current_folder_tree,
             _ => self.cycle_selected(1),
         }
     }
@@ -680,6 +694,7 @@ impl RunForm {
             19 => self.subcategories_suggestion_number.clone(),
             20 => self.verbosity.label().to_string(),
             21 => bool_label(self.quiet).to_string(),
+            22 => bool_label(self.use_current_folder_tree).to_string(),
             _ => String::new(),
         }
     }
@@ -715,7 +730,10 @@ impl RunForm {
 
         const COLUMN_SECTIONS: [[(&str, &[usize]); 2]; 3] = [
             [("Paths & Scope", &[0, 1, 2]), ("Extraction", &[3, 4, 5])],
-            [("Taxonomy", &[6, 7, 8, 18, 19]), ("Placement", &[9, 10])],
+            [
+                ("Taxonomy", &[6, 7, 8, 22, 18, 19]),
+                ("Placement", &[9, 10]),
+            ],
             [
                 ("LLM & API", &[13, 14, 15, 16, 17]),
                 ("Run", &[11, 12, 20, 21]),
@@ -796,10 +814,11 @@ impl RunForm {
             labeled_value_line(
                 "Taxonomy",
                 &format!(
-                    "depth {} | {} | batch {}",
+                    "depth {} | {} | batch {} | tree {}",
                     self.category_depth.trim(),
                     taxonomy_mode_label(self.taxonomy_mode),
-                    self.taxonomy_batch_size.trim()
+                    self.taxonomy_batch_size.trim(),
+                    bool_label(self.use_current_folder_tree)
                 ),
                 Color::Magenta,
                 Color::White,

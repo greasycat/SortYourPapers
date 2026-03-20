@@ -541,6 +541,7 @@ mod tests {
             category_depth: 2,
             taxonomy_mode: TaxonomyMode::BatchMerge,
             taxonomy_batch_size: 2,
+            use_current_folder_tree: false,
             placement_batch_size: 2,
             placement_mode: PlacementMode::AllowNew,
             rebuild: false,

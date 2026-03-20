@@ -337,8 +337,7 @@ pub(super) fn pick_snapshot_for_mode(snapshot: &OutputSnapshot, rebuild: bool) -
 pub(super) fn existing_output_folders_for_taxonomy_merge(
     config: &AppConfig,
 ) -> Result<Option<Vec<String>>> {
-    if config.rebuild || config.placement_mode != crate::papers::placement::PlacementMode::AllowNew
-    {
+    if config.rebuild || !config.use_current_folder_tree {
         return Ok(None);
     }
 
@@ -371,7 +370,10 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{InspectReviewState, inspect_output_stage_with_interaction};
+    use super::{
+        InspectReviewState, existing_output_folders_for_taxonomy_merge,
+        inspect_output_stage_with_interaction,
+    };
     use crate::{
         config::AppConfig,
         error::AppError,
@@ -538,6 +540,23 @@ mod tests {
         assert_eq!(categories[0].name, "AI");
     }
 
+    #[test]
+    fn current_folder_tree_hint_uses_explicit_flag_not_placement_mode() {
+        let dir = tempdir().expect("tempdir");
+        let output = dir.path().join("sorted");
+        std::fs::create_dir_all(output.join("AI/Vision")).expect("create folders");
+        let mut config = sample_config(output);
+        config.use_current_folder_tree = true;
+        config.placement_mode = PlacementMode::ExistingOnly;
+
+        let folders = existing_output_folders_for_taxonomy_merge(&config)
+            .expect("collect folders")
+            .expect("folders");
+
+        assert!(folders.contains(&"AI".to_string()));
+        assert!(folders.contains(&"AI/Vision".to_string()));
+    }
+
     fn sample_config(output: PathBuf) -> AppConfig {
         AppConfig {
             input: PathBuf::from("/tmp/in"),
@@ -549,6 +568,7 @@ mod tests {
             category_depth: 2,
             taxonomy_mode: TaxonomyMode::BatchMerge,
             taxonomy_batch_size: 4,
+            use_current_folder_tree: false,
             placement_batch_size: 10,
             placement_mode: PlacementMode::ExistingOnly,
             rebuild: false,

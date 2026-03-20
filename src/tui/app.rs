@@ -57,6 +57,7 @@ impl App {
             category_depth: None,
             taxonomy_mode: None,
             taxonomy_batch_size: None,
+            use_current_folder_tree: None,
             placement_batch_size: None,
             placement_mode: None,
             rebuild: None,

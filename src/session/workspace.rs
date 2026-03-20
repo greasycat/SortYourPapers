@@ -780,6 +780,7 @@ mod tests {
             category_depth: 2,
             taxonomy_mode: TaxonomyMode::BatchMerge,
             taxonomy_batch_size: 3,
+            use_current_folder_tree: false,
             placement_batch_size: 25,
             placement_mode: PlacementMode::ExistingOnly,
             rebuild: false,

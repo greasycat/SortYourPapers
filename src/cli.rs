@@ -20,6 +20,7 @@ pub(crate) const DEFAULT_PLACEMENT_BATCH_SIZE: usize = 10;
 pub(crate) const DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER: usize = 5;
 pub(crate) const DEFAULT_RECURSIVE: bool = false;
 pub(crate) const DEFAULT_REBUILD: bool = false;
+pub(crate) const DEFAULT_USE_CURRENT_FOLDER_TREE: bool = false;
 pub(crate) const DEFAULT_LLM_PROVIDER: LlmProvider = LlmProvider::Gemini;
 pub(crate) const DEFAULT_LLM_MODEL: &str = "gemini-3-flash-preview";
 
@@ -153,6 +154,9 @@ pub struct CliArgs {
 
     #[arg(long)]
     pub taxonomy_batch_size: Option<usize>,
+
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    pub use_current_folder_tree: Option<bool>,
 
     #[arg(long)]
     pub placement_batch_size: Option<usize>,
