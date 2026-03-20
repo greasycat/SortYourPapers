@@ -64,13 +64,7 @@ impl RerunImpact {
                 "Saved progress before restart: {}",
                 self.previous_last_completed_stage.map_or_else(
                     || "none (the run will restart from scratch)".to_string(),
-                    |stage| {
-                        format!(
-                            "{} | {}",
-                            rerun_stage_name(stage),
-                            stage.description()
-                        )
-                    }
+                    |stage| { format!("{} | {}", rerun_stage_name(stage), stage.description()) }
                 )
             ),
             String::new(),
@@ -664,7 +658,10 @@ fn validate_rerun_stage(stage: RunStage, stages: &[RunStage]) -> Result<RunStage
         })
 }
 
-pub(crate) fn describe_rerun_impact(config: &AppConfig, start_stage: RunStage) -> Result<RerunImpact> {
+pub(crate) fn describe_rerun_impact(
+    config: &AppConfig,
+    start_stage: RunStage,
+) -> Result<RerunImpact> {
     let stages = available_rerun_stages(config);
     let Some(start_index) = stages.iter().position(|stage| *stage == start_stage) else {
         return Err(AppError::Execution(format!(
