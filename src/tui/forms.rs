@@ -67,11 +67,6 @@ const RUN_FIELDS: [RunFieldDescriptor; 23] = [
         help: "Preliminary category groups sent in each taxonomy synthesis request.",
     },
     RunFieldDescriptor {
-        key: "use_current_folder_tree",
-        label: "Use Current Folder Tree",
-        help: "Feed the existing output folder tree into taxonomy merge as optional naming guidance.",
-    },
-    RunFieldDescriptor {
         key: "placement_batch_size",
         label: "Placement Batch Size",
         help: "Papers classified together in each placement request.",
@@ -135,6 +130,11 @@ const RUN_FIELDS: [RunFieldDescriptor; 23] = [
         key: "quiet",
         label: "Quiet Mode",
         help: "Reduce runtime output to warnings, errors, and essential summaries.",
+    },
+    RunFieldDescriptor {
+        key: "use_current_folder_tree",
+        label: "Use Current Folder Tree",
+        help: "Feed the existing output folder tree into taxonomy merge as optional naming guidance.",
     },
 ];
 
