@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
-    widgets::{Block, Borders, Clear, Gauge, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Gauge, ListItem, Padding, Paragraph, Wrap},
 };
 
 use crate::terminal;
@@ -23,6 +23,7 @@ use super::{
 const STACKED_SCREEN_WIDTH: u16 = 100;
 const STACKED_WORKSPACE_WIDTH: u16 = 140;
 const STACKED_REVIEW_WIDTH: u16 = 120;
+const OVERLAY_PADDING: u16 = 1;
 
 impl App {
     pub(super) fn draw(&self, frame: &mut Frame) {
@@ -695,7 +696,7 @@ impl App {
                     "`Esc` cancel",
                 ])))
                 .wrap(Wrap { trim: false })
-                .block(Block::default().title(title.clone()).borders(Borders::ALL));
+                .block(overlay_block(title));
                 frame.render_widget(widget, area);
             }
             Overlay::Notice { title, message } => {
@@ -705,7 +706,7 @@ impl App {
                     "`Enter` or `Esc` dismiss",
                 ])))
                 .wrap(Wrap { trim: false })
-                .block(Block::default().title(title.clone()).borders(Borders::ALL));
+                .block(overlay_block(title));
                 frame.render_widget(widget, area);
             }
             Overlay::SelectPath {
@@ -1080,15 +1081,22 @@ fn compact_overlay_rect(area: Rect, title: &str, lines: &[&str]) -> Rect {
             .unwrap_or(0),
     );
     let desired_width = (content_width + 4).clamp(28, max_width as usize) as u16;
-    let inner_width = desired_width.saturating_sub(2).max(1) as usize;
+    let inner_width = desired_width.saturating_sub(2 + OVERLAY_PADDING * 2).max(1) as usize;
     let wrapped_height = lines
         .iter()
         .map(|line| wrapped_line_count(line, inner_width))
         .sum::<usize>();
-    let desired_height =
-        (wrapped_height + 2).clamp(5, area.height.saturating_sub(2).max(5) as usize) as u16;
+    let desired_height = (wrapped_height + 2 + usize::from(OVERLAY_PADDING) * 2)
+        .clamp(5, area.height.saturating_sub(2).max(5) as usize) as u16;
 
     centered_rect_exact(desired_width, desired_height, area)
+}
+
+fn overlay_block(title: &str) -> Block<'_> {
+    Block::default()
+        .title(title.to_string())
+        .borders(Borders::ALL)
+        .padding(Padding::uniform(OVERLAY_PADDING))
 }
 
 fn wrapped_line_count(line: &str, width: usize) -> usize {

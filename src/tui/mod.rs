@@ -970,6 +970,42 @@ mod tests {
     }
 
     #[test]
+    fn confirm_overlay_adds_inner_padding() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+        app.overlay = Some(Overlay::Confirm {
+            title: "Quit".to_string(),
+            message: "Quit SortYourPapers?".to_string(),
+            action: super::model::ConfirmAction::Quit,
+        });
+
+        let lines = render_lines(&app, 80, 24);
+        let title_y = lines
+            .iter()
+            .position(|line| line.contains("Quit") && line.contains('┌') && line.contains('┐'))
+            .expect("overlay title should be rendered");
+        let title_line = &lines[title_y];
+        let chars = title_line.chars().collect::<Vec<_>>();
+        let title_byte_index = title_line.find("Quit").expect("title should be rendered");
+        let title_x = title_line[..title_byte_index].chars().count();
+        let start = chars[..=title_x]
+            .iter()
+            .rposition(|ch| *ch == '┌')
+            .expect("overlay should have a top border");
+        let end = chars[title_x..]
+            .iter()
+            .position(|ch| *ch == '┐')
+            .map(|offset| title_x + offset)
+            .expect("overlay should have a top border");
+        let padded_line = &lines[title_y + 1];
+        let padded_chars = padded_line.chars().collect::<Vec<_>>();
+
+        assert_eq!(padded_chars[start], '│');
+        assert_eq!(padded_chars[end], '│');
+        assert!(padded_chars[start + 1..end].iter().all(|ch| *ch == ' '));
+    }
+
+    #[test]
     fn notice_overlay_renders_compact_popup() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
