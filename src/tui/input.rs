@@ -255,46 +255,14 @@ impl App {
             }
             KeyCode::Left | KeyCode::Char('h') => self.run_form.move_column_left(),
             KeyCode::Right | KeyCode::Char('l') => self.run_form.move_column_right(),
-            KeyCode::Char(' ') => self.run_form.toggle_selected(),
-            KeyCode::Char('r') => {
-                let analysis = self.run_form.analysis();
-                if analysis.has_errors() {
-                    self.overlay = Some(Overlay::Notice {
-                        title: "Fix Validation Errors".to_string(),
-                        message: analysis.blocking_message(),
-                    });
-                    return Ok(());
+            KeyCode::Char(' ') => {
+                if self.run_form.run_button_selected() {
+                    self.launch_run_from_form();
+                } else {
+                    self.run_form.toggle_selected();
                 }
-
-                let Some(config) = analysis.config else {
-                    self.overlay = Some(Overlay::Notice {
-                        title: "Run Configuration".to_string(),
-                        message: "The run configuration is not ready yet.".to_string(),
-                    });
-                    return Ok(());
-                };
-                let use_debug_tui = self.debug_tui;
-                let op_tx = self.op_tx.clone();
-                self.start_async_operation("Run Papers", move |_tx| async move {
-                    let outcome = match if use_debug_tui {
-                        crate::app::run_debug_tui(config).await
-                    } else {
-                        crate::run(config).await
-                    } {
-                        Ok(_) => OperationOutcome::success(
-                            "Run Papers",
-                            "run completed".to_string(),
-                            OperationDetail::None,
-                        ),
-                        Err(err) => OperationOutcome::failure(
-                            "Run Papers",
-                            err.to_string(),
-                            OperationDetail::None,
-                        ),
-                    };
-                    let _ = op_tx.send(outcome);
-                });
             }
+            KeyCode::Char('r') => self.launch_run_from_form(),
             KeyCode::Char('s') => {
                 let analysis = self.run_form.analysis();
                 if analysis.has_errors() {
@@ -331,7 +299,9 @@ impl App {
                 });
             }
             KeyCode::Enter => {
-                if self.run_form.editable(self.run_form.selected) {
+                if self.run_form.run_button_selected() {
+                    self.launch_run_from_form();
+                } else if self.run_form.editable(self.run_form.selected) {
                     if self.run_form.selected <= 1 {
                         self.open_run_path_overlay()?;
                     } else {
@@ -347,6 +317,44 @@ impl App {
             _ => {}
         }
         Ok(())
+    }
+
+    fn launch_run_from_form(&mut self) {
+        let analysis = self.run_form.analysis();
+        if analysis.has_errors() {
+            self.overlay = Some(Overlay::Notice {
+                title: "Fix Validation Errors".to_string(),
+                message: analysis.blocking_message(),
+            });
+            return;
+        }
+
+        let Some(config) = analysis.config else {
+            self.overlay = Some(Overlay::Notice {
+                title: "Run Configuration".to_string(),
+                message: "The run configuration is not ready yet.".to_string(),
+            });
+            return;
+        };
+        let use_debug_tui = self.debug_tui;
+        let op_tx = self.op_tx.clone();
+        self.start_async_operation("Run Papers", move |_tx| async move {
+            let outcome = match if use_debug_tui {
+                crate::app::run_debug_tui(config).await
+            } else {
+                crate::run(config).await
+            } {
+                Ok(_) => OperationOutcome::success(
+                    "Run Papers",
+                    "run completed".to_string(),
+                    OperationDetail::None,
+                ),
+                Err(err) => {
+                    OperationOutcome::failure("Run Papers", err.to_string(), OperationDetail::None)
+                }
+            };
+            let _ = op_tx.send(outcome);
+        });
     }
 
     fn handle_operation_key(&mut self, key: KeyEvent) -> Result<()> {

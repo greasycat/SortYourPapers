@@ -20,7 +20,7 @@ struct RunFieldDescriptor {
     help: &'static str,
 }
 
-const RUN_FIELDS: [RunFieldDescriptor; 23] = [
+const RUN_FIELDS: [RunFieldDescriptor; 24] = [
     RunFieldDescriptor {
         key: "input",
         label: "Input Folder",
@@ -135,6 +135,11 @@ const RUN_FIELDS: [RunFieldDescriptor; 23] = [
         key: "use_current_folder_tree",
         label: "Use Current Folder Tree",
         help: "Feed the existing output folder tree into taxonomy merge as optional naming guidance.",
+    },
+    RunFieldDescriptor {
+        key: "run_button",
+        label: "Run Button",
+        help: "Launch the current run configuration. Equivalent to pressing r on the run form.",
     },
 ];
 

@@ -305,14 +305,39 @@ impl DirectoryQuery {
 }
 
 impl RunForm {
+    pub(crate) const RUN_BUTTON_INDEX: usize = 23;
+
     const COLUMN_FIELDS: [&'static [usize]; 3] = [
         &[0, 1, 2, 3, 4, 5],
         &[6, 7, 8, 22, 18, 19, 9, 10],
-        &[13, 14, 15, 16, 17, 11, 12, 20, 21],
+        &[13, 14, 15, 16, 17, 11, 12, 20, 21, Self::RUN_BUTTON_INDEX],
     ];
 
-    const VISIBLE_FIELDS: [usize; 23] = [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 22, 18, 19, 9, 10, 13, 14, 15, 16, 17, 11, 12, 20, 21,
+    const VISIBLE_FIELDS: [usize; 24] = [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        22,
+        18,
+        19,
+        9,
+        10,
+        13,
+        14,
+        15,
+        16,
+        17,
+        11,
+        12,
+        20,
+        21,
+        Self::RUN_BUTTON_INDEX,
     ];
 
     pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
@@ -613,7 +638,10 @@ impl RunForm {
     }
 
     pub(crate) fn editable(&self, index: usize) -> bool {
-        !matches!(index, 2 | 7 | 10 | 11 | 12 | 13 | 16 | 20 | 21 | 22)
+        !matches!(
+            index,
+            2 | 7 | 10 | 11 | 12 | 13 | 16 | 20 | 21 | 22 | Self::RUN_BUTTON_INDEX
+        )
     }
 
     pub(crate) fn toggle_selected(&mut self) {
@@ -695,8 +723,13 @@ impl RunForm {
             20 => self.verbosity.label().to_string(),
             21 => bool_label(self.quiet).to_string(),
             22 => bool_label(self.use_current_folder_tree).to_string(),
+            Self::RUN_BUTTON_INDEX => "Press Enter, Space, or r to launch.".to_string(),
             _ => String::new(),
         }
+    }
+
+    pub(crate) fn run_button_selected(&self) -> bool {
+        self.selected == Self::RUN_BUTTON_INDEX
     }
 
     fn draw_form_workspace(&self, frame: &mut Frame, area: Rect, analysis: &RunFormAnalysis) {
@@ -736,7 +769,7 @@ impl RunForm {
             ],
             [
                 ("LLM & API", &[13, 14, 15, 16, 17]),
-                ("Run", &[11, 12, 20, 21]),
+                ("Run", &[11, 12, 20, 21, RunForm::RUN_BUTTON_INDEX]),
             ],
         ];
 
@@ -990,6 +1023,20 @@ impl RunForm {
             ))));
 
             for field_index in *fields {
+                if *field_index == Self::RUN_BUTTON_INDEX {
+                    if *field_index == self.selected {
+                        selected_item = Some(items.len());
+                    }
+                    items.push(ListItem::new(Line::styled(
+                        "  [ Run ]  ",
+                        Style::default()
+                            .fg(Color::White)
+                            .bg(Color::Blue)
+                            .add_modifier(Modifier::BOLD),
+                    )));
+                    continue;
+                }
+
                 let marker = analysis
                     .field_issue(*field_index)
                     .map_or(' ', |issue| issue.severity.marker());

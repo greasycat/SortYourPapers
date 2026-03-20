@@ -474,6 +474,22 @@ mod tests {
     }
 
     #[test]
+    fn run_form_selected_run_button_shows_launch_copy() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.selected = RunForm::RUN_BUTTON_INDEX;
+
+        let lines = render_lines(&app, 140, 40);
+
+        assert!(lines.iter().any(|line| line.contains("Run Button")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Press Enter, Space, or r to launch."))
+        );
+    }
+
+    #[test]
     fn run_form_scrolls_to_keep_selected_field_visible() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
@@ -850,14 +866,13 @@ mod tests {
     }
 
     #[test]
-    fn run_form_header_describes_enter_as_edit_only() {
+    fn run_form_header_describes_enter_as_edit_or_run() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
 
         let lines = render_lines(&app, 100, 24);
 
-        assert!(lines.iter().any(|line| line.contains("Enter: edit")));
-        assert!(!lines.iter().any(|line| line.contains("Enter: edit/run")));
+        assert!(lines.iter().any(|line| line.contains("Enter: edit/run")));
     }
 
     #[test]
@@ -1086,6 +1101,24 @@ mod tests {
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)))
             .expect("run hotkey should be handled");
+
+        assert!(matches!(app.screen, Screen::RunForm));
+        assert!(matches!(app.overlay, Some(Overlay::Notice { .. })));
+    }
+
+    #[test]
+    fn run_button_enter_with_errors_opens_notice_instead_of_starting() {
+        let temp = tempdir().expect("tempdir should build");
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.input = temp.path().join("missing-input").display().to_string();
+        app.run_form.output = temp.path().join("sorted").display().to_string();
+        app.run_form.selected = RunForm::RUN_BUTTON_INDEX;
+
+        let runtime = test_runtime();
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
+            .expect("run button should be handled");
 
         assert!(matches!(app.screen, Screen::RunForm));
         assert!(matches!(app.overlay, Some(Overlay::Notice { .. })));
