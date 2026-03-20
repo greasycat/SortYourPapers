@@ -336,6 +336,22 @@ mod tests {
         }]
     }
 
+    fn sample_rearrangeable_taxonomy_categories() -> Vec<CategoryTree> {
+        vec![
+            CategoryTree {
+                name: "AI".to_string(),
+                children: vec![CategoryTree {
+                    name: "Vision".to_string(),
+                    children: vec![],
+                }],
+            },
+            CategoryTree {
+                name: "Systems".to_string(),
+                children: vec![],
+            },
+        ]
+    }
+
     #[test]
     fn run_form_non_editable_fields_match_toggle_and_enum_fields() {
         let form = RunForm::default();
@@ -1826,6 +1842,8 @@ mod tests {
         assert!(!lines.iter().any(|line| line.contains("Accepted Taxonomy")));
         assert!(lines.iter().any(|line| line.contains("Suggestion")));
         assert!(lines.iter().any(|line| line.contains("History")));
+        assert!(lines.iter().any(|line| line.contains("cut")));
+        assert!(lines.iter().any(|line| line.contains("paste")));
     }
 
     #[test]
@@ -1878,6 +1896,92 @@ mod tests {
             .expect("space should unfold the selected iteration taxonomy node");
         let reopened_lines = render_lines(&app, 120, 32);
         assert!(reopened_lines.iter().any(|line| line.contains("Vision")));
+    }
+
+    #[test]
+    fn taxonomy_review_x_and_p_move_selected_entry_in_accepted_taxonomy() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let mut review =
+            TaxonomyReviewView::new(sample_rearrangeable_taxonomy_categories(), inspect_tx);
+        review.focused_pane = ReviewPane::IterationTaxonomy;
+        let _ = review
+            .iteration_tree_state
+            .borrow_mut()
+            .select(vec![0, 0, 0]);
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)))
+            .expect("x should cut the selected taxonomy node");
+        let _ = app
+            .taxonomy_review
+            .as_mut()
+            .expect("review should remain open")
+            .iteration_tree_state
+            .borrow_mut()
+            .select(vec![0, 1]);
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)))
+            .expect("p should paste the cut taxonomy node");
+
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("review should remain open");
+        assert!(review.cut_entry.is_none());
+        assert_eq!(review.accepted_categories.len(), 2);
+        assert!(review.accepted_categories[0].children.is_empty());
+        assert_eq!(review.accepted_categories[1].name, "Systems");
+        assert_eq!(review.accepted_categories[1].children.len(), 1);
+        assert_eq!(review.accepted_categories[1].children[0].name, "Vision");
+    }
+
+    #[test]
+    fn taxonomy_review_x_and_p_move_selected_entry_in_candidate_taxonomy() {
+        let mut app = test_app();
+        let (inspect_tx, _inspect_rx) = mpsc::channel();
+        let mut review = TaxonomyReviewView::new(sample_taxonomy_categories(), inspect_tx);
+        review.phase = ReviewPhase::PostSuggestionDecision;
+        review.focused_pane = ReviewPane::IterationTaxonomy;
+        review.candidate_categories = Some(sample_rearrangeable_taxonomy_categories());
+        let _ = review
+            .iteration_tree_state
+            .borrow_mut()
+            .select(vec![0, 0, 0]);
+        app.screen = Screen::TaxonomyReview;
+        app.taxonomy_review = Some(review);
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)))
+            .expect("x should cut the selected candidate taxonomy node");
+        let _ = app
+            .taxonomy_review
+            .as_mut()
+            .expect("review should remain open")
+            .iteration_tree_state
+            .borrow_mut()
+            .select(vec![0, 1]);
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)))
+            .expect("p should paste the cut candidate taxonomy node");
+
+        let review = app
+            .taxonomy_review
+            .as_ref()
+            .expect("review should remain open");
+        assert_eq!(review.accepted_categories[0].name, "AI");
+        let candidate = review
+            .candidate_categories
+            .as_ref()
+            .expect("candidate taxonomy should remain available");
+        assert_eq!(candidate.len(), 2);
+        assert!(candidate[0].children.is_empty());
+        assert_eq!(candidate[1].children.len(), 1);
+        assert_eq!(candidate[1].children[0].name, "Vision");
     }
 
     #[test]

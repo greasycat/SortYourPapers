@@ -61,6 +61,12 @@ pub(super) enum PendingReviewReply {
     Continue(mpsc::Sender<std::result::Result<bool, String>>),
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct CutTaxonomyEntry {
+    path: Vec<String>,
+    entry: CategoryTree,
+}
+
 pub(super) struct TaxonomyReviewView {
     pub(super) accepted_categories: Vec<CategoryTree>,
     pub(super) candidate_categories: Option<Vec<CategoryTree>>,
@@ -77,6 +83,7 @@ pub(super) struct TaxonomyReviewView {
     pub(super) phase: ReviewPhase,
     pub(super) editing: bool,
     pub(super) pending_reply: Option<PendingReviewReply>,
+    pub(super) cut_entry: Option<CutTaxonomyEntry>,
 }
 
 impl TaxonomyReviewView {
@@ -100,6 +107,7 @@ impl TaxonomyReviewView {
             phase: ReviewPhase::Drafting,
             editing: false,
             pending_reply: Some(PendingReviewReply::Inspect(reply)),
+            cut_entry: None,
         };
         review.refresh_iteration_tree_state();
         review
@@ -122,6 +130,7 @@ impl TaxonomyReviewView {
         self.phase = ReviewPhase::Drafting;
         self.editing = false;
         self.pending_reply = Some(PendingReviewReply::Inspect(reply));
+        self.cut_entry = None;
         self.refresh_iteration_tree_state();
     }
 
@@ -134,6 +143,7 @@ impl TaxonomyReviewView {
         self.iteration_scroll = 0;
         self.marked_removals.clear();
         self.marked_subtree_removals.clear();
+        self.cut_entry = None;
         if let Some(suggestion) = self.last_submitted_suggestion.clone() {
             self.history.push(ReviewIteration {
                 number: self.history.len() + 1,
@@ -157,6 +167,7 @@ impl TaxonomyReviewView {
         self.phase = ReviewPhase::PostSuggestionDecision;
         self.editing = false;
         self.pending_reply = Some(PendingReviewReply::Continue(reply));
+        self.cut_entry = None;
         self.refresh_iteration_tree_state();
     }
 
@@ -213,6 +224,7 @@ impl TaxonomyReviewView {
         self.focused_pane = ReviewPane::Suggestion;
         self.editing = false;
         self.pending_reply = None;
+        self.cut_entry = None;
         self.refresh_iteration_tree_state();
     }
 
@@ -346,6 +358,84 @@ impl TaxonomyReviewView {
         }
     }
 
+    pub(super) fn cut_selected_entry(&mut self) -> bool {
+        if !self.can_rearrange_taxonomy()
+            || !matches!(self.focused_pane, ReviewPane::IterationTaxonomy)
+        {
+            return false;
+        }
+
+        let selected = self.iteration_tree_state.borrow().selected().to_vec();
+        let Some(path) = self.selected_category_path(&selected) else {
+            return false;
+        };
+        let parent_path = path[..path.len().saturating_sub(1)].to_vec();
+        let Some(entry) = self
+            .editable_iteration_categories_mut()
+            .and_then(|categories| remove_category_at_path(categories, &path))
+        else {
+            return false;
+        };
+
+        self.cut_entry = Some(CutTaxonomyEntry {
+            path: path.clone(),
+            entry,
+        });
+        self.clear_tree_edit_marks();
+        self.refresh_iteration_tree_state();
+        self.select_iteration_tree_path(&parent_path);
+        true
+    }
+
+    pub(super) fn paste_cut_entry(&mut self) -> bool {
+        if !self.can_rearrange_taxonomy()
+            || !matches!(self.focused_pane, ReviewPane::IterationTaxonomy)
+        {
+            return false;
+        }
+
+        let Some(cut_entry) = self.cut_entry.take() else {
+            return false;
+        };
+        let selected = self.iteration_tree_state.borrow().selected().to_vec();
+        let destination_path = if selected.len() < 2 {
+            Vec::new()
+        } else if let Some(path) = self.selected_category_path(&selected) {
+            path
+        } else {
+            self.cut_entry = Some(cut_entry);
+            return false;
+        };
+
+        let pasted_name = cut_entry.entry.name.clone();
+        let entry = cut_entry.entry;
+        let Some(categories) = self.editable_iteration_categories_mut() else {
+            self.cut_entry = Some(CutTaxonomyEntry {
+                path: cut_entry.path,
+                entry,
+            });
+            return false;
+        };
+
+        match insert_category_at_path(categories, &destination_path, entry) {
+            Ok(()) => {
+                self.clear_tree_edit_marks();
+                self.refresh_iteration_tree_state();
+                let mut pasted_path = destination_path;
+                pasted_path.push(pasted_name);
+                self.select_iteration_tree_path(&pasted_path);
+                true
+            }
+            Err(entry) => {
+                self.cut_entry = Some(CutTaxonomyEntry {
+                    path: cut_entry.path,
+                    entry,
+                });
+                false
+            }
+        }
+    }
+
     pub(super) fn focus_next(&mut self) {
         let next = self.focused_pane.index() + 1;
         self.focused_pane = ReviewPane::from_index(next);
@@ -377,7 +467,54 @@ impl TaxonomyReviewView {
         self.sync_history_scroll();
         self.marked_removals.clear();
         self.marked_subtree_removals.clear();
+        self.cut_entry = None;
         self.refresh_iteration_tree_state();
+    }
+
+    fn can_rearrange_taxonomy(&self) -> bool {
+        self.history_selection == 0
+            && matches!(
+                self.phase,
+                ReviewPhase::Drafting | ReviewPhase::PostSuggestionDecision
+            )
+    }
+
+    fn editable_iteration_categories_mut(&mut self) -> Option<&mut Vec<CategoryTree>> {
+        if self.history_selection != 0 {
+            return None;
+        }
+
+        if let Some(categories) = self.candidate_categories.as_mut()
+            && !categories.is_empty()
+        {
+            return Some(categories);
+        }
+
+        Some(&mut self.accepted_categories)
+    }
+
+    fn clear_tree_edit_marks(&mut self) {
+        self.marked_removals.clear();
+        self.marked_subtree_removals.clear();
+    }
+
+    fn select_iteration_tree_path(&mut self, path: &[String]) {
+        let mut selected = vec![0];
+        let mut categories = self.current_iteration_categories();
+        for segment in path {
+            let Some(index) = categories
+                .iter()
+                .position(|category| category.name == *segment)
+            else {
+                break;
+            };
+            selected.push(index);
+            categories = &categories[index].children;
+        }
+
+        let state = self.iteration_tree_state.get_mut();
+        let _ = state.select(selected);
+        state.scroll_selected_into_view();
     }
 
     fn build_review_request(&self, suggestion: Option<String>) -> Option<InspectReviewRequest> {
@@ -526,12 +663,14 @@ impl TaxonomyReviewView {
                 lines.push("Compare the current taxonomy and draft a focused change.".to_string());
                 lines.push("Press `d` on a taxonomy node to mark it for removal.".to_string());
                 lines.push("Press `D` to mark that taxonomy and all sub-taxonomies.".to_string());
+                lines.push("Press `x` to cut a taxonomy entry and `p` to paste it.".to_string());
                 lines
                     .push("Accept with `a`, or press `s` to draft the next iteration.".to_string());
             }
             ReviewPhase::Drafting => {
                 lines.push("Preparing the next iteration request.".to_string());
                 lines.push("The current taxonomy will become the next baseline.".to_string());
+                lines.push("You can still cut with `x` and paste with `p`.".to_string());
             }
             ReviewPhase::WaitingForModel => {
                 lines.push("The suggestion has been sent to the model.".to_string());
@@ -542,6 +681,9 @@ impl TaxonomyReviewView {
             ReviewPhase::PostSuggestionDecision => {
                 lines.push(
                     "Review the selected iteration in the iteration taxonomy panel.".to_string(),
+                );
+                lines.push(
+                    "Use `x` and `p` to reorganize taxonomy entries before deciding.".to_string(),
                 );
                 lines.push("Accept with `a`, iterate with `i`, or cancel with `c`.".to_string());
             }
@@ -567,9 +709,8 @@ impl TaxonomyReviewView {
                 lines.push(
                     "Use `d` on a taxonomy node to request removing that section.".to_string(),
                 );
-                lines.push(
-                    "Use `D` to request removing the selected taxonomy subtree.".to_string(),
-                );
+                lines
+                    .push("Use `D` to request removing the selected taxonomy subtree.".to_string());
             }
             ReviewPhase::WaitingForModel => {
                 lines.push("Submitted suggestion:".to_string());
@@ -601,6 +742,12 @@ impl TaxonomyReviewView {
             lines.push(format!("draft: {}", self.suggestion_buffer));
         }
 
+        if let Some(cut_entry) = self.cut_entry.as_ref() {
+            lines.push(String::new());
+            lines.push(format!("cut entry: {}", cut_entry.path.join(" > ")));
+            lines.push("Select a taxonomy entry and press `p` to paste under it.".to_string());
+        }
+
         lines
     }
 
@@ -619,6 +766,8 @@ impl TaxonomyReviewView {
                     ("Space", "fold"),
                     ("d", "mark remove"),
                     ("D", "mark subtree"),
+                    ("x", "cut entry"),
+                    ("p", "paste entry"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                     ("s", "edit suggestion"),
@@ -631,6 +780,8 @@ impl TaxonomyReviewView {
                     ("Space", "fold"),
                     ("d", "mark remove"),
                     ("D", "mark subtree"),
+                    ("x", "cut entry"),
+                    ("p", "paste entry"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                 ],
@@ -645,6 +796,8 @@ impl TaxonomyReviewView {
                     ("Tab/h/l", "change pane"),
                     ("j/k", "scroll"),
                     ("Space", "fold"),
+                    ("x", "cut entry"),
+                    ("p", "paste entry"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
                     ("a", "accept candidate"),
@@ -669,7 +822,9 @@ fn collect_marked_subtree_paths(
     let mut path = Vec::new();
     let mut target = None;
     for segment in root {
-        let Some(category) = current_categories.iter().find(|category| category.name == *segment)
+        let Some(category) = current_categories
+            .iter()
+            .find(|category| category.name == *segment)
         else {
             return;
         };
@@ -693,5 +848,47 @@ fn collect_category_subtree_paths(
         path.push(child.name.clone());
         collect_category_subtree_paths(child, path, marked_paths);
         path.pop();
+    }
+}
+
+fn remove_category_at_path(
+    categories: &mut Vec<CategoryTree>,
+    path: &[String],
+) -> Option<CategoryTree> {
+    let Some((head, tail)) = path.split_first() else {
+        return None;
+    };
+    let index = categories
+        .iter()
+        .position(|category| category.name == *head)?;
+
+    if tail.is_empty() {
+        Some(categories.remove(index))
+    } else {
+        remove_category_at_path(&mut categories[index].children, tail)
+    }
+}
+
+fn insert_category_at_path(
+    categories: &mut Vec<CategoryTree>,
+    parent_path: &[String],
+    entry: CategoryTree,
+) -> std::result::Result<(), CategoryTree> {
+    let Some((head, tail)) = parent_path.split_first() else {
+        categories.push(entry);
+        return Ok(());
+    };
+    let Some(index) = categories
+        .iter()
+        .position(|category| category.name == *head)
+    else {
+        return Err(entry);
+    };
+
+    if tail.is_empty() {
+        categories[index].children.push(entry);
+        Ok(())
+    } else {
+        insert_category_at_path(&mut categories[index].children, tail, entry)
     }
 }

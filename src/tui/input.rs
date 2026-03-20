@@ -428,6 +428,12 @@ impl App {
             KeyCode::Char(' ') => review.toggle_focused_tree(),
             KeyCode::Char('d') => review.toggle_selected_removal(),
             KeyCode::Char('D') => review.toggle_selected_subtree_removal(),
+            KeyCode::Char('x') => {
+                review.cut_selected_entry();
+            }
+            KeyCode::Char('p') => {
+                review.paste_cut_entry();
+            }
             KeyCode::PageDown => review.scroll_focused(10),
             KeyCode::PageUp => review.scroll_focused(-10),
             KeyCode::Char('g') => review.jump_focused(false),
