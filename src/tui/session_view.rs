@@ -7,7 +7,7 @@ use chrono::{Local, TimeZone};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Color, Frame, Line, Style},
-    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
+    widgets::{ListItem, Paragraph, Wrap},
 };
 
 use crate::{
@@ -18,6 +18,7 @@ use crate::{
 
 use super::forms::bool_label;
 use super::taxonomy_tree::{TaxonomyTreeState, render_category_tree, reset_state_for_categories};
+use super::theme::ThemePalette;
 use super::ui_widgets::{
     muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs,
 };
@@ -197,7 +198,7 @@ impl SessionView {
             .map(|run| run.run_id.clone())
     }
 
-    pub(super) fn draw(&self, frame: &mut Frame, area: Rect) {
+    pub(super) fn draw(&self, frame: &mut Frame, area: Rect, theme: ThemePalette) {
         let now_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |duration| duration.as_millis());
@@ -213,8 +214,8 @@ impl SessionView {
                 .split(area)
         };
 
-        self.draw_list_column(frame, chunks[0], now_unix_ms);
-        self.draw_detail_column(frame, chunks[1], now_unix_ms);
+        self.draw_list_column(frame, chunks[0], now_unix_ms, theme);
+        self.draw_detail_column(frame, chunks[1], now_unix_ms, theme);
     }
 
     #[cfg(test)]
@@ -294,7 +295,13 @@ impl SessionView {
         }
     }
 
-    fn draw_list_column(&self, frame: &mut Frame, area: Rect, now_unix_ms: u128) {
+    fn draw_list_column(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        now_unix_ms: u128,
+        theme: ThemePalette,
+    ) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(3), Constraint::Min(0)])
@@ -304,15 +311,19 @@ impl SessionView {
             .iter()
             .enumerate()
             .map(|(index, filter)| {
-                Line::styled(format!("{} {}", index + 1, filter.label()), muted_style())
+                Line::styled(
+                    format!("{} {}", index + 1, filter.label()),
+                    muted_style(theme),
+                )
             })
             .collect::<Vec<_>>();
         render_tabs(
             frame,
             chunks[0],
-            Block::default().title("Filters").borders(Borders::ALL),
+            theme.block("Filters"),
             filter_titles,
             self.filter.index(),
+            theme,
         );
 
         let items = if self.visible_runs.is_empty() {
@@ -330,7 +341,9 @@ impl SessionView {
                     let line = format_run_summary(index, run, &status, now_unix_ms);
                     ListItem::new(Line::styled(
                         line,
-                        Style::default().fg(run_status_color(run, &status)),
+                        Style::default()
+                            .fg(run_status_color(run, &status, theme))
+                            .bg(theme.panel_bg),
                     ))
                 })
                 .collect::<Vec<_>>()
@@ -338,13 +351,20 @@ impl SessionView {
         render_selectable_list(
             frame,
             chunks[1],
-            Block::default().title("Saved Runs").borders(Borders::ALL),
+            theme.block("Saved Runs"),
             items,
             (!self.visible_runs.is_empty()).then_some(self.selected),
+            theme,
         );
     }
 
-    fn draw_detail_column(&self, frame: &mut Frame, area: Rect, now_unix_ms: u128) {
+    fn draw_detail_column(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        now_unix_ms: u128,
+        theme: ThemePalette,
+    ) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -357,8 +377,9 @@ impl SessionView {
         let overview_lines = self.overview_lines(now_unix_ms);
         frame.render_widget(
             Paragraph::new(overview_lines)
+                .style(theme.panel_style())
                 .wrap(Wrap { trim: false })
-                .block(Block::default().title("Overview").borders(Borders::ALL)),
+                .block(theme.block("Overview")),
             chunks[0],
         );
 
@@ -366,15 +387,16 @@ impl SessionView {
             .iter()
             .enumerate()
             .map(|(index, tab)| {
-                Line::styled(format!("{} {}", index + 1, tab.label()), muted_style())
+                Line::styled(format!("{} {}", index + 1, tab.label()), muted_style(theme))
             })
             .collect::<Vec<_>>();
         render_tabs(
             frame,
             chunks[1],
-            Block::default().title("Preview Tabs").borders(Borders::ALL),
+            theme.block("Preview Tabs"),
             tab_titles,
             self.preview_tab.index(),
+            theme,
         );
 
         let preview_title = format!("Preview: {}", self.preview_tab.label());
@@ -386,18 +408,20 @@ impl SessionView {
                     render_category_tree(
                         frame,
                         chunks[2],
-                        Block::default().title(preview_title).borders(Borders::ALL),
+                        theme.block(preview_title),
                         categories,
                         &mut tree_state,
+                        theme,
                     );
                 } else {
                     render_scrolled_paragraph(
                         frame,
                         chunks[2],
-                        Block::default().title(preview_title).borders(Borders::ALL),
+                        theme.block(preview_title),
                         vec![Line::from("No saved taxonomy exists for this session.")],
                         0,
                         true,
+                        theme,
                     );
                 }
             }
@@ -416,10 +440,11 @@ impl SessionView {
                 render_scrolled_paragraph(
                     frame,
                     chunks[2],
-                    Block::default().title(preview_title).borders(Borders::ALL),
+                    theme.block(preview_title),
                     preview_content,
                     self.preview_scroll,
                     true,
+                    theme,
                 );
             }
         }
@@ -593,15 +618,15 @@ fn run_status_label(run: &RunSummary, status: &SessionStatusSummary) -> &'static
     }
 }
 
-fn run_status_color(run: &RunSummary, status: &SessionStatusSummary) -> Color {
+fn run_status_color(run: &RunSummary, status: &SessionStatusSummary, theme: ThemePalette) -> Color {
     if status.is_completed && status.is_failed_looking {
-        Color::Red
+        theme.error
     } else if status.is_completed {
-        Color::Green
+        theme.success
     } else if run.last_completed_stage.is_some() {
-        Color::Yellow
+        theme.warning
     } else {
-        Color::Gray
+        theme.muted
     }
 }
 

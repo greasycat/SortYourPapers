@@ -23,6 +23,7 @@ use crate::{
     llm::LlmProvider,
     papers::placement::PlacementMode,
     papers::taxonomy::TaxonomyMode,
+    tui::theme::UiThemeName,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +55,20 @@ pub struct AppConfig {
     pub debug: bool,
     #[serde(default)]
     pub quiet: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct TuiPreferences {
+    #[serde(default)]
+    pub(crate) theme: UiThemeName,
+}
+
+impl Default for TuiPreferences {
+    fn default() -> Self {
+        Self {
+            theme: UiThemeName::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +185,14 @@ pub fn default_config_toml() -> String {
 /// cannot be written.
 pub fn save_xdg_config(config: &AppConfig) -> Result<PathBuf> {
     xdg::save_xdg_config(config)
+}
+
+pub(crate) fn load_tui_preferences() -> Result<TuiPreferences> {
+    xdg::load_tui_preferences()
+}
+
+pub(crate) fn save_tui_preferences(prefs: &TuiPreferences) -> Result<PathBuf> {
+    xdg::save_tui_preferences(prefs)
 }
 
 fn resolve_api_key_text(value: &str) -> Result<String> {

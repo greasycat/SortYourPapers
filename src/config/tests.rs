@@ -5,14 +5,19 @@ use tempfile::tempdir;
 
 use super::{
     ApiKeySource, AppConfig, Cli, CliArgs, Commands, EnvConfig, FileConfig, SessionCommands,
+    TuiPreferences,
     resolve::resolve_from_sources,
-    xdg::{write_default_config_at, write_saved_config_at},
+    xdg::{
+        load_tui_preferences_from_path, write_default_config_at, write_saved_config_at,
+        write_tui_preferences_at,
+    },
 };
 use crate::llm::LlmProvider;
 use crate::papers::extract::ExtractorMode;
 use crate::papers::placement::PlacementMode;
 use crate::papers::taxonomy::TaxonomyMode;
 use crate::session::RunStage;
+use crate::tui::theme::UiThemeName;
 
 #[test]
 fn cli_overrides_env_and_file() {
@@ -537,4 +542,39 @@ fn rejects_legacy_resume_command() {
         .expect_err("legacy resume command should be rejected");
 
     assert!(err.to_string().contains("unrecognized"));
+}
+
+#[test]
+fn tui_preferences_default_to_dark_when_missing() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("tui.toml");
+
+    let loaded = load_tui_preferences_from_path(&path).expect("load missing prefs");
+
+    assert_eq!(loaded.theme, UiThemeName::Dark);
+}
+
+#[test]
+fn tui_preferences_round_trip_light_theme() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("tui.toml");
+    let prefs = TuiPreferences {
+        theme: UiThemeName::Light,
+    };
+
+    write_tui_preferences_at(&path, &prefs).expect("write prefs");
+    let loaded = load_tui_preferences_from_path(&path).expect("load prefs");
+
+    assert_eq!(loaded, prefs);
+}
+
+#[test]
+fn invalid_tui_preferences_fall_back_to_dark() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("tui.toml");
+    fs::write(&path, "theme = \"nope\"\n").expect("write invalid prefs");
+
+    let loaded = load_tui_preferences_from_path(&path).expect("load prefs");
+
+    assert_eq!(loaded.theme, UiThemeName::Dark);
 }

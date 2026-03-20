@@ -773,6 +773,7 @@ impl TaxonomyReviewView {
                     ("g/G", "start/end"),
                     ("s", "edit suggestion"),
                     ("a", "accept"),
+                    ("t", "theme"),
                     ("c or Esc", "cancel"),
                 ],
                 ReviewPhase::Drafting => &[
@@ -785,6 +786,7 @@ impl TaxonomyReviewView {
                     ("p", "paste entry"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
+                    ("t", "theme"),
                 ],
                 ReviewPhase::WaitingForModel => &[
                     ("Tab/h/l", "change pane"),
@@ -792,6 +794,7 @@ impl TaxonomyReviewView {
                     ("Space", "fold"),
                     ("PgUp/PgDn", "page"),
                     ("g/G", "start/end"),
+                    ("t", "theme"),
                 ],
                 ReviewPhase::PostSuggestionDecision => &[
                     ("Tab/h/l", "change pane"),
@@ -803,6 +806,7 @@ impl TaxonomyReviewView {
                     ("g/G", "start/end"),
                     ("a", "accept candidate"),
                     ("i", "iterate again"),
+                    ("t", "theme"),
                     ("c or Esc", "cancel"),
                 ],
             }

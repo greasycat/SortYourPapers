@@ -75,7 +75,7 @@ impl OperationTab {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub(super) enum OperationState {
     #[default]
     Idle,
@@ -91,15 +91,6 @@ impl OperationState {
             Self::Running => "running",
             Self::Success => "success",
             Self::Failure => "failure",
-        }
-    }
-
-    pub(super) fn color(&self) -> Color {
-        match self {
-            Self::Idle => Color::Blue,
-            Self::Running => Color::Yellow,
-            Self::Success => Color::Green,
-            Self::Failure => Color::Red,
         }
     }
 }

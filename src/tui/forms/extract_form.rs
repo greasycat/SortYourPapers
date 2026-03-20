@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Frame, Text},
-    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
+    widgets::{ListItem, Paragraph, Wrap},
 };
 
 use crate::{
@@ -16,7 +16,10 @@ use crate::{
 use super::{
     EXTRACT_FIELD_LABELS, UiVerbosity, cycle_extractor, extractor_label, parse_u8, parse_usize,
 };
-use crate::tui::ui_widgets::{render_selectable_list, stylized_body_lines};
+use crate::tui::{
+    theme::ThemePalette,
+    ui_widgets::{render_selectable_list, stylized_body_lines},
+};
 
 pub(crate) struct ExtractForm {
     pub(crate) selected: usize,
@@ -41,7 +44,7 @@ impl Default for ExtractForm {
 }
 
 impl ExtractForm {
-    pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
+    pub(crate) fn draw(&self, frame: &mut Frame, area: Rect, theme: ThemePalette) {
         let chunks = if area.width < 90 {
             Layout::default()
                 .direction(Direction::Vertical)
@@ -62,22 +65,25 @@ impl ExtractForm {
         render_selectable_list(
             frame,
             chunks[0],
-            Block::default()
-                .title("Extract Fields")
-                .borders(Borders::ALL),
+            theme.block("Extract Fields"),
             items,
             Some(self.selected),
+            theme,
         );
 
-        let help = Paragraph::new(Text::from(stylized_body_lines([
-            "Files may be separated by commas or new lines.",
-            "`Enter` edits text fields.",
-            "`Left`/`Right` cycles extractor and verbosity.",
-            "",
-            "Press `r` to run extraction.",
-        ])))
+        let help = Paragraph::new(Text::from(stylized_body_lines(
+            [
+                "Files may be separated by commas or new lines.",
+                "`Enter` edits text fields.",
+                "`Left`/`Right` cycles extractor and verbosity.",
+                "",
+                "Press `r` to run extraction.",
+            ],
+            theme,
+        )))
+        .style(theme.panel_style())
         .wrap(Wrap { trim: false })
-        .block(Block::default().title("Help").borders(Borders::ALL));
+        .block(theme.block("Help"));
         frame.render_widget(help, chunks[1]);
     }
 

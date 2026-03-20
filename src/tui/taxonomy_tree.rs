@@ -10,6 +10,8 @@ use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::papers::taxonomy::CategoryTree;
 
+use super::theme::ThemePalette;
+
 pub(super) type TaxonomyTreeState = TreeState<usize>;
 
 #[derive(Clone)]
@@ -43,9 +45,10 @@ pub(super) fn render_category_tree(
     block: Block<'_>,
     categories: &[CategoryTree],
     state: &mut TaxonomyTreeState,
+    theme: ThemePalette,
 ) {
     let items = category_items(categories);
-    render_tree_items(frame, area, block, &items, state);
+    render_tree_items(frame, area, block, &items, state, theme);
 }
 
 pub(super) fn render_section_tree(
@@ -54,9 +57,10 @@ pub(super) fn render_section_tree(
     block: Block<'_>,
     sections: &[TaxonomySection],
     state: &mut TaxonomyTreeState,
+    theme: ThemePalette,
 ) {
     let items = section_items(sections);
-    render_tree_items(frame, area, block, &items, state);
+    render_tree_items(frame, area, block, &items, state, theme);
 }
 
 fn render_tree_items(
@@ -65,19 +69,26 @@ fn render_tree_items(
     block: Block<'_>,
     items: &[TreeItem<'static, usize>],
     state: &mut TaxonomyTreeState,
+    theme: ThemePalette,
 ) {
     if items.is_empty() {
-        frame.render_widget(Paragraph::new("No taxonomy available.").block(block), area);
+        frame.render_widget(
+            Paragraph::new("No taxonomy available.")
+                .style(theme.panel_style())
+                .block(block),
+            area,
+        );
         return;
     }
 
     let tree = Tree::new(items)
         .expect("taxonomy tree uses unique sibling indices")
         .block(block)
+        .style(theme.panel_style())
         .highlight_style(
             Style::default()
-                .fg(Color::Black)
-                .bg(Color::Green)
+                .fg(theme.selection_fg)
+                .bg(theme.selection_bg)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol(">> ")
@@ -85,8 +96,12 @@ fn render_tree_items(
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None)
-                .track_style(Style::default().fg(Color::Gray))
-                .thumb_style(Style::default().fg(Color::Green)),
+                .track_style(theme.muted_style())
+                .thumb_style(
+                    Style::default()
+                        .fg(theme.scrollbar_thumb)
+                        .bg(theme.panel_bg),
+                ),
         ));
     frame.render_stateful_widget(tree, area, state);
 }

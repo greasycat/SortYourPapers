@@ -42,6 +42,7 @@ impl App {
         self.clamp_home_index();
         let action_count = self.home_actions().len();
         match key.code {
+            KeyCode::Char('t') => self.cycle_theme(),
             KeyCode::Esc => self.open_quit_confirmation(),
             KeyCode::Down | KeyCode::Char('j') => {
                 self.home_index = (self.home_index + 1).min(action_count.saturating_sub(1));
@@ -70,6 +71,7 @@ impl App {
 
     async fn handle_extract_form_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
+            KeyCode::Char('t') => self.cycle_theme(),
             KeyCode::Esc => self.screen = Screen::Home,
             KeyCode::Down | KeyCode::Char('j') => {
                 self.extract_form.selected = (self.extract_form.selected + 1).min(4);
@@ -136,6 +138,7 @@ impl App {
 
     async fn handle_sessions_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
+            KeyCode::Char('t') => self.cycle_theme(),
             KeyCode::Esc => self.screen = Screen::Home,
             KeyCode::Char('g') => self.session_view.refresh()?,
             KeyCode::Down | KeyCode::Char('j') => self.session_view.move_selection(1),
@@ -255,6 +258,7 @@ impl App {
 
     async fn handle_run_form_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
+            KeyCode::Char('t') => self.cycle_theme(),
             KeyCode::Esc => self.screen = Screen::Home,
             KeyCode::Down | KeyCode::Char('j') => {
                 self.run_form.select_next();
@@ -368,6 +372,7 @@ impl App {
 
     fn handle_operation_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
+            KeyCode::Char('t') => self.cycle_theme(),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => self.switch_operation_tab(1),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 self.switch_operation_tab(-1);
@@ -430,6 +435,7 @@ impl App {
         }
 
         match key.code {
+            KeyCode::Char('t') => self.cycle_theme(),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => review.focus_next(),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => review.focus_previous(),
             KeyCode::Down | KeyCode::Char('j') => review.scroll_focused(1),

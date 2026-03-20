@@ -8,6 +8,7 @@ mod render;
 mod session_view;
 mod taxonomy_review;
 mod taxonomy_tree;
+pub(crate) mod theme;
 mod ui_widgets;
 
 use std::{
@@ -47,7 +48,8 @@ pub async fn run(debug_tui: bool) -> Result<()> {
     let (op_tx, op_rx) = mpsc::channel();
     let _backend_guard = install_backend(Arc::new(TuiBackend::new(backend_tx)));
 
-    let mut app = App::new(backend_rx, op_rx, op_tx, debug_tui)?;
+    let prefs = crate::config::load_tui_preferences()?;
+    let mut app = App::new(backend_rx, op_rx, op_tx, debug_tui, prefs.theme)?;
     let run_result = run_loop(&mut terminal, &mut app).await;
 
     disable_raw_mode()?;
@@ -84,7 +86,12 @@ async fn run_loop(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::VecDeque, sync::mpsc, time::Duration};
+    use std::{
+        collections::VecDeque,
+        env,
+        sync::{Mutex, OnceLock, mpsc},
+        time::Duration,
+    };
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend, layout::Position, style::Color};
@@ -110,6 +117,7 @@ mod tests {
             PendingReviewReply, ReviewIteration, ReviewPane, ReviewPhase, TaxonomyReviewView,
         },
         taxonomy_tree::reset_state_for_categories,
+        theme::UiThemeName,
     };
 
     fn test_app() -> App {
@@ -139,6 +147,8 @@ mod tests {
             op_rx,
             op_tx,
             debug_tui: false,
+            theme_name: UiThemeName::Dark,
+            theme: UiThemeName::Dark.palette(),
         }
     }
 
@@ -167,6 +177,37 @@ mod tests {
             .draw(|frame| app.draw(frame))
             .expect("test frame should render");
         terminal
+    }
+
+    fn any_cell_has_bg(app: &App, width: u16, height: u16, bg: Color) -> bool {
+        let terminal = render_app(app, width, height);
+        let buffer = terminal.backend().buffer();
+        let area = buffer.area();
+
+        (0..area.height).any(|y| (0..area.width).any(|x| buffer[(x, y)].bg == bg))
+    }
+
+    fn with_temp_xdg_config_home<T>(action: impl FnOnce(&std::path::Path) -> T) -> T {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("xdg lock should not be poisoned");
+
+        let temp = tempdir().expect("tempdir");
+        let previous = env::var_os("XDG_CONFIG_HOME");
+        // SAFETY: tests serialize XDG env access with a process-wide mutex.
+        unsafe { env::set_var("XDG_CONFIG_HOME", temp.path()) };
+        let result = action(temp.path());
+
+        match previous {
+            // SAFETY: tests serialize XDG env access with a process-wide mutex.
+            Some(value) => unsafe { env::set_var("XDG_CONFIG_HOME", value) },
+            // SAFETY: tests serialize XDG env access with a process-wide mutex.
+            None => unsafe { env::remove_var("XDG_CONFIG_HOME") },
+        }
+
+        result
     }
 
     fn overlay_width(lines: &[String], title: &str) -> usize {
@@ -918,6 +959,16 @@ mod tests {
     }
 
     #[test]
+    fn light_theme_renders_panel_backgrounds() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+        app.theme_name = UiThemeName::Light;
+        app.theme = UiThemeName::Light.palette();
+
+        assert!(any_cell_has_bg(&app, 80, 24, app.theme.panel_bg));
+    }
+
+    #[test]
     fn key_hints_render_in_header_not_bottom_panel() {
         let mut app = test_app();
         app.screen = Screen::Home;
@@ -1100,7 +1151,7 @@ mod tests {
     }
 
     #[test]
-    fn confirm_overlay_colors_enter_and_y_blue_and_esc_red() {
+    fn confirm_overlay_uses_themed_info_and_error_colors() {
         let mut app = test_app();
         app.overlay = Some(Overlay::Confirm {
             title: "Confirm".to_string(),
@@ -1108,9 +1159,41 @@ mod tests {
             action: super::model::ConfirmAction::Quit,
         });
 
-        assert!(text_starts_with_fg(&app, 80, 24, "Enter", Color::Blue));
-        assert!(text_starts_with_fg(&app, 80, 24, "y confirm", Color::Blue));
-        assert!(text_starts_with_fg(&app, 80, 24, "Esc cancel", Color::Red));
+        assert!(text_starts_with_fg(&app, 80, 24, "Enter", app.theme.info));
+        assert!(text_starts_with_fg(
+            &app,
+            80,
+            24,
+            "y confirm",
+            app.theme.info
+        ));
+        assert!(text_starts_with_fg(
+            &app,
+            80,
+            24,
+            "Esc cancel",
+            app.theme.error
+        ));
+    }
+
+    #[test]
+    fn pressing_t_cycles_theme_and_persists_preference() {
+        with_temp_xdg_config_home(|config_home| {
+            let mut app = test_app();
+            app.screen = Screen::Home;
+
+            let runtime = test_runtime();
+            runtime
+                .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)))
+                .expect("t should cycle theme");
+
+            assert_eq!(app.theme_name, UiThemeName::Light);
+            assert_eq!(app.theme, UiThemeName::Light.palette());
+
+            let prefs_path = config_home.join("sortyourpapers").join("tui.toml");
+            let raw = std::fs::read_to_string(prefs_path).expect("prefs file should be written");
+            assert!(raw.contains("theme = \"light\""));
+        });
     }
 
     #[test]
@@ -1549,8 +1632,8 @@ mod tests {
             24,
             "1. discover-input",
             "█",
-            Color::LightCyan,
-            Color::Black,
+            app.theme.info,
+            app.theme.panel_bg,
         ));
     }
 

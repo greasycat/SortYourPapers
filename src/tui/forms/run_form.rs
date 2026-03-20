@@ -6,7 +6,7 @@ use std::{
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Color, Frame, Line, Modifier, Span, Style},
-    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
+    widgets::{ListItem, Paragraph, Wrap},
 };
 
 use crate::{
@@ -31,7 +31,10 @@ use super::{
     placement_mode_label, provider_label, run_field_help, run_field_key, run_field_label,
     taxonomy_mode_label,
 };
-use crate::tui::ui_widgets::{render_selectable_list, stylized_body_line};
+use crate::tui::{
+    theme::ThemePalette,
+    ui_widgets::{render_selectable_list, stylized_body_line},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValidationSeverity {
@@ -340,7 +343,7 @@ impl RunForm {
         Self::RUN_BUTTON_INDEX,
     ];
 
-    pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
+    pub(crate) fn draw(&self, frame: &mut Frame, area: Rect, theme: ThemePalette) {
         let analysis = self.analysis();
         let (chunks, side_chunks) = if area.width < 140 {
             let chunks = Layout::default()
@@ -364,9 +367,9 @@ impl RunForm {
             (chunks, side_chunks)
         };
 
-        self.draw_form_workspace(frame, chunks[0], &analysis);
-        self.draw_summary(frame, side_chunks[0], &analysis);
-        self.draw_selected_field(frame, side_chunks[1], &analysis);
+        self.draw_form_workspace(frame, chunks[0], &analysis, theme);
+        self.draw_summary(frame, side_chunks[0], &analysis, theme);
+        self.draw_selected_field(frame, side_chunks[1], &analysis, theme);
     }
 
     pub(crate) fn from_config(config: &AppConfig) -> Self {
@@ -732,8 +735,14 @@ impl RunForm {
         self.selected == Self::RUN_BUTTON_INDEX
     }
 
-    fn draw_form_workspace(&self, frame: &mut Frame, area: Rect, analysis: &RunFormAnalysis) {
-        let outer = Block::default().title("Run Setup").borders(Borders::ALL);
+    fn draw_form_workspace(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        analysis: &RunFormAnalysis,
+        theme: ThemePalette,
+    ) {
+        let outer = theme.block("Run Setup");
         let inner = outer.inner(area);
         frame.render_widget(outer, area);
 
@@ -774,29 +783,32 @@ impl RunForm {
         ];
 
         for (column, sections) in chunks.iter().zip(COLUMN_SECTIONS.iter()) {
-            self.draw_column(frame, *column, sections, analysis);
+            self.draw_column(frame, *column, sections, analysis, theme);
         }
     }
 
-    fn draw_summary(&self, frame: &mut Frame, area: Rect, analysis: &RunFormAnalysis) {
+    fn draw_summary(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        analysis: &RunFormAnalysis,
+        theme: ThemePalette,
+    ) {
         let (infos, warnings, errors) = analysis.issue_counts();
         let readiness_color = if errors > 0 {
-            Color::Red
+            theme.error
         } else if warnings > 0 {
-            Color::Yellow
+            theme.warning
         } else {
-            Color::Green
+            theme.success
         };
-        let mode_color = if self.apply {
-            Color::LightRed
-        } else {
-            Color::LightBlue
-        };
+        let mode_color = if self.apply { theme.error } else { theme.info };
         let output_color = if self.quiet {
-            Color::Yellow
+            theme.warning
         } else {
-            Color::Green
+            theme.success
         };
+        let body_color = theme.panel_fg;
         let mut lines = vec![
             Line::from(vec![
                 badge_span("STATUS", readiness_color),
@@ -811,28 +823,28 @@ impl RunForm {
             Line::from(vec![
                 badge_span(if self.apply { "APPLY" } else { "PREVIEW" }, mode_color),
                 Span::raw(" "),
-                badge_span(&format!("{errors} ERR"), Color::Red),
+                badge_span(&format!("{errors} ERR"), theme.error),
                 Span::raw(" "),
-                badge_span(&format!("{warnings} WARN"), Color::Yellow),
+                badge_span(&format!("{warnings} WARN"), theme.warning),
                 Span::raw(" "),
-                badge_span(&format!("{infos} NOTE"), Color::Cyan),
+                badge_span(&format!("{infos} NOTE"), theme.info),
             ]),
             Line::from(""),
-            section_header_line("Paths", Color::LightCyan),
+            section_header_line("Paths", theme.info),
             labeled_value_line(
                 "In ",
                 &display_path_line(&self.input, DEFAULT_INPUT),
-                Color::Cyan,
-                Color::White,
+                theme.info,
+                body_color,
             ),
             labeled_value_line(
                 "Out",
                 &display_path_line(&self.output, DEFAULT_OUTPUT),
-                Color::Cyan,
-                Color::White,
+                theme.info,
+                body_color,
             ),
             Line::from(""),
-            section_header_line("Pipeline", Color::LightMagenta),
+            section_header_line("Pipeline", theme.accent),
             labeled_value_line(
                 "Extract",
                 &format!(
@@ -841,8 +853,8 @@ impl RunForm {
                     self.page_cutoff.trim(),
                     self.pdf_extract_workers.trim()
                 ),
-                Color::Magenta,
-                Color::White,
+                theme.accent,
+                body_color,
             ),
             labeled_value_line(
                 "Taxonomy",
@@ -853,8 +865,8 @@ impl RunForm {
                     self.taxonomy_batch_size.trim(),
                     bool_label(self.use_current_folder_tree)
                 ),
-                Color::Magenta,
-                Color::White,
+                theme.accent,
+                body_color,
             ),
             labeled_value_line(
                 "Ideas",
@@ -863,8 +875,8 @@ impl RunForm {
                     self.keyword_batch_size.trim(),
                     self.subcategories_suggestion_number.trim()
                 ),
-                Color::Magenta,
-                Color::White,
+                theme.accent,
+                body_color,
             ),
             labeled_value_line(
                 "Place",
@@ -873,11 +885,11 @@ impl RunForm {
                     placement_mode_label(self.placement_mode),
                     self.placement_batch_size.trim()
                 ),
-                Color::Magenta,
-                Color::White,
+                theme.accent,
+                body_color,
             ),
             Line::from(""),
-            section_header_line("Launch", Color::LightGreen),
+            section_header_line("Launch", theme.success),
             labeled_value_line(
                 "LLM",
                 &format!(
@@ -889,8 +901,8 @@ impl RunForm {
                         self.llm_model.trim()
                     }
                 ),
-                Color::Green,
-                Color::White,
+                theme.success,
+                body_color,
             ),
             labeled_value_line(
                 "Auth",
@@ -899,8 +911,8 @@ impl RunForm {
                     self.api_key_source.label(),
                     api_key_summary(self.api_key_source, &self.api_key_value)
                 ),
-                Color::Green,
-                Color::White,
+                theme.success,
+                body_color,
             ),
             labeled_value_line(
                 "Output",
@@ -910,19 +922,19 @@ impl RunForm {
                     bool_label(self.quiet),
                     self.verbosity.label()
                 ),
-                Color::Green,
+                theme.success,
                 output_color,
             ),
         ];
 
         if let Some(config) = &analysis.config {
             lines.push(Line::from(""));
-            lines.push(section_header_line("Resolved", Color::LightYellow));
+            lines.push(section_header_line("Resolved", theme.warning));
             lines.push(labeled_value_line(
                 "Mode",
                 if config.dry_run { "preview" } else { "apply" },
-                Color::Yellow,
-                Color::White,
+                theme.warning,
+                body_color,
             ));
             lines.push(labeled_value_line(
                 "Scope",
@@ -931,15 +943,15 @@ impl RunForm {
                 } else {
                     "top-level only"
                 },
-                Color::Yellow,
-                Color::White,
+                theme.warning,
+                body_color,
             ));
         }
 
         let notable_issues = analysis.issues.iter().take(4).collect::<Vec<_>>();
         if !notable_issues.is_empty() {
             lines.push(Line::from(""));
-            lines.push(section_header_line("Issues", Color::LightRed));
+            lines.push(section_header_line("Issues", theme.error));
             for issue in notable_issues {
                 lines.push(Line::from(Span::styled(
                     format!(
@@ -953,32 +965,41 @@ impl RunForm {
         }
 
         frame.render_widget(
-            Paragraph::new(lines).wrap(Wrap { trim: false }).block(
-                Block::default()
-                    .title("Launch Preview")
-                    .border_style(Style::default().fg(readiness_color))
-                    .borders(Borders::ALL),
-            ),
+            Paragraph::new(lines)
+                .style(theme.panel_style())
+                .wrap(Wrap { trim: false })
+                .block(
+                    theme
+                        .block("Launch Preview")
+                        .border_style(Style::default().fg(readiness_color).bg(theme.panel_bg)),
+                ),
             area,
         );
     }
 
-    fn draw_selected_field(&self, frame: &mut Frame, area: Rect, analysis: &RunFormAnalysis) {
+    fn draw_selected_field(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        analysis: &RunFormAnalysis,
+        theme: ThemePalette,
+    ) {
         let selected_label = run_field_label(self.selected);
         let selected_value = self.value(self.selected);
         let mut lines = vec![
             Line::from(Span::styled(
                 selected_label,
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.info)
+                    .bg(theme.panel_bg)
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
-            section_header_line("Description", Color::LightCyan),
-            stylized_body_line(run_field_help(self.selected)),
+            section_header_line("Description", theme.info),
+            stylized_body_line(run_field_help(self.selected), theme),
             Line::from(""),
-            section_header_line("Current", Color::LightGreen),
-            stylized_body_line(&selected_value),
+            section_header_line("Current", theme.success),
+            stylized_body_line(&selected_value, theme),
         ];
 
         if let Some(issue) = analysis.field_issue(self.selected) {
@@ -993,11 +1014,10 @@ impl RunForm {
         }
 
         frame.render_widget(
-            Paragraph::new(lines).wrap(Wrap { trim: false }).block(
-                Block::default()
-                    .title("Selected Field")
-                    .borders(Borders::ALL),
-            ),
+            Paragraph::new(lines)
+                .style(theme.panel_style())
+                .wrap(Wrap { trim: false })
+                .block(theme.block("Selected Field")),
             area,
         );
     }
@@ -1008,6 +1028,7 @@ impl RunForm {
         area: Rect,
         sections: &[(&str, &[usize])],
         analysis: &RunFormAnalysis,
+        theme: ThemePalette,
     ) {
         let mut items = Vec::new();
         let mut selected_item = None;
@@ -1018,7 +1039,8 @@ impl RunForm {
             items.push(ListItem::new(Line::from(Span::styled(
                 (*title).to_string(),
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.info)
+                    .bg(theme.panel_bg)
                     .add_modifier(Modifier::BOLD),
             ))));
 
@@ -1030,8 +1052,8 @@ impl RunForm {
                     items.push(ListItem::new(Line::styled(
                         "  [ Run ]  ",
                         Style::default()
-                            .fg(Color::White)
-                            .bg(Color::Blue)
+                            .fg(theme.selection_fg)
+                            .bg(theme.selection_bg)
                             .add_modifier(Modifier::BOLD),
                     )));
                     continue;
@@ -1062,13 +1084,7 @@ impl RunForm {
             }
         }
 
-        render_selectable_list(
-            frame,
-            area,
-            Block::default().borders(Borders::ALL),
-            items,
-            selected_item,
-        );
+        render_selectable_list(frame, area, theme.block(""), items, selected_item, theme);
     }
 
     fn move_column(&mut self, direction: i8) {

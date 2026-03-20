@@ -2,8 +2,8 @@ use std::time::{Duration, Instant};
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    prelude::{Color, Frame, Line, Modifier, Span, Style, Text},
-    widgets::{Block, Borders, Clear, Gauge, ListItem, Padding, Paragraph, Wrap},
+    prelude::{Frame, Line, Modifier, Span, Style, Text},
+    widgets::{Block, Clear, Gauge, ListItem, Paragraph, Wrap},
 };
 
 use crate::terminal;
@@ -14,6 +14,7 @@ use super::{
     session_view::rerun_stage_name,
     taxonomy_review::ReviewPane,
     taxonomy_tree::{render_category_tree, render_section_tree},
+    theme::ThemePalette,
     ui_widgets::{
         muted_style, render_scrolled_paragraph, render_selectable_list, render_tabs,
         stylized_body_line, stylized_body_lines,
@@ -27,6 +28,7 @@ const OVERLAY_PADDING: u16 = 1;
 
 impl App {
     pub(super) fn draw(&self, frame: &mut Frame) {
+        frame.render_widget(Block::default().style(self.theme.app_style()), frame.area());
         let header_height = header_height(frame.area().width, self.shortcut_actions());
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -36,9 +38,9 @@ impl App {
         self.draw_header(frame, chunks[0]);
         match self.screen {
             Screen::Home => self.draw_home(frame, chunks[1]),
-            Screen::RunForm => self.run_form.draw(frame, chunks[1]),
+            Screen::RunForm => self.run_form.draw(frame, chunks[1], self.theme),
             Screen::ExtractForm => self.draw_extract(frame, chunks[1]),
-            Screen::Sessions => self.session_view.draw(frame, chunks[1]),
+            Screen::Sessions => self.session_view.draw(frame, chunks[1], self.theme),
             Screen::Operation => self.draw_operation(frame, chunks[1]),
             Screen::TaxonomyReview => {
                 if let Some((x, y)) = self.draw_taxonomy_review(frame, chunks[1]) {
@@ -62,7 +64,7 @@ impl App {
             Screen::Operation => &self.operation.title,
             Screen::TaxonomyReview => "Taxonomy Review",
         };
-        let block = Block::default().borders(Borders::ALL);
+        let block = self.theme.block("");
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -76,7 +78,8 @@ impl App {
             Span::styled(
                 format!("[{}]", self.operation.state.label()),
                 Style::default()
-                    .fg(self.operation.state.color())
+                    .fg(self.theme.status_color(self.operation.state))
+                    .bg(self.theme.panel_bg)
                     .add_modifier(Modifier::BOLD),
             ),
         ]);
@@ -88,7 +91,8 @@ impl App {
                 .split(inner);
             frame.render_widget(Paragraph::new(title_line), rows[0]);
             frame.render_widget(
-                Paragraph::new(vec![Line::from(shortcut_chip_spans(actions))])
+                Paragraph::new(vec![Line::from(shortcut_chip_spans(actions, self.theme))])
+                    .style(self.theme.panel_style())
                     .wrap(Wrap { trim: false }),
                 rows[1],
             );
@@ -102,9 +106,14 @@ impl App {
             .constraints([Constraint::Length(left_width), Constraint::Min(1)])
             .split(inner);
 
-        frame.render_widget(Paragraph::new(title_line), chunks[0]);
         frame.render_widget(
-            Paragraph::new(Line::from(shortcut_chip_spans(actions))).alignment(Alignment::Right),
+            Paragraph::new(title_line).style(self.theme.panel_style()),
+            chunks[0],
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(shortcut_chip_spans(actions, self.theme)))
+                .style(self.theme.panel_style())
+                .alignment(Alignment::Right),
             chunks[1],
         );
     }
@@ -130,21 +139,26 @@ impl App {
         render_selectable_list(
             frame,
             chunks[0],
-            Block::default().title("Actions").borders(Borders::ALL),
+            self.theme.block("Actions"),
             menu_items,
             Some(self.home_index),
+            self.theme,
         );
 
-        let help = Paragraph::new(Text::from(stylized_body_lines([
-            "`syp` is the interactive terminal frontend.",
-            "",
-            "Run Papers: configure and launch the full sorting workflow.",
-            "Extract Text: preview raw and LLM-ready text without running the full pipeline.",
-            "Sessions: resume, rerun, review, remove, or clear saved runs.",
-            "Quit: exit after confirmation.",
-        ])))
+        let help = Paragraph::new(Text::from(stylized_body_lines(
+            [
+                "`syp` is the interactive terminal frontend.",
+                "",
+                "Run Papers: configure and launch the full sorting workflow.",
+                "Extract Text: preview raw and LLM-ready text without running the full pipeline.",
+                "Sessions: resume, rerun, review, remove, or clear saved runs.",
+                "Quit: exit after confirmation.",
+            ],
+            self.theme,
+        )))
+        .style(self.theme.panel_style())
         .wrap(Wrap { trim: false })
-        .block(Block::default().title("Overview").borders(Borders::ALL));
+        .block(self.theme.block("Overview"));
         frame.render_widget(help, chunks[1]);
     }
 
@@ -161,39 +175,41 @@ impl App {
                 .split(area)
         };
 
-        self.extract_form.draw(frame, chunks[0]);
+        self.extract_form.draw(frame, chunks[0], self.theme);
 
         let preview_lines = vec![
             Line::from(Span::styled(
                 "Workflow",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.info)
+                    .bg(self.theme.panel_bg)
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
-            stylized_body_line("1. `Enter` one or more PDF paths."),
+            stylized_body_line("1. `Enter` one or more PDF paths.", self.theme),
             Line::from("2. Choose extractor, page limit, and worker count."),
-            stylized_body_line("3. Press `r` to collect an extract preview."),
+            stylized_body_line("3. Press `r` to collect an extract preview.", self.theme),
             Line::from(""),
             Line::from(Span::styled(
                 "Result Surface",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.info)
+                    .bg(self.theme.panel_bg)
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
             Line::from("The preview opens in Operation."),
-            stylized_body_line("Use tab `3` for extracted text and failures."),
-            stylized_body_line("Use tab `2` for raw extractor logs when verbose/debug is enabled."),
+            stylized_body_line("Use tab `3` for extracted text and failures.", self.theme),
+            stylized_body_line(
+                "Use tab `2` for raw extractor logs when verbose/debug is enabled.",
+                self.theme,
+            ),
         ];
         frame.render_widget(
             Paragraph::new(preview_lines)
+                .style(self.theme.panel_style())
                 .wrap(Wrap { trim: false })
-                .block(
-                    Block::default()
-                        .title("Preview Output")
-                        .borders(Borders::ALL),
-                ),
+                .block(self.theme.block("Preview Output")),
             chunks[1],
         );
     }
@@ -225,13 +241,10 @@ impl App {
             .split(area);
 
         frame.render_widget(
-            Paragraph::new(stylized_body_lines(review.status_lines()))
+            Paragraph::new(stylized_body_lines(review.status_lines(), self.theme))
+                .style(self.theme.panel_style())
                 .wrap(Wrap { trim: false })
-                .block(
-                    Block::default()
-                        .title("Review Status")
-                        .borders(Borders::ALL),
-                ),
+                .block(self.theme.block("Review Status")),
             chunks[0],
         );
 
@@ -251,23 +264,32 @@ impl App {
             .constraints([Constraint::Length(8), Constraint::Min(10)])
             .split(content[0]);
 
-        let cursor = draw_taxonomy_review_suggestion_panel(frame, left[0], review);
+        let cursor = draw_taxonomy_review_suggestion_panel(frame, left[0], review, self.theme);
         draw_scrolled_panel_with_block(
             frame,
             left[1],
-            focused_panel_block("History", review.focused_pane == ReviewPane::History),
+            focused_panel_block(
+                "History",
+                review.focused_pane == ReviewPane::History,
+                self.theme,
+            ),
             review.history_lines(),
             review.history_scroll,
             "No iteration history yet.",
+            self.theme,
         );
         let right = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(4), Constraint::Min(0)])
             .split(content[1]);
         frame.render_widget(
-            Paragraph::new(stylized_body_lines(review.iteration_summary_lines()))
-                .wrap(Wrap { trim: false })
-                .block(Block::default().title("Iteration").borders(Borders::ALL)),
+            Paragraph::new(stylized_body_lines(
+                review.iteration_summary_lines(),
+                self.theme,
+            ))
+            .style(self.theme.panel_style())
+            .wrap(Wrap { trim: false })
+            .block(self.theme.block("Iteration")),
             right[0],
         );
         let mut tree_state = review.iteration_tree_state.borrow_mut();
@@ -277,16 +299,18 @@ impl App {
             focused_panel_block(
                 "Iteration Taxonomy",
                 review.focused_pane == ReviewPane::IterationTaxonomy,
+                self.theme,
             ),
             &review.iteration_taxonomy_sections(),
             &mut tree_state,
+            self.theme,
         );
 
         cursor
     }
 
     fn draw_operation_status(&self, frame: &mut Frame, area: Rect) {
-        let block = Block::default().title("Status").borders(Borders::ALL);
+        let block = self.theme.block("Status");
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -315,7 +339,8 @@ impl App {
                 Span::styled(
                     "stage ",
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(self.theme.info)
+                        .bg(self.theme.panel_bg)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(stage_label),
@@ -329,6 +354,7 @@ impl App {
         ];
         frame.render_widget(
             Paragraph::new(summary_lines)
+                .style(self.theme.panel_style())
                 .wrap(Wrap { trim: false })
                 .scroll((0, 0)),
             chunks[0],
@@ -368,16 +394,17 @@ impl App {
             .map(|(index, tab)| {
                 Line::styled(
                     format!("{} {}", index + 1, tab.label(&self.operation.detail)),
-                    muted_style(),
+                    muted_style(self.theme),
                 )
             })
             .collect::<Vec<_>>();
         render_tabs(
             frame,
             area,
-            Block::default().title("Views").borders(Borders::ALL),
+            self.theme.block("Views"),
             titles,
             self.operation.active_tab.index(),
+            self.theme,
         );
     }
 
@@ -403,8 +430,9 @@ impl App {
 
         frame.render_widget(
             Paragraph::new(run_summary_lines)
+                .style(self.theme.panel_style())
                 .wrap(Wrap { trim: false })
-                .block(Block::default().title("Run Summary").borders(Borders::ALL)),
+                .block(self.theme.block("Run Summary")),
             chunks[1],
         );
 
@@ -417,7 +445,7 @@ impl App {
         area: Rect,
         timing_bars: &[StageTimingBar],
     ) {
-        let block = Block::default().title("Elasped Time").borders(Borders::ALL);
+        let block = self.theme.block("Elasped Time");
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -428,6 +456,7 @@ impl App {
         if timing_bars.is_empty() {
             frame.render_widget(
                 Paragraph::new(vec![Line::from("No completed stage timings yet.")])
+                    .style(self.theme.panel_style())
                     .wrap(Wrap { trim: false }),
                 inner,
             );
@@ -458,7 +487,7 @@ impl App {
                 Gauge::default()
                     .ratio(timing.ratio)
                     .label(timing.elapsed_label.clone())
-                    .gauge_style(timing.style())
+                    .gauge_style(timing.style(self.theme))
                     .use_unicode(true),
                 columns[1],
             );
@@ -470,14 +499,14 @@ impl App {
     }
 
     fn operation_run_summary_lines(&self) -> Vec<Line<'static>> {
-        let mut lines = vec![stylized_body_line(&self.operation.summary)];
+        let mut lines = vec![stylized_body_line(&self.operation.summary, self.theme)];
         let report_lines = self.operation_report_summary_lines();
         if !report_lines.is_empty() {
             lines.push(Line::from(String::new()));
             lines.extend(
                 report_lines
                     .into_iter()
-                    .map(|line| stylized_body_line(&line)),
+                    .map(|line| stylized_body_line(&line, self.theme)),
             );
         }
 
@@ -509,7 +538,11 @@ impl App {
         if !lines.is_empty() {
             lines.push(Line::from(String::new()));
         }
-        lines.extend(guidance.into_iter().map(|line| stylized_body_line(&line)));
+        lines.extend(
+            guidance
+                .into_iter()
+                .map(|line| stylized_body_line(&line, self.theme)),
+        );
         lines
     }
 
@@ -547,6 +580,7 @@ impl App {
             self.operation_log_lines(),
             self.operation.log_scroll,
             "No logs yet. Output will appear here while the operation runs.",
+            self.theme,
         );
     }
 
@@ -563,15 +597,17 @@ impl App {
                 self.operation_taxonomy_lines(),
                 self.operation.taxonomy_scroll,
                 empty_message,
+                self.theme,
             ),
             OperationDetail::Tree(categories) => {
                 let mut state = self.operation.taxonomy_tree_state.borrow_mut();
                 render_category_tree(
                     frame,
                     area,
-                    Block::default().title("Taxonomy").borders(Borders::ALL),
+                    self.theme.block("Taxonomy"),
                     categories,
                     &mut state,
+                    self.theme,
                 );
             }
             OperationDetail::None => {
@@ -580,9 +616,10 @@ impl App {
                     render_category_tree(
                         frame,
                         area,
-                        Block::default().title("Taxonomy").borders(Borders::ALL),
+                        self.theme.block("Taxonomy"),
                         categories,
                         &mut state,
+                        self.theme,
                     );
                 } else {
                     draw_scrolled_panel(
@@ -592,6 +629,7 @@ impl App {
                         Vec::new(),
                         0,
                         "Taxonomy not available yet. It appears after taxonomy synthesis or review.",
+                        self.theme,
                     );
                 }
             }
@@ -606,12 +644,18 @@ impl App {
             self.operation_report_lines(),
             self.operation.report_scroll,
             "Planned actions are not available yet. They appear after plan generation.",
+            self.theme,
         );
     }
 
     fn shortcut_actions(&self) -> &'static [(&'static str, &'static str)] {
         match self.screen {
-            Screen::Home => &[("↑/↓", "move"), ("Enter", "open"), ("Esc", "quit")],
+            Screen::Home => &[
+                ("↑/↓", "move"),
+                ("Enter", "open"),
+                ("t", "theme"),
+                ("Esc", "quit"),
+            ],
             Screen::RunForm => &[
                 ("↑/↓ or j/k", "move"),
                 ("←/→ or h/l", "column"),
@@ -619,6 +663,7 @@ impl App {
                 ("Space", "toggle/run"),
                 ("r", "run"),
                 ("s", "save"),
+                ("t", "theme"),
                 ("Esc", "back"),
             ],
             Screen::ExtractForm => &[
@@ -626,6 +671,7 @@ impl App {
                 ("←/→ or h/l", "cycle"),
                 ("Enter", "edit"),
                 ("r", "preview"),
+                ("t", "theme"),
                 ("Esc", "back"),
             ],
             Screen::Sessions => &[
@@ -639,6 +685,7 @@ impl App {
                 ("d", "delete"),
                 ("c", "clear"),
                 ("g", "refresh"),
+                ("t", "theme"),
                 ("Esc", "back"),
             ],
             Screen::Operation => &[
@@ -649,6 +696,7 @@ impl App {
                 ("PgUp/PgDn", "page"),
                 ("g/G", "start/end"),
                 ("s", "sessions"),
+                ("t", "theme"),
                 ("Esc", "back when idle"),
             ],
             Screen::TaxonomyReview => self
@@ -689,24 +737,28 @@ impl App {
                 }
             }
             Overlay::Confirm { title, message, .. } => {
-                let widget = Paragraph::new(Text::from(stylized_body_lines([
-                    message.as_str(),
-                    "",
-                    "`Enter` or `y` confirm",
-                    "`Esc` cancel",
-                ])))
+                let widget = Paragraph::new(Text::from(stylized_body_lines(
+                    [
+                        message.as_str(),
+                        "",
+                        "`Enter` or `y` confirm",
+                        "`Esc` cancel",
+                    ],
+                    self.theme,
+                )))
+                .style(self.theme.panel_style())
                 .wrap(Wrap { trim: false })
-                .block(overlay_block(title));
+                .block(overlay_block(title, self.theme));
                 frame.render_widget(widget, area);
             }
             Overlay::Notice { title, message } => {
-                let widget = Paragraph::new(Text::from(stylized_body_lines([
-                    message.as_str(),
-                    "",
-                    "`Enter` or `Esc` dismiss",
-                ])))
+                let widget = Paragraph::new(Text::from(stylized_body_lines(
+                    [message.as_str(), "", "`Enter` or `Esc` dismiss"],
+                    self.theme,
+                )))
+                .style(self.theme.panel_style())
                 .wrap(Wrap { trim: false })
-                .block(overlay_block(title));
+                .block(overlay_block(title, self.theme));
                 frame.render_widget(widget, area);
             }
             Overlay::SelectPath {
@@ -757,11 +809,10 @@ impl App {
                 render_selectable_list(
                     frame,
                     chunks[0],
-                    Block::default()
-                        .title("Select Rerun Stage")
-                        .borders(Borders::ALL),
+                    self.theme.block("Select Rerun Stage"),
                     lines,
                     Some(*selected),
+                    self.theme,
                 );
 
                 let impact_lines = stages
@@ -772,13 +823,10 @@ impl App {
                     .map(|impact| impact.lines())
                     .unwrap_or_else(|| vec!["Could not describe rerun impact.".to_string()]);
                 frame.render_widget(
-                    Paragraph::new(stylized_body_lines(impact_lines))
+                    Paragraph::new(stylized_body_lines(impact_lines, self.theme))
+                        .style(self.theme.panel_style())
                         .wrap(Wrap { trim: false })
-                        .block(
-                            Block::default()
-                                .title("Rerun Consequences")
-                                .borders(Borders::ALL),
-                        ),
+                        .block(self.theme.block("Rerun Consequences")),
                     chunks[1],
                 );
             }
@@ -792,7 +840,7 @@ impl App {
         label: &str,
         buffer: &str,
     ) -> Option<(u16, u16)> {
-        let block = Block::default().title("Edit Field").borders(Borders::ALL);
+        let block = self.theme.block("Edit Field");
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -810,16 +858,20 @@ impl App {
             .split(inner);
 
         frame.render_widget(
-            Paragraph::new(Text::from(stylized_body_lines([
-                format!("Editing {label}"),
-                "Type a new value, then press `Enter` to save.".to_string(),
-                "`Esc` cancels.".to_string(),
-            ])))
+            Paragraph::new(Text::from(stylized_body_lines(
+                [
+                    format!("Editing {label}"),
+                    "Type a new value, then press `Enter` to save.".to_string(),
+                    "`Esc` cancels.".to_string(),
+                ],
+                self.theme,
+            )))
+            .style(self.theme.panel_style())
             .wrap(Wrap { trim: false }),
             chunks[0],
         );
 
-        draw_text_field(frame, chunks[1], label, buffer)
+        draw_text_field(frame, chunks[1], label, buffer, self.theme)
     }
 
     fn draw_select_path_overlay(
@@ -831,9 +883,7 @@ impl App {
         directories: &[String],
         selected: usize,
     ) -> Option<(u16, u16)> {
-        let block = Block::default()
-            .title("Choose Folder")
-            .borders(Borders::ALL);
+        let block = self.theme.block("Choose Folder");
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -851,22 +901,26 @@ impl App {
             .split(inner);
 
         frame.render_widget(
-            Paragraph::new(Text::from(stylized_body_lines([
-                format!("Choosing {label}"),
-                "Type to filter directories. Relative input keeps relative suggestions."
-                    .to_string(),
-                "`Tab`, `Right`, or `l` selects the highlighted folder.".to_string(),
-                "`Enter` saves the current path. `Esc` cancels.".to_string(),
-            ])))
+            Paragraph::new(Text::from(stylized_body_lines(
+                [
+                    format!("Choosing {label}"),
+                    "Type to filter directories. Relative input keeps relative suggestions."
+                        .to_string(),
+                    "`Tab`, `Right`, or `l` selects the highlighted folder.".to_string(),
+                    "`Enter` saves the current path. `Esc` cancels.".to_string(),
+                ],
+                self.theme,
+            )))
+            .style(self.theme.panel_style())
             .wrap(Wrap { trim: false }),
             chunks[0],
         );
 
-        let cursor = draw_text_field(frame, chunks[1], label, buffer);
+        let cursor = draw_text_field(frame, chunks[1], label, buffer, self.theme);
         let items = if directories.is_empty() {
             vec![ListItem::new(Line::from(Span::styled(
                 "No matching folders found.",
-                muted_style(),
+                muted_style(self.theme),
             )))]
         } else {
             directories
@@ -877,9 +931,10 @@ impl App {
         render_selectable_list(
             frame,
             chunks[2],
-            Block::default().title("Folders").borders(Borders::ALL),
+            self.theme.block("Folders"),
             items,
             (!directories.is_empty()).then_some(selected),
+            self.theme,
         );
 
         cursor
@@ -890,8 +945,13 @@ fn draw_taxonomy_review_suggestion_panel(
     frame: &mut Frame,
     area: Rect,
     review: &super::taxonomy_review::TaxonomyReviewView,
+    theme: ThemePalette,
 ) -> Option<(u16, u16)> {
-    let block = focused_panel_block("Suggestion", review.focused_pane == ReviewPane::Suggestion);
+    let block = focused_panel_block(
+        "Suggestion",
+        review.focused_pane == ReviewPane::Suggestion,
+        theme,
+    );
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.width == 0 || inner.height == 0 {
@@ -908,14 +968,15 @@ fn draw_taxonomy_review_suggestion_panel(
         .split(inner);
 
     frame.render_widget(
-        Paragraph::new(stylized_body_lines(review.suggestion_lines()))
+        Paragraph::new(stylized_body_lines(review.suggestion_lines(), theme))
+            .style(theme.panel_style())
             .wrap(Wrap { trim: false })
             .scroll((review.focused_scroll().unwrap_or(0), 0)),
         chunks[0],
     );
 
     if review.editing && chunks.len() > 1 {
-        return draw_text_field(frame, chunks[1], "Draft", &review.suggestion_buffer);
+        return draw_text_field(frame, chunks[1], "Draft", &review.suggestion_buffer, theme);
     }
 
     None
@@ -936,8 +997,8 @@ pub(super) struct StageTimingBar {
 }
 
 impl StageTimingBar {
-    fn style(&self) -> Style {
-        Style::default().fg(Color::LightCyan).bg(Color::Black)
+    fn style(&self, theme: ThemePalette) -> Style {
+        Style::default().fg(theme.info).bg(theme.panel_bg)
     }
 }
 
@@ -984,11 +1045,16 @@ fn timing_ratio(elapsed: Duration, denominator: Duration) -> f64 {
     }
 }
 
-fn draw_text_field(frame: &mut Frame, area: Rect, title: &str, buffer: &str) -> Option<(u16, u16)> {
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
+fn draw_text_field(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    buffer: &str,
+    theme: ThemePalette,
+) -> Option<(u16, u16)> {
+    let block = theme
+        .block(title.to_string())
+        .border_style(Style::default().fg(theme.focus_border).bg(theme.panel_bg));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -998,12 +1064,8 @@ fn draw_text_field(frame: &mut Frame, area: Rect, title: &str, buffer: &str) -> 
 
     let (display, cursor_offset) = input_window(buffer, inner.width as usize);
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            display,
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ))),
+        Paragraph::new(Line::from(Span::styled(display, theme.input_style())))
+            .style(theme.input_style()),
         inner,
     );
 
@@ -1043,16 +1105,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn shortcut_chip_spans(actions: &[(&str, &str)]) -> Vec<Span<'static>> {
-    let palette = [
-        Color::LightCyan,
-        Color::LightGreen,
-        Color::LightYellow,
-        Color::LightMagenta,
-        Color::LightBlue,
-        Color::LightRed,
-    ];
-
+fn shortcut_chip_spans(actions: &[(&str, &str)], theme: ThemePalette) -> Vec<Span<'static>> {
     let mut spans = Vec::with_capacity(actions.len() * 2);
     for (index, (key, action)) in actions.iter().enumerate() {
         if index > 0 {
@@ -1061,10 +1114,7 @@ fn shortcut_chip_spans(actions: &[(&str, &str)]) -> Vec<Span<'static>> {
 
         spans.push(Span::styled(
             format!(" {key}: {action} "),
-            Style::default()
-                .fg(Color::Black)
-                .bg(palette[index % palette.len()])
-                .add_modifier(Modifier::BOLD),
+            theme.chip_style(index),
         ));
     }
 
@@ -1092,11 +1142,8 @@ fn compact_overlay_rect(area: Rect, title: &str, lines: &[&str]) -> Rect {
     centered_rect_exact(desired_width, desired_height, area)
 }
 
-fn overlay_block(title: &str) -> Block<'_> {
-    Block::default()
-        .title(title.to_string())
-        .borders(Borders::ALL)
-        .padding(Padding::uniform(OVERLAY_PADDING))
+fn overlay_block(title: &str, theme: ThemePalette) -> Block<'_> {
+    theme.overlay_block(title.to_string(), OVERLAY_PADDING)
 }
 
 fn wrapped_line_count(line: &str, width: usize) -> usize {
@@ -1165,19 +1212,21 @@ fn draw_scrolled_panel(
     lines: Vec<String>,
     scroll: u16,
     empty_message: &str,
+    theme: ThemePalette,
 ) {
     let content = if lines.is_empty() {
-        vec![stylized_body_line(empty_message)]
+        vec![stylized_body_line(empty_message, theme)]
     } else {
-        stylized_body_lines(lines)
+        stylized_body_lines(lines, theme)
     };
     render_scrolled_paragraph(
         frame,
         area,
-        Block::default().title(title).borders(Borders::ALL),
+        theme.block(title.to_string()),
         content,
         scroll,
         true,
+        theme,
     );
 }
 
@@ -1188,25 +1237,16 @@ fn draw_scrolled_panel_with_block(
     lines: Vec<String>,
     scroll: u16,
     empty_message: &str,
+    theme: ThemePalette,
 ) {
     let content = if lines.is_empty() {
-        vec![stylized_body_line(empty_message)]
+        vec![stylized_body_line(empty_message, theme)]
     } else {
-        stylized_body_lines(lines)
+        stylized_body_lines(lines, theme)
     };
-    render_scrolled_paragraph(frame, area, block, content, scroll, true);
+    render_scrolled_paragraph(frame, area, block, content, scroll, true, theme);
 }
 
-fn focused_panel_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
-    let border_style = if focused {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(border_style)
+fn focused_panel_block<'a>(title: &'a str, focused: bool, theme: ThemePalette) -> Block<'a> {
+    theme.focused_block(title, focused)
 }

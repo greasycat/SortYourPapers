@@ -12,6 +12,7 @@ use super::{
     session_view::SessionView,
     taxonomy_review::TaxonomyReviewView,
     taxonomy_tree::reset_state_for_categories,
+    theme::{ThemePalette, UiThemeName},
 };
 
 const MAX_LOG_LINES: usize = 400;
@@ -36,6 +37,8 @@ pub(super) struct App {
     pub(super) op_rx: mpsc::Receiver<OperationOutcome>,
     pub(super) op_tx: mpsc::Sender<OperationOutcome>,
     pub(super) debug_tui: bool,
+    pub(super) theme_name: UiThemeName,
+    pub(super) theme: ThemePalette,
 }
 
 impl App {
@@ -44,6 +47,7 @@ impl App {
         op_rx: mpsc::Receiver<OperationOutcome>,
         op_tx: mpsc::Sender<OperationOutcome>,
         debug_tui: bool,
+        theme_name: UiThemeName,
     ) -> Result<Self> {
         let mut session_view = SessionView::default();
         session_view.refresh()?;
@@ -92,7 +96,23 @@ impl App {
             op_rx,
             op_tx,
             debug_tui,
+            theme_name,
+            theme: theme_name.palette(),
         })
+    }
+
+    pub(super) fn cycle_theme(&mut self) {
+        self.theme_name = self.theme_name.next();
+        self.theme = self.theme_name.palette();
+
+        if let Err(err) = config::save_tui_preferences(&config::TuiPreferences {
+            theme: self.theme_name,
+        }) {
+            self.overlay = Some(Overlay::Notice {
+                title: "Theme Persistence".to_string(),
+                message: err.to_string(),
+            });
+        }
     }
 
     pub(super) fn drain_backend_events(&mut self) {

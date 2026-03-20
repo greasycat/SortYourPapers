@@ -1,24 +1,19 @@
 use ratatui::{
     layout::Rect,
-    prelude::{Color, Frame, Line, Modifier, Span, Style},
+    prelude::{Frame, Line, Modifier, Span, Style},
     widgets::{
         Block, HighlightSpacing, List, ListItem, ListState, Paragraph, Scrollbar,
         ScrollbarOrientation, ScrollbarState, Tabs, Wrap,
     },
 };
 
-pub(super) fn selected_style() -> Style {
-    Style::default()
-        .fg(Color::Black)
-        .bg(Color::Green)
-        .add_modifier(Modifier::BOLD)
+use super::theme::ThemePalette;
+
+pub(super) fn muted_style(theme: ThemePalette) -> Style {
+    theme.muted_style()
 }
 
-pub(super) fn muted_style() -> Style {
-    Style::default().fg(Color::Gray)
-}
-
-pub(super) fn stylized_body_line(text: &str) -> Line<'static> {
+pub(super) fn stylized_body_line(text: &str, theme: ThemePalette) -> Line<'static> {
     let mut spans = Vec::new();
     let mut rest = text;
 
@@ -35,7 +30,10 @@ pub(super) fn stylized_body_line(text: &str) -> Line<'static> {
         };
 
         let token = &after_start[1..=end];
-        spans.push(Span::styled(token.to_string(), inline_token_style(token)));
+        spans.push(Span::styled(
+            token.to_string(),
+            inline_token_style(token, theme),
+        ));
         rest = &after_start[end + 2..];
     }
 
@@ -50,27 +48,30 @@ pub(super) fn stylized_body_line(text: &str) -> Line<'static> {
     }
 }
 
-pub(super) fn stylized_body_lines<I, S>(lines: I) -> Vec<Line<'static>>
+pub(super) fn stylized_body_lines<I, S>(lines: I, theme: ThemePalette) -> Vec<Line<'static>>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
     lines
         .into_iter()
-        .map(|line| stylized_body_line(line.as_ref()))
+        .map(|line| stylized_body_line(line.as_ref(), theme))
         .collect()
 }
 
-fn inline_token_style(token: &str) -> Style {
+fn inline_token_style(token: &str, theme: ThemePalette) -> Style {
     let color = if matches!(token, "Enter" | "y") {
-        Color::Blue
+        theme.info
     } else if token == "Esc" {
-        Color::Red
+        theme.error
     } else {
-        Color::Cyan
+        theme.accent
     };
 
-    Style::default().fg(color).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(color)
+        .bg(theme.panel_bg)
+        .add_modifier(Modifier::BOLD)
 }
 
 pub(super) fn render_tabs<'a>(
@@ -79,12 +80,13 @@ pub(super) fn render_tabs<'a>(
     block: Block<'a>,
     titles: Vec<Line<'a>>,
     selected: usize,
+    theme: ThemePalette,
 ) {
     let tabs = Tabs::new(titles)
         .block(block)
         .select(selected)
-        .style(muted_style())
-        .highlight_style(selected_style())
+        .style(theme.panel_style())
+        .highlight_style(theme.selected_style())
         .divider(" ")
         .padding("", "");
     frame.render_widget(tabs, area);
@@ -96,12 +98,14 @@ pub(super) fn render_selectable_list<'a>(
     block: Block<'a>,
     items: Vec<ListItem<'a>>,
     selected: Option<usize>,
+    theme: ThemePalette,
 ) {
     let mut state = ListState::default();
     state.select(selected);
     let list = List::new(items)
         .block(block)
-        .highlight_style(selected_style())
+        .style(theme.panel_style())
+        .highlight_style(theme.selected_style())
         .highlight_symbol(">> ")
         .highlight_spacing(HighlightSpacing::Always)
         .scroll_padding(1);
@@ -115,6 +119,7 @@ pub(super) fn render_scrolled_paragraph<'a>(
     content: Vec<Line<'a>>,
     scroll: u16,
     wrap: bool,
+    theme: ThemePalette,
 ) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -139,7 +144,9 @@ pub(super) fn render_scrolled_paragraph<'a>(
     let max_scroll = content_height.saturating_sub(usize::from(inner.height));
     let scroll = usize::from(scroll).min(max_scroll) as u16;
 
-    let mut paragraph = Paragraph::new(content).scroll((scroll, 0));
+    let mut paragraph = Paragraph::new(content)
+        .style(theme.panel_style())
+        .scroll((scroll, 0));
     if wrap {
         paragraph = paragraph.wrap(Wrap { trim: false });
     }
@@ -155,8 +162,12 @@ pub(super) fn render_scrolled_paragraph<'a>(
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
         .begin_symbol(None)
         .end_symbol(None)
-        .track_style(muted_style())
-        .thumb_style(Style::default().fg(Color::Green));
+        .track_style(theme.muted_style())
+        .thumb_style(
+            Style::default()
+                .fg(theme.scrollbar_thumb)
+                .bg(theme.panel_bg),
+        );
     frame.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
 }
 
