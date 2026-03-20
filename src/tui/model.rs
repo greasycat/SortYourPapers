@@ -234,6 +234,7 @@ pub(super) enum ConfirmAction {
     SaveRunConfig(AppConfig),
     RemoveRun(String),
     ClearIncomplete,
+    ClearAll,
     AcceptTaxonomyBaseline,
     AcceptTaxonomyCandidate,
 }

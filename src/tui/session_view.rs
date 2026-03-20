@@ -546,6 +546,7 @@ impl SessionView {
             "  v review taxonomy".to_string(),
             "  d delete selected".to_string(),
             "  c clear incomplete".to_string(),
+            "  C clear all".to_string(),
         ]);
         lines
     }

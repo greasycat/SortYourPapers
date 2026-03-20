@@ -1338,6 +1338,25 @@ mod tests {
     }
 
     #[test]
+    fn sessions_screen_capital_c_opens_clear_all_confirmation() {
+        let mut app = test_app();
+        app.screen = Screen::Sessions;
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::SHIFT)))
+            .expect("capital C should open clear-all confirmation");
+
+        assert!(matches!(
+            app.overlay,
+            Some(Overlay::Confirm {
+                action: super::model::ConfirmAction::ClearAll,
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn stage_status_and_alert_events_feed_summary_panels() {
         let mut app = test_app();
         let (backend_tx, backend_rx) = mpsc::channel();

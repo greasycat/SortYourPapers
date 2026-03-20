@@ -239,6 +239,15 @@ impl App {
                     action: ConfirmAction::ClearIncomplete,
                 });
             }
+            KeyCode::Char('C') => {
+                self.overlay = Some(Overlay::Confirm {
+                    title: "Clear All Sessions".to_string(),
+                    message:
+                        "Clear all saved sessions for this workspace, including completed ones?"
+                            .to_string(),
+                    action: ConfirmAction::ClearAll,
+                });
+            }
             _ => {}
         }
         Ok(())
@@ -461,8 +470,8 @@ impl App {
                 ReviewPhase::PostSuggestionDecision => {
                     self.overlay = Some(Overlay::Confirm {
                         title: "Accept Candidate".to_string(),
-                        message:
-                            "Accept this candidate taxonomy and finish the review?".to_string(),
+                        message: "Accept this candidate taxonomy and finish the review?"
+                            .to_string(),
                         action: ConfirmAction::AcceptTaxonomyCandidate,
                     });
                 }
@@ -691,6 +700,16 @@ impl App {
                     Ok(OperationOutcome::success(
                         "Clear Incomplete Sessions",
                         format!("cleared {} incomplete session(s)", removed.len()),
+                        OperationDetail::None,
+                    ))
+                });
+            }
+            ConfirmAction::ClearAll => {
+                self.start_blocking_operation("Clear All Sessions", move || {
+                    let removed = RunWorkspace::clear_all_runs()?;
+                    Ok(OperationOutcome::success(
+                        "Clear All Sessions",
+                        format!("cleared {} saved session(s)", removed.len()),
                         OperationDetail::None,
                     ))
                 });

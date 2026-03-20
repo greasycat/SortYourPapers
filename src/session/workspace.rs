@@ -181,6 +181,11 @@ impl RunWorkspace {
         Self::clear_incomplete_runs_in(&cwd)
     }
 
+    pub fn clear_all_runs() -> Result<Vec<String>> {
+        let cwd = env::current_dir()?;
+        Self::clear_all_runs_in(&cwd)
+    }
+
     pub fn runs_root() -> Result<PathBuf> {
         let cwd = env::current_dir()?;
         runs_root_in(&cwd)
@@ -505,6 +510,14 @@ impl RunWorkspace {
         Self::remove_runs_in(base_dir, &run_ids)
     }
 
+    fn clear_all_runs_in(base_dir: &Path) -> Result<Vec<String>> {
+        let run_ids = Self::list_runs_in(base_dir)?
+            .into_iter()
+            .map(|run| run.run_id)
+            .collect::<Vec<_>>();
+        Self::remove_runs_in(base_dir, &run_ids)
+    }
+
     #[cfg(test)]
     fn remove_runs_with_cache_root(
         base_dir: &Path,
@@ -522,6 +535,15 @@ impl RunWorkspace {
         let run_ids = list_runs_from_cache_root(base_dir, cache_root)?
             .into_iter()
             .filter(|run| run.last_completed_stage != Some(RunStage::Completed))
+            .map(|run| run.run_id)
+            .collect::<Vec<_>>();
+        remove_runs_with_cache_root(base_dir, cache_root, &run_ids)
+    }
+
+    #[cfg(test)]
+    fn clear_all_runs_with_cache_root(base_dir: &Path, cache_root: &Path) -> Result<Vec<String>> {
+        let run_ids = list_runs_from_cache_root(base_dir, cache_root)?
+            .into_iter()
             .map(|run| run.run_id)
             .collect::<Vec<_>>();
         remove_runs_with_cache_root(base_dir, cache_root, &run_ids)
@@ -1011,6 +1033,34 @@ mod tests {
         assert_eq!(runs[0].run_id, completed.run_id());
         assert_eq!(runs[0].last_completed_stage, Some(RunStage::Completed));
         assert!(runs[0].is_latest);
+    }
+
+    #[test]
+    fn clear_all_runs_removes_completed_and_incomplete_runs() {
+        let dir = tempdir().expect("tempdir");
+        let cache_root = dir.path().join("cache");
+        let cfg = sample_config();
+
+        let mut incomplete = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create incomplete");
+        incomplete
+            .mark_stage(RunStage::ExtractText)
+            .expect("mark incomplete stage");
+
+        let mut completed = RunWorkspace::create_with_cache_root(dir.path(), &cache_root, &cfg)
+            .expect("create completed");
+        completed.mark_completed().expect("mark completed");
+
+        let removed = RunWorkspace::clear_all_runs_with_cache_root(dir.path(), &cache_root)
+            .expect("clear all");
+
+        assert_eq!(removed.len(), 2);
+        assert!(removed.contains(&incomplete.run_id().to_string()));
+        assert!(removed.contains(&completed.run_id().to_string()));
+        let runs =
+            RunWorkspace::list_runs_with_cache_root(dir.path(), &cache_root).expect("list runs");
+        assert!(runs.is_empty());
+        assert!(!cache_root.join("latest_run").exists());
     }
 
     #[test]
