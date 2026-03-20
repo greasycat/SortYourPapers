@@ -187,10 +187,8 @@ impl SessionView {
     }
 
     pub(super) fn scroll_preview(&mut self, delta: isize) {
-        let max_offset = self.preview_lines().len().saturating_sub(1);
-        self.preview_scroll = (self.preview_scroll as isize + delta)
-            .clamp(0, max_offset.min(u16::MAX as usize) as isize)
-            as u16;
+        self.preview_scroll =
+            (self.preview_scroll as isize + delta).clamp(0, u16::MAX as isize) as u16;
     }
 
     pub(super) fn selected_run_id(&self) -> Option<String> {
@@ -203,10 +201,17 @@ impl SessionView {
         let now_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |duration| duration.as_millis());
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
-            .split(area);
+        let chunks = if area.width < 120 {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
+                .split(area)
+        } else {
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
+                .split(area)
+        };
 
         self.draw_list_column(frame, chunks[0], now_unix_ms);
         self.draw_detail_column(frame, chunks[1], now_unix_ms);

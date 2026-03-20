@@ -212,6 +212,13 @@ mod tests {
             .any(|line| line.contains('║') || line.contains('█'))
     }
 
+    fn find_text_position(lines: &[String], text: &str) -> Option<(usize, usize)> {
+        lines
+            .iter()
+            .enumerate()
+            .find_map(|(y, line)| line.find(text).map(|x| (x, y)))
+    }
+
     fn contains_symbol_with_fg(
         app: &App,
         width: u16,
@@ -447,6 +454,20 @@ mod tests {
     }
 
     #[test]
+    fn home_screen_stacks_panels_on_narrow_width() {
+        let mut app = test_app();
+        app.screen = Screen::Home;
+
+        let lines = render_lines(&app, 80, 28);
+        let (_, actions_y) =
+            find_text_position(&lines, "Actions").expect("actions panel should render");
+        let (_, overview_y) =
+            find_text_position(&lines, "Overview").expect("overview panel should render");
+
+        assert!(overview_y > actions_y + 2);
+    }
+
+    #[test]
     fn run_form_selected_field_includes_provider_specific_guidance() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
@@ -465,6 +486,23 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("http://localhost:11434"))
         );
+    }
+
+    #[test]
+    fn run_form_stacks_side_panels_on_narrow_width() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+
+        let lines = render_lines(&app, 100, 40);
+        let (_, setup_y) =
+            find_text_position(&lines, "Run Setup").expect("run setup panel should render");
+        let (_, preview_y) = find_text_position(&lines, "Launch Preview")
+            .expect("launch preview panel should render");
+        let (_, selected_y) = find_text_position(&lines, "Selected Field")
+            .expect("selected field panel should render");
+
+        assert!(preview_y > setup_y + 2);
+        assert!(selected_y > preview_y + 2);
     }
 
     #[test]
@@ -1750,12 +1788,47 @@ mod tests {
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)))
             .expect("G should jump to log end");
-        assert_eq!(app.operation.log_scroll, 39);
+        assert_eq!(app.operation.log_scroll, u16::MAX);
 
         runtime
             .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)))
             .expect("g should jump to log start");
         assert_eq!(app.operation.log_scroll, 0);
+    }
+
+    #[test]
+    fn operation_logs_can_scroll_past_raw_line_count_when_wrapped() {
+        let mut app = test_app();
+        app.operation.active_tab = OperationTab::Logs;
+        app.logs = vec![format!("{} {}", "wrapped".repeat(24), "content".repeat(24))]
+            .into_iter()
+            .collect();
+        let runtime = test_runtime();
+
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)))
+            .expect("j should scroll wrapped logs");
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)))
+            .expect("j should keep scrolling wrapped logs");
+
+        assert!(app.operation.log_scroll >= 2);
+    }
+
+    #[test]
+    fn operation_header_wraps_shortcuts_on_narrow_width() {
+        let mut app = test_app();
+        app.screen = Screen::Operation;
+        app.operation.state = OperationState::Running;
+
+        let lines = render_lines(&app, 70, 24);
+        let (_, title_y) =
+            find_text_position(&lines, "Operation").expect("operation title should render");
+        let (_, hint_y) = find_text_position(&lines, "Tab/h/l: switch")
+            .expect("wrapped shortcut hint should render");
+
+        assert!(hint_y > title_y);
+        assert!(hint_y < 5);
     }
 
     #[test]

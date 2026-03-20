@@ -217,14 +217,13 @@ impl App {
             return;
         }
 
-        let max_offset = self.operation_content_len(active_tab).saturating_sub(1);
         let next = match active_tab {
             OperationTab::Summary => return,
             OperationTab::Logs => self.operation.log_scroll as isize + delta,
             OperationTab::Taxonomy => self.operation.taxonomy_scroll as isize + delta,
             OperationTab::Report => self.operation.report_scroll as isize + delta,
         }
-        .clamp(0, max_offset.min(u16::MAX as usize) as isize) as u16;
+        .clamp(0, u16::MAX as isize) as u16;
 
         match active_tab {
             OperationTab::Summary => {}
@@ -261,12 +260,7 @@ impl App {
                 .scroll_selected_into_view();
             return;
         }
-        let target = if to_end {
-            self.operation_content_len(active_tab).saturating_sub(1)
-        } else {
-            0
-        }
-        .min(u16::MAX as usize) as u16;
+        let target = if to_end { u16::MAX as usize } else { 0 }.min(u16::MAX as usize) as u16;
 
         match active_tab {
             OperationTab::Summary => {}
@@ -341,15 +335,6 @@ impl App {
                 .as_ref()
                 .map(|_| Vec::new())
                 .unwrap_or_default(),
-        }
-    }
-
-    fn operation_content_len(&self, tab: OperationTab) -> usize {
-        match tab {
-            OperationTab::Summary => 0,
-            OperationTab::Logs => self.operation_log_lines().len(),
-            OperationTab::Taxonomy => 0,
-            OperationTab::Report => self.operation_report_lines().len(),
         }
     }
 

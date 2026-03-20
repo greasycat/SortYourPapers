@@ -61,7 +61,6 @@ pub(super) fn render_scrolled_paragraph<'a>(
     scroll: u16,
     wrap: bool,
 ) {
-    let content_len = content.len();
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -69,7 +68,8 @@ pub(super) fn render_scrolled_paragraph<'a>(
         return;
     }
 
-    let needs_scrollbar = content_len > usize::from(inner.height) && inner.width > 1;
+    let initial_height = visual_height(&content, inner.width as usize, wrap);
+    let needs_scrollbar = initial_height > usize::from(inner.height) && inner.width > 1;
     let text_area = if needs_scrollbar {
         Rect::new(
             inner.x,
@@ -80,6 +80,9 @@ pub(super) fn render_scrolled_paragraph<'a>(
     } else {
         inner
     };
+    let content_height = visual_height(&content, text_area.width as usize, wrap);
+    let max_scroll = content_height.saturating_sub(usize::from(inner.height));
+    let scroll = usize::from(scroll).min(max_scroll) as u16;
 
     let mut paragraph = Paragraph::new(content).scroll((scroll, 0));
     if wrap {
@@ -91,8 +94,8 @@ pub(super) fn render_scrolled_paragraph<'a>(
         return;
     }
 
-    let mut scrollbar_state = ScrollbarState::new(content_len)
-        .position(usize::from(scroll).min(content_len.saturating_sub(1)))
+    let mut scrollbar_state = ScrollbarState::new(content_height.max(1))
+        .position(usize::from(scroll).min(content_height.saturating_sub(1)))
         .viewport_content_length(usize::from(inner.height));
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
         .begin_symbol(None)
@@ -100,4 +103,34 @@ pub(super) fn render_scrolled_paragraph<'a>(
         .track_style(muted_style())
         .thumb_style(Style::default().fg(Color::Green));
     frame.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
+}
+
+fn visual_height(content: &[Line<'_>], width: usize, wrap: bool) -> usize {
+    if content.is_empty() {
+        return 0;
+    }
+
+    if !wrap {
+        return content.len();
+    }
+
+    content
+        .iter()
+        .map(|line| wrapped_line_count(line_width(line), width))
+        .sum()
+}
+
+fn line_width(line: &Line<'_>) -> usize {
+    line.spans
+        .iter()
+        .map(|span| span.content.chars().count())
+        .sum()
+}
+
+fn wrapped_line_count(width: usize, available_width: usize) -> usize {
+    if available_width == 0 {
+        return 1;
+    }
+
+    width.max(1).div_ceil(available_width)
 }

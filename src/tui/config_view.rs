@@ -106,10 +106,17 @@ impl ConfigView {
     }
 
     pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(34), Constraint::Percentage(66)])
-            .split(area);
+        let chunks = if area.width < 110 {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(14), Constraint::Min(0)])
+                .split(area)
+        } else {
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(34), Constraint::Percentage(66)])
+                .split(area)
+        };
         let left = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(8), Constraint::Min(8)])

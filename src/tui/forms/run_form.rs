@@ -312,14 +312,27 @@ impl RunForm {
 
     pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
         let analysis = self.analysis();
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
-            .split(area);
-        let side_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(56), Constraint::Percentage(44)])
-            .split(chunks[1]);
+        let (chunks, side_chunks) = if area.width < 140 {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(56), Constraint::Percentage(44)])
+                .split(area);
+            let side_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
+                .split(chunks[1]);
+            (chunks, side_chunks)
+        } else {
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
+                .split(area);
+            let side_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(56), Constraint::Percentage(44)])
+                .split(chunks[1]);
+            (chunks, side_chunks)
+        };
 
         self.draw_form_workspace(frame, chunks[0], &analysis);
         self.draw_summary(frame, side_chunks[0], &analysis);
@@ -582,14 +595,25 @@ impl RunForm {
             return;
         }
 
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(34),
-                Constraint::Percentage(33),
-                Constraint::Percentage(33),
-            ])
-            .split(inner);
+        let chunks = if inner.width < 120 {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(34),
+                    Constraint::Percentage(33),
+                    Constraint::Percentage(33),
+                ])
+                .split(inner)
+        } else {
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(34),
+                    Constraint::Percentage(33),
+                    Constraint::Percentage(33),
+                ])
+                .split(inner)
+        };
 
         const COLUMN_SECTIONS: [[(&str, &[usize]); 2]; 3] = [
             [("Paths & Scope", &[0, 1, 2]), ("Extraction", &[3, 4, 5])],

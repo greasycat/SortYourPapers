@@ -42,10 +42,17 @@ impl Default for ExtractForm {
 
 impl ExtractForm {
     pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .split(area);
+        let chunks = if area.width < 90 {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(8), Constraint::Min(0)])
+                .split(area)
+        } else {
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+                .split(area)
+        };
 
         let items = EXTRACT_FIELD_LABELS
             .iter()
