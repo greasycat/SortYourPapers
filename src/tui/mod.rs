@@ -412,6 +412,9 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("Run")));
         assert!(lines.iter().any(|line| line.contains("Run Setup")));
         assert!(lines.iter().any(|line| line.contains("Launch Preview")));
+        assert!(lines.iter().any(|line| line.contains("STATUS")));
+        assert!(lines.iter().any(|line| line.contains("Pipeline")));
+        assert!(lines.iter().any(|line| line.contains("Launch")));
         assert!(lines.iter().any(|line| line.contains("Selected Field")));
         assert!(lines.iter().any(|line| line.contains("Input Folder")));
     }

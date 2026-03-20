@@ -627,105 +627,156 @@ impl RunForm {
     }
 
     fn draw_summary(&self, frame: &mut Frame, area: Rect, analysis: &RunFormAnalysis) {
-        let mut lines = Vec::new();
         let (infos, warnings, errors) = analysis.issue_counts();
-        let readiness = if analysis.has_errors() {
-            Span::styled(
-                analysis.readiness_text(),
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            )
+        let readiness_color = if errors > 0 {
+            Color::Red
+        } else if warnings > 0 {
+            Color::Yellow
         } else {
-            Span::styled(
-                analysis.readiness_text(),
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )
+            Color::Green
         };
-
-        lines.push(Line::from(readiness));
-        lines.push(Line::from(format!(
-            "Issues: {errors} error(s), {warnings} warning(s), {infos} note(s)"
-        )));
-        lines.push(Line::from(""));
-        lines.push(Line::from(format!(
-            "Mode: {}",
-            if self.apply {
-                "Apply moves"
-            } else {
-                "Preview only"
-            }
-        )));
-        lines.push(Line::from(format!(
-            "Input: {}",
-            display_path_line(&self.input, DEFAULT_INPUT)
-        )));
-        lines.push(Line::from(format!(
-            "Output: {}",
-            display_path_line(&self.output, DEFAULT_OUTPUT)
-        )));
-        lines.push(Line::from(format!(
-            "Scope: {} | {} page(s) | {} worker(s)",
-            if self.recursive {
-                "recursive"
-            } else {
-                "top-level only"
-            },
-            self.page_cutoff.trim(),
-            self.pdf_extract_workers.trim()
-        )));
-        lines.push(Line::from(format!(
-            "Taxonomy: depth {} | {} | batch {}",
-            self.category_depth.trim(),
-            taxonomy_mode_label(self.taxonomy_mode),
-            self.taxonomy_batch_size.trim()
-        )));
-        lines.push(Line::from(format!(
-            "Placement: {} | batch {}",
-            placement_mode_label(self.placement_mode),
-            self.placement_batch_size.trim()
-        )));
-        lines.push(Line::from(format!(
-            "LLM: {} / {}",
-            provider_label(self.llm_provider),
-            if self.llm_model.trim().is_empty() {
-                "<missing>"
-            } else {
-                self.llm_model.trim()
-            }
-        )));
-        lines.push(Line::from(format!(
-            "Run Output: rebuild={} | quiet={} | verbosity={}",
-            bool_label(self.rebuild),
-            bool_label(self.quiet),
-            self.verbosity.label()
-        )));
+        let mode_color = if self.apply {
+            Color::LightRed
+        } else {
+            Color::LightBlue
+        };
+        let output_color = if self.quiet {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+        let mut lines = vec![
+            Line::from(vec![
+                badge_span("STATUS", readiness_color),
+                Span::raw(" "),
+                Span::styled(
+                    analysis.readiness_text(),
+                    Style::default()
+                        .fg(readiness_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                badge_span(if self.apply { "APPLY" } else { "PREVIEW" }, mode_color),
+                Span::raw(" "),
+                badge_span(&format!("{errors} ERR"), Color::Red),
+                Span::raw(" "),
+                badge_span(&format!("{warnings} WARN"), Color::Yellow),
+                Span::raw(" "),
+                badge_span(&format!("{infos} NOTE"), Color::Cyan),
+            ]),
+            Line::from(""),
+            section_header_line("Paths", Color::LightCyan),
+            labeled_value_line(
+                "In ",
+                &display_path_line(&self.input, DEFAULT_INPUT),
+                Color::Cyan,
+                Color::White,
+            ),
+            labeled_value_line(
+                "Out",
+                &display_path_line(&self.output, DEFAULT_OUTPUT),
+                Color::Cyan,
+                Color::White,
+            ),
+            Line::from(""),
+            section_header_line("Pipeline", Color::LightMagenta),
+            labeled_value_line(
+                "Extract",
+                &format!(
+                    "{} MB | {} page(s) | {} worker(s)",
+                    self.max_file_size_mb.trim(),
+                    self.page_cutoff.trim(),
+                    self.pdf_extract_workers.trim()
+                ),
+                Color::Magenta,
+                Color::White,
+            ),
+            labeled_value_line(
+                "Taxonomy",
+                &format!(
+                    "depth {} | {} | batch {}",
+                    self.category_depth.trim(),
+                    taxonomy_mode_label(self.taxonomy_mode),
+                    self.taxonomy_batch_size.trim()
+                ),
+                Color::Magenta,
+                Color::White,
+            ),
+            labeled_value_line(
+                "Ideas",
+                &format!(
+                    "keywords {} | suggestions {}",
+                    self.keyword_batch_size.trim(),
+                    self.subcategories_suggestion_number.trim()
+                ),
+                Color::Magenta,
+                Color::White,
+            ),
+            labeled_value_line(
+                "Place",
+                &format!(
+                    "{} | batch {}",
+                    placement_mode_label(self.placement_mode),
+                    self.placement_batch_size.trim()
+                ),
+                Color::Magenta,
+                Color::White,
+            ),
+            Line::from(""),
+            section_header_line("Launch", Color::LightGreen),
+            labeled_value_line(
+                "LLM",
+                &format!(
+                    "{} / {}",
+                    provider_label(self.llm_provider),
+                    if self.llm_model.trim().is_empty() {
+                        "<missing>"
+                    } else {
+                        self.llm_model.trim()
+                    }
+                ),
+                Color::Green,
+                Color::White,
+            ),
+            labeled_value_line(
+                "Output",
+                &format!(
+                    "rebuild {} | quiet {} | {}",
+                    bool_label(self.rebuild),
+                    bool_label(self.quiet),
+                    self.verbosity.label()
+                ),
+                Color::Green,
+                output_color,
+            ),
+        ];
 
         if let Some(config) = &analysis.config {
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Resolved Launch",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(format!(
-                "{} | provider={} | model={}",
+            lines.push(section_header_line("Resolved", Color::LightYellow));
+            lines.push(labeled_value_line(
+                "Mode",
                 if config.dry_run { "preview" } else { "apply" },
-                provider_label(config.llm_provider),
-                config.llm_model
-            )));
+                Color::Yellow,
+                Color::White,
+            ));
+            lines.push(labeled_value_line(
+                "Scope",
+                if self.recursive {
+                    "recursive"
+                } else {
+                    "top-level only"
+                },
+                Color::Yellow,
+                Color::White,
+            ));
         }
 
         let notable_issues = analysis.issues.iter().take(4).collect::<Vec<_>>();
         if !notable_issues.is_empty() {
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Notable Issues",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )));
+            lines.push(section_header_line("Issues", Color::LightRed));
             for issue in notable_issues {
                 lines.push(Line::from(Span::styled(
                     format!(
@@ -742,6 +793,7 @@ impl RunForm {
             Paragraph::new(lines).wrap(Wrap { trim: false }).block(
                 Block::default()
                     .title("Launch Preview")
+                    .border_style(Style::default().fg(readiness_color))
                     .borders(Borders::ALL),
             ),
             area,
@@ -974,6 +1026,37 @@ fn display_path_line(value: &str, default_value: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+fn badge_span(label: &str, color: Color) -> Span<'static> {
+    Span::styled(
+        format!("[{label}]"),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    )
+}
+
+fn section_header_line(title: &str, color: Color) -> Line<'static> {
+    Line::from(Span::styled(
+        title.to_string(),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    ))
+}
+
+fn labeled_value_line(
+    label: &str,
+    value: &str,
+    label_color: Color,
+    value_color: Color,
+) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("{label:<8}"),
+            Style::default()
+                .fg(label_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(value.to_string(), Style::default().fg(value_color)),
+    ])
 }
 
 fn provider_guidance_lines(provider: LlmProvider) -> Vec<String> {
