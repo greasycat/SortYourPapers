@@ -945,7 +945,7 @@ pub(super) struct StageTimingBar {
 
 impl StageTimingBar {
     fn style(&self) -> Style {
-        Style::default().fg(Color::Black).bg(Color::LightCyan)
+        Style::default().fg(Color::LightCyan).bg(Color::Black)
     }
 }
 

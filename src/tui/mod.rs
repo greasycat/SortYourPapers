@@ -1440,8 +1440,8 @@ mod tests {
             24,
             "1. discover-input",
             "█",
-            Color::Black,
             Color::LightCyan,
+            Color::Black,
         ));
     }
 
