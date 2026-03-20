@@ -45,6 +45,7 @@ pub(super) async fn inspect_output_stage(
     let review_client = llm_client.cloned();
     let review_category_depth = config.category_depth;
     let review_subcategories_suggestion_number = config.subcategories_suggestion_number;
+    let review_existing_output_folders = existing_output_folders_for_taxonomy_merge(config)?;
 
     inspect_output_stage_with_interaction(
         taxonomy_state,
@@ -59,6 +60,7 @@ pub(super) async fn inspect_output_stage(
         |_partial_categories, suggestion, current_categories, merge_verbosity| {
             let review_client = review_client.clone();
             let improvement_source = vec![current_categories.to_vec()];
+            let review_existing_output_folders = review_existing_output_folders.clone();
             Box::pin(async move {
                 merge_category_batches(
                     review_client
@@ -69,6 +71,7 @@ pub(super) async fn inspect_output_stage(
                     review_category_depth,
                     review_subcategories_suggestion_number,
                     Some(suggestion),
+                    review_existing_output_folders.as_deref(),
                     merge_verbosity,
                 )
                 .await
@@ -328,6 +331,31 @@ pub(super) fn pick_snapshot_for_mode(snapshot: &OutputSnapshot, rebuild: bool) -
         }
     } else {
         snapshot.clone()
+    }
+}
+
+pub(super) fn existing_output_folders_for_taxonomy_merge(
+    config: &AppConfig,
+) -> Result<Option<Vec<String>>> {
+    if config.rebuild || config.placement_mode != crate::papers::placement::PlacementMode::AllowNew
+    {
+        return Ok(None);
+    }
+
+    let snapshot = inspect_output(Path::new(&config.output))?;
+    if snapshot.is_empty {
+        return Ok(None);
+    }
+
+    let folders = snapshot
+        .existing_folders
+        .into_iter()
+        .filter(|folder| folder != ".")
+        .collect::<Vec<_>>();
+    if folders.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(folders))
     }
 }
 

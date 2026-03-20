@@ -24,8 +24,8 @@ use crate::{
 };
 
 use super::output_flow::{
-    build_plan_stage, execute_plan_stage, finalize_empty_run, generate_placements_stage,
-    inspect_output_stage,
+    build_plan_stage, execute_plan_stage, existing_output_folders_for_taxonomy_merge,
+    finalize_empty_run, generate_placements_stage, inspect_output_stage,
 };
 
 const KEYWORD_BATCH_PROGRESS_FILE: &str = "06-extract-keywords-partial-batches.json";
@@ -565,12 +565,14 @@ async fn synthesize_categories_stage(
         .iter()
         .map(|batch| batch.categories.clone())
         .collect::<Vec<_>>();
+    let existing_output_folders = existing_output_folders_for_taxonomy_merge(config)?;
     let (categories, merge_usage) = merge_category_batches(
         require_llm_client(llm_client)?.as_ref(),
         &partial_categories,
         config.category_depth,
         config.subcategories_suggestion_number,
         None,
+        existing_output_folders.as_deref(),
         verbosity,
     )
     .await?;

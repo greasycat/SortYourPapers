@@ -13,8 +13,7 @@ use tokio::time::sleep;
 
 use super::{
     KeywordBatchProgress, KeywordBatchResult, KeywordPair, TaxonomyBatchProgress,
-    TaxonomyBatchResult, extract_keywords, extract_keywords_with_progress,
-    merge_category_batches,
+    TaxonomyBatchResult, extract_keywords, extract_keywords_with_progress, merge_category_batches,
     prompts::{
         build_batch_keyword_prompt, build_category_prompt, build_merge_category_plain_text_prompt,
         build_merge_category_prompt, format_llm_request_debug_message,
@@ -514,6 +513,7 @@ fn merge_prompt_flattens_and_sorts_category_paths() {
         2,
         5,
         Some("Merge speech categories under one parent"),
+        None,
     )
     .expect("prompt");
 
@@ -542,6 +542,7 @@ fn merge_plain_text_prompt_uses_line_format() {
         2,
         5,
         None,
+        None,
     )
     .expect("plain-text prompt");
 
@@ -551,6 +552,29 @@ fn merge_plain_text_prompt_uses_line_format() {
     assert!(prompt.contains("try your best to keep the number of subcategories less than 5"));
     assert!(prompt.contains("- no JSON"));
     assert!(!prompt.contains("Return JSON with schema"));
+}
+
+#[test]
+fn merge_prompt_includes_existing_output_folders_when_provided() {
+    let existing_output_folders = vec!["AI".to_string(), "AI/Vision".to_string()];
+    let prompt = build_merge_category_prompt(
+        &[vec![CategoryTree {
+            name: "AI".to_string(),
+            children: vec![CategoryTree {
+                name: "Transformers".to_string(),
+                children: vec![],
+            }],
+        }]],
+        2,
+        5,
+        None,
+        Some(existing_output_folders.as_slice()),
+    )
+    .expect("prompt");
+
+    assert!(prompt.contains("existing_output_folders"));
+    assert!(prompt.contains("\"AI/Vision\""));
+    assert!(prompt.contains("align naming and grouping with them"));
 }
 
 #[test]
@@ -594,6 +618,7 @@ async fn taxonomy_merge_keeps_structured_schema_before_timeout() {
         2,
         5,
         None,
+        Some(&["AI".to_string(), "AI/Vision".to_string()]),
         Verbosity::new(false, false, false),
         Duration::from_secs(1),
     )
@@ -610,6 +635,8 @@ async fn taxonomy_merge_keeps_structured_schema_before_timeout() {
     assert_eq!(captured.len(), 1);
     assert_eq!(captured[0].name, "category_response");
     assert!(captured[0].user_prompt.contains("category_paths"));
+    assert!(captured[0].user_prompt.contains("existing_output_folders"));
+    assert!(captured[0].user_prompt.contains("\"AI/Vision\""));
 }
 
 #[tokio::test]
@@ -640,6 +667,7 @@ async fn taxonomy_merge_times_out_to_plain_text_paths() {
         &partial_categories,
         2,
         5,
+        None,
         None,
         Verbosity::new(false, false, false),
         Duration::from_millis(5),
@@ -685,6 +713,7 @@ async fn taxonomy_merge_plain_text_retry_repairs_invalid_response() {
         2,
         5,
         None,
+        None,
         Verbosity::new(false, false, false),
         Duration::from_millis(5),
     )
@@ -726,6 +755,7 @@ async fn taxonomy_merge_uses_plain_text_directly_for_plain_text_clients() {
         &partial_categories,
         2,
         5,
+        None,
         None,
         Verbosity::new(false, false, false),
     )

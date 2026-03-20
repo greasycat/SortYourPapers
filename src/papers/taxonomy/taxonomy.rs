@@ -80,6 +80,7 @@ pub async fn synthesize_categories(
         category_depth,
         subcategories_suggestion_number,
         None,
+        None,
         verbosity,
     )
     .await?;
@@ -124,6 +125,7 @@ where
         &partial_categories,
         category_depth,
         subcategories_suggestion_number,
+        None,
         None,
         verbosity,
     )
@@ -258,6 +260,7 @@ pub(crate) async fn merge_category_batches(
     category_depth: u8,
     subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
+    existing_output_folders: Option<&[String]>,
     verbosity: Verbosity,
 ) -> Result<(Vec<CategoryTree>, LlmUsageSummary)> {
     if partial_categories.is_empty() {
@@ -278,6 +281,7 @@ pub(crate) async fn merge_category_batches(
             category_depth,
             subcategories_suggestion_number,
             user_suggestion,
+            existing_output_folders,
             verbosity,
             GLOBAL_TAXONOMY_LABEL,
         )
@@ -290,6 +294,7 @@ pub(crate) async fn merge_category_batches(
         category_depth,
         subcategories_suggestion_number,
         user_suggestion,
+        existing_output_folders,
         verbosity,
         Duration::from_secs(TAXONOMY_MERGE_TIMEOUT_SECS),
     )
@@ -303,6 +308,7 @@ pub(super) async fn merge_category_batches_with_timeout(
     category_depth: u8,
     subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
+    existing_output_folders: Option<&[String]>,
     verbosity: Verbosity,
     merge_timeout: Duration,
 ) -> Result<(Vec<CategoryTree>, LlmUsageSummary)> {
@@ -311,6 +317,7 @@ pub(super) async fn merge_category_batches_with_timeout(
         category_depth,
         subcategories_suggestion_number,
         user_suggestion,
+        existing_output_folders,
     )?;
     match timeout(
         merge_timeout,
@@ -341,6 +348,7 @@ pub(super) async fn merge_category_batches_with_timeout(
                 category_depth,
                 subcategories_suggestion_number,
                 user_suggestion,
+                existing_output_folders,
                 verbosity,
                 GLOBAL_TAXONOMY_LABEL,
             )
@@ -355,6 +363,7 @@ async fn request_plain_text_merged_categories(
     category_depth: u8,
     subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
+    existing_output_folders: Option<&[String]>,
     verbosity: Verbosity,
     label: &str,
 ) -> Result<(Vec<CategoryTree>, LlmUsageSummary)> {
@@ -363,6 +372,7 @@ async fn request_plain_text_merged_categories(
         category_depth,
         subcategories_suggestion_number,
         user_suggestion,
+        existing_output_folders,
     )?;
     request_validated_categories_plain_text(
         client,

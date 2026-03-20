@@ -21,14 +21,18 @@ pub(super) fn build_merge_category_prompt(
     category_depth: u8,
     subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
+    existing_output_folders: Option<&[String]>,
 ) -> Result<String> {
     let category_paths = flatten_and_sort_category_paths(batch_categories);
     let suggestion_section = format_merge_suggestion_section(user_suggestion);
+    let existing_folder_rule = format_existing_folder_rule(existing_output_folders);
+    let existing_folder_section = format_existing_folder_section(existing_output_folders)?;
 
     Ok(format!(
-        "Return JSON with schema:\n{{\"categories\":[[\"Top Level\"],[\"Top Level\",\"Subcategory\"]]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below\n- each entry in `categories` must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy\n\ncategory_paths:\n{}{}",
+        "Return JSON with schema:\n{{\"categories\":[[\"Top Level\"],[\"Top Level\",\"Subcategory\"]]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below as the primary taxonomy evidence\n- each entry in `categories` must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy{existing_folder_rule}\n\ncategory_paths:\n{}{}{}",
         serde_json::to_string(&category_paths).map_err(AppError::from)?,
-        suggestion_section
+        suggestion_section,
+        existing_folder_section
     ))
 }
 
@@ -37,14 +41,18 @@ pub(super) fn build_merge_category_plain_text_prompt(
     category_depth: u8,
     subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
+    existing_output_folders: Option<&[String]>,
 ) -> Result<String> {
     let category_paths = flatten_and_sort_category_paths(batch_categories);
     let suggestion_section = format_merge_suggestion_section(user_suggestion);
+    let existing_folder_rule = format_existing_folder_rule(existing_output_folders);
+    let existing_folder_section = format_existing_folder_section(existing_output_folders)?;
 
     Ok(format!(
-        "Return plain text only.\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below\n- return one full category path per line\n- use ` > ` between path segments\n- each line must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- no JSON\n- no markdown\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy\n\ncategory_paths:\n{}{}",
+        "Return plain text only.\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below as the primary taxonomy evidence\n- return one full category path per line\n- use ` > ` between path segments\n- each line must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- no JSON\n- no markdown\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy{existing_folder_rule}\n\ncategory_paths:\n{}{}{}",
         serde_json::to_string(&category_paths).map_err(AppError::from)?,
-        suggestion_section
+        suggestion_section,
+        existing_folder_section
     ))
 }
 
@@ -63,6 +71,25 @@ fn format_merge_suggestion_section(user_suggestion: Option<&str>) -> String {
         .filter(|suggestion| !suggestion.is_empty())
         .map(|suggestion| format!("\n\nuser_merge_suggestion:\n{suggestion}"))
         .unwrap_or_default()
+}
+
+fn format_existing_folder_rule(existing_output_folders: Option<&[String]>) -> &'static str {
+    if existing_output_folders.is_some_and(|folders| !folders.is_empty()) {
+        "\n- existing output folders are provided below as optional guidance; align naming and grouping with them when it improves consistency\n- you may reuse or adapt names from existing_output_folders when that produces a better final taxonomy"
+    } else {
+        ""
+    }
+}
+
+fn format_existing_folder_section(existing_output_folders: Option<&[String]>) -> Result<String> {
+    let Some(folders) = existing_output_folders.filter(|folders| !folders.is_empty()) else {
+        return Ok(String::new());
+    };
+
+    Ok(format!(
+        "\n\nexisting_output_folders:\n{}",
+        serde_json::to_string(folders).map_err(AppError::from)?
+    ))
 }
 
 fn flatten_category_paths(categories: &[CategoryTree]) -> Vec<Vec<String>> {
