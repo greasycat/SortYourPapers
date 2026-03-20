@@ -246,6 +246,12 @@ pub(super) enum Overlay {
         label: String,
         buffer: String,
     },
+    SelectPath {
+        label: String,
+        buffer: String,
+        directories: Vec<String>,
+        selected: usize,
+    },
     Confirm {
         title: String,
         message: String,

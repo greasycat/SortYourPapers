@@ -730,9 +730,9 @@ impl App {
 
     fn draw_overlay(&self, frame: &mut Frame, overlay: &Overlay) {
         let area = match overlay {
-            Overlay::EditField { .. } | Overlay::SelectRerunStage { .. } => {
-                centered_rect(70, 60, frame.area())
-            }
+            Overlay::EditField { .. }
+            | Overlay::SelectPath { .. }
+            | Overlay::SelectRerunStage { .. } => centered_rect(70, 60, frame.area()),
             Overlay::Confirm { title, message, .. } => compact_overlay_rect(
                 frame.area(),
                 title,
@@ -772,6 +772,23 @@ impl App {
                 .wrap(Wrap { trim: false })
                 .block(Block::default().title(title.clone()).borders(Borders::ALL));
                 frame.render_widget(widget, area);
+            }
+            Overlay::SelectPath {
+                label,
+                buffer,
+                directories,
+                selected,
+            } => {
+                if let Some((x, y)) = self.draw_select_path_overlay(
+                    frame,
+                    area,
+                    label,
+                    buffer,
+                    directories,
+                    *selected,
+                ) {
+                    frame.set_cursor_position((x, y));
+                }
             }
             Overlay::SelectRerunStage {
                 stages,
@@ -860,6 +877,70 @@ impl App {
         );
 
         draw_text_field(frame, chunks[1], label, buffer)
+    }
+
+    fn draw_select_path_overlay(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        label: &str,
+        buffer: &str,
+        directories: &[String],
+        selected: usize,
+    ) -> Option<(u16, u16)> {
+        let block = Block::default()
+            .title("Choose Folder")
+            .borders(Borders::ALL);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        if inner.width == 0 || inner.height == 0 {
+            return None;
+        }
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4),
+                Constraint::Length(4),
+                Constraint::Min(0),
+            ])
+            .split(inner);
+
+        frame.render_widget(
+            Paragraph::new(Text::from(vec![
+                Line::from(format!("Choosing {label}")),
+                Line::from(
+                    "Type to filter directories. Relative input keeps relative suggestions.",
+                ),
+                Line::from("Tab, Right, or l selects the highlighted folder."),
+                Line::from("Enter saves the current path. Esc cancels."),
+            ]))
+            .wrap(Wrap { trim: false }),
+            chunks[0],
+        );
+
+        let cursor = draw_text_field(frame, chunks[1], label, buffer);
+        let items = if directories.is_empty() {
+            vec![ListItem::new(Line::from(Span::styled(
+                "No matching folders found.",
+                muted_style(),
+            )))]
+        } else {
+            directories
+                .iter()
+                .map(|directory| ListItem::new(directory.clone()))
+                .collect::<Vec<_>>()
+        };
+        render_selectable_list(
+            frame,
+            chunks[2],
+            Block::default().title("Folders").borders(Borders::ALL),
+            items,
+            (!directories.is_empty()).then_some(selected),
+        );
+
+        cursor
     }
 }
 

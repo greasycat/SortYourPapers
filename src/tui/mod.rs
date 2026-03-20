@@ -642,6 +642,67 @@ mod tests {
     }
 
     #[test]
+    fn run_form_enter_opens_path_picker_for_folder_fields() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.selected = 0;
+
+        let runtime = test_runtime();
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
+            .expect("enter should open path picker");
+
+        assert!(matches!(
+            app.overlay,
+            Some(Overlay::SelectPath {
+                ref label,
+                ref buffer,
+                ..
+            }) if label == "Input Folder" && buffer == &app.run_form.input
+        ));
+    }
+
+    #[test]
+    fn path_overlay_enter_commits_value_without_reopening_editor() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.selected = 0;
+        app.overlay = Some(Overlay::SelectPath {
+            label: "Input Folder".to_string(),
+            buffer: "papers".to_string(),
+            directories: vec!["papers".to_string(), "reports".to_string()],
+            selected: 0,
+        });
+
+        let runtime = test_runtime();
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)))
+            .expect("enter should commit selected path");
+
+        assert_eq!(app.run_form.input, "papers");
+        assert!(app.overlay.is_none());
+    }
+
+    #[test]
+    fn path_overlay_renders_relative_folder_list() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.overlay = Some(Overlay::SelectPath {
+            label: "Input Folder".to_string(),
+            buffer: "papers".to_string(),
+            directories: vec!["papers/ml".to_string(), "papers/nlp".to_string()],
+            selected: 1,
+        });
+
+        let lines = render_lines(&app, 100, 24);
+
+        assert!(lines.iter().any(|line| line.contains("Choose Folder")));
+        assert!(lines.iter().any(|line| line.contains("Folders")));
+        assert!(lines.iter().any(|line| line.contains("papers/ml")));
+        assert!(lines.iter().any(|line| line.contains("papers/nlp")));
+    }
+
+    #[test]
     fn home_overview_no_longer_duplicates_key_help() {
         let mut app = test_app();
         app.screen = Screen::Home;

@@ -1,3 +1,5 @@
+use std::env;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
@@ -11,7 +13,7 @@ use crate::{
 use super::{
     app::App,
     extract::{collect_extract_preview, render_extract_result_lines},
-    forms::{extract_field_label, run_field_label},
+    forms::{extract_field_label, list_relative_directories, run_field_label},
     model::{
         ConfirmAction, HomeAction, OperationDetail, OperationOutcome, OperationState, OperationTab,
         Overlay, Screen,
@@ -372,10 +374,14 @@ impl App {
             }
             KeyCode::Enter => {
                 if self.run_form.editable(self.run_form.selected) {
-                    self.overlay = Some(Overlay::EditField {
-                        label: run_field_label(self.run_form.selected).to_string(),
-                        buffer: self.run_form.value(self.run_form.selected),
-                    });
+                    if self.run_form.selected <= 1 {
+                        self.open_run_path_overlay()?;
+                    } else {
+                        self.overlay = Some(Overlay::EditField {
+                            label: run_field_label(self.run_form.selected).to_string(),
+                            buffer: self.run_form.value(self.run_form.selected),
+                        });
+                    }
                 } else {
                     self.run_form.toggle_selected();
                 }
@@ -542,6 +548,56 @@ impl App {
                 }
                 return Ok(true);
             }
+            Overlay::SelectPath {
+                buffer,
+                directories,
+                selected,
+                ..
+            } => {
+                match key.code {
+                    KeyCode::Esc => {}
+                    KeyCode::Enter => {
+                        self.apply_edit(buffer.clone())?;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        *selected = (*selected + 1).min(directories.len().saturating_sub(1));
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        *selected = selected.saturating_sub(1);
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                    KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                        if let Some(choice) = directories.get(*selected).cloned() {
+                            *buffer = choice;
+                            Self::refresh_path_overlay(buffer, directories, selected)?;
+                        }
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                    KeyCode::Backspace => {
+                        buffer.pop();
+                        Self::refresh_path_overlay(buffer, directories, selected)?;
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                    KeyCode::Char(c) => {
+                        if !key.modifiers.contains(KeyModifiers::CONTROL) {
+                            buffer.push(c);
+                            Self::refresh_path_overlay(buffer, directories, selected)?;
+                            self.overlay = Some(overlay);
+                        }
+                        return Ok(true);
+                    }
+                    _ => {
+                        self.overlay = Some(overlay);
+                        return Ok(true);
+                    }
+                }
+                return Ok(true);
+            }
             Overlay::Confirm { action, .. } => match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => {
                     self.confirm_action(action.clone())?;
@@ -681,5 +737,32 @@ impl App {
             selected: 0,
         });
         Ok(())
+    }
+
+    fn open_run_path_overlay(&mut self) -> Result<()> {
+        let buffer = self.run_form.value(self.run_form.selected);
+        let directories = Self::path_overlay_directories(&buffer)?;
+        self.overlay = Some(Overlay::SelectPath {
+            label: run_field_label(self.run_form.selected).to_string(),
+            buffer,
+            selected: 0,
+            directories,
+        });
+        Ok(())
+    }
+
+    fn refresh_path_overlay(
+        buffer: &str,
+        directories: &mut Vec<String>,
+        selected: &mut usize,
+    ) -> Result<()> {
+        *directories = Self::path_overlay_directories(buffer)?;
+        *selected = (*selected).min(directories.len().saturating_sub(1));
+        Ok(())
+    }
+
+    fn path_overlay_directories(buffer: &str) -> Result<Vec<String>> {
+        let cwd = env::current_dir()?;
+        Ok(list_relative_directories(&cwd, buffer))
     }
 }

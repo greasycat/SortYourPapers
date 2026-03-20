@@ -10,9 +10,9 @@ use crate::{
 };
 
 pub(super) use self::extract_form::ExtractForm;
-pub(super) use self::run_form::RunForm;
 #[cfg(test)]
 pub(super) use self::run_form::ValidationSeverity;
+pub(super) use self::run_form::{RunForm, list_relative_directories};
 
 struct RunFieldDescriptor {
     key: &'static str,
