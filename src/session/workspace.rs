@@ -15,8 +15,8 @@ use crate::{
     config::AppConfig,
     error::{AppError, Result},
     llm::LlmProvider,
-    papers::{PaperText, PdfCandidate},
     papers::taxonomy::CategoryTree,
+    papers::{PaperText, PdfCandidate},
     report::RunReport,
 };
 
@@ -762,7 +762,7 @@ mod tests {
         ExtractTextState, FilterSizeState, RunStage, RunWorkspace, SessionConfigSummary,
         SessionStatusSummary, StageFailure,
     };
-    use crate::config::AppConfig;
+    use crate::config::{ApiKeySource, AppConfig};
     use crate::llm::LlmProvider;
     use crate::papers::placement::PlacementMode;
     use crate::papers::taxonomy::{CategoryTree, KeywordBatchProgress, TaxonomyMode};
@@ -787,7 +787,7 @@ mod tests {
             llm_provider: LlmProvider::Gemini,
             llm_model: "gemini-3-flash-preview".to_string(),
             llm_base_url: None,
-            api_key: Some("secret".to_string()),
+            api_key: Some(ApiKeySource::Text("secret".to_string())),
             keyword_batch_size: 50,
             batch_start_delay_ms: 100,
             subcategories_suggestion_number: 5,
@@ -1056,10 +1056,7 @@ mod tests {
             }
         );
         assert_eq!(details.report.expect("report").scanned, 4);
-        assert_eq!(
-            details.taxonomy.expect("taxonomy")[0].name,
-            "AI"
-        );
+        assert_eq!(details.taxonomy.expect("taxonomy")[0].name, "AI");
         assert_eq!(
             details.available_stage_artifacts,
             vec![RunStage::ExtractText, RunStage::SynthesizeCategories]

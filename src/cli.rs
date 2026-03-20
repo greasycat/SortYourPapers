@@ -175,8 +175,14 @@ pub struct CliArgs {
     #[arg(short = 'u', long)]
     pub llm_base_url: Option<String>,
 
-    #[arg(short = 'k', long)]
+    #[arg(short = 'k', long, conflicts_with_all = ["api_key_command", "api_key_env"])]
     pub api_key: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["api_key", "api_key_env"])]
+    pub api_key_command: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["api_key", "api_key_command"])]
+    pub api_key_env: Option<String>,
 
     #[arg(long)]
     pub keyword_batch_size: Option<usize>,

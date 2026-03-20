@@ -26,9 +26,10 @@ use crate::{
 };
 
 use super::{
-    UiVerbosity, bool_label, cycle_placement_mode, cycle_provider, cycle_taxonomy_mode,
-    empty_string_to_option, masked_value, parse_u8, parse_u64, parse_usize, placement_mode_label,
-    provider_label, run_field_help, run_field_key, run_field_label, taxonomy_mode_label,
+    ApiKeySourceMode, UiVerbosity, bool_label, cycle_placement_mode, cycle_provider,
+    cycle_taxonomy_mode, empty_string_to_option, masked_value, parse_u8, parse_u64, parse_usize,
+    placement_mode_label, provider_label, run_field_help, run_field_key, run_field_label,
+    taxonomy_mode_label,
 };
 use crate::tui::ui_widgets::render_selectable_list;
 
@@ -185,7 +186,8 @@ pub(crate) struct RunForm {
     llm_provider: LlmProvider,
     llm_model: String,
     llm_base_url: String,
-    api_key: String,
+    api_key_source: ApiKeySourceMode,
+    api_key_value: String,
     keyword_batch_size: String,
     subcategories_suggestion_number: String,
     pub(crate) verbosity: UiVerbosity,
@@ -212,7 +214,8 @@ impl Default for RunForm {
             llm_provider: DEFAULT_LLM_PROVIDER,
             llm_model: DEFAULT_LLM_MODEL.to_string(),
             llm_base_url: String::new(),
-            api_key: String::new(),
+            api_key_source: ApiKeySourceMode::Text,
+            api_key_value: String::new(),
             keyword_batch_size: DEFAULT_KEYWORD_BATCH_SIZE.to_string(),
             subcategories_suggestion_number: DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER.to_string(),
             verbosity: UiVerbosity::Normal,
@@ -302,12 +305,12 @@ impl DirectoryQuery {
 impl RunForm {
     const COLUMN_FIELDS: [&'static [usize]; 3] = [
         &[0, 1, 2, 3, 4, 5],
-        &[6, 7, 8, 17, 18, 9, 10],
-        &[13, 14, 15, 16, 11, 12, 19, 20],
+        &[6, 7, 8, 18, 19, 9, 10],
+        &[13, 14, 15, 16, 17, 11, 12, 20, 21],
     ];
 
-    const VISIBLE_FIELDS: [usize; 21] = [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 9, 10, 13, 14, 15, 16, 11, 12, 19, 20,
+    const VISIBLE_FIELDS: [usize; 22] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 18, 19, 9, 10, 13, 14, 15, 16, 17, 11, 12, 20, 21,
     ];
 
     pub(crate) fn draw(&self, frame: &mut Frame, area: Rect) {
@@ -359,19 +362,19 @@ impl RunForm {
         self.validate_numeric_field(6, &self.category_depth, parse_u8, &mut issues);
         self.validate_numeric_field(8, &self.taxonomy_batch_size, parse_usize, &mut issues);
         self.validate_numeric_field(9, &self.placement_batch_size, parse_usize, &mut issues);
-        self.validate_numeric_field(17, &self.keyword_batch_size, parse_usize, &mut issues);
+        self.validate_numeric_field(18, &self.keyword_batch_size, parse_usize, &mut issues);
         self.validate_numeric_field(
-            18,
+            19,
             &self.subcategories_suggestion_number,
             parse_usize,
             &mut issues,
         );
 
         if matches!(self.llm_provider, LlmProvider::Openai | LlmProvider::Gemini)
-            && self.api_key.trim().is_empty()
+            && self.api_key_value.trim().is_empty()
         {
             issues.push(ValidationIssue {
-                field: Some(16),
+                field: Some(17),
                 severity: ValidationSeverity::Warning,
                 message: format!(
                     "{} usually requires an API key unless credentials are supplied elsewhere.",
@@ -380,17 +383,39 @@ impl RunForm {
             });
         }
 
-        if matches!(self.llm_provider, LlmProvider::Ollama) && !self.api_key.trim().is_empty() {
+        if matches!(self.llm_provider, LlmProvider::Ollama) && !self.api_key_value.trim().is_empty()
+        {
             issues.push(ValidationIssue {
-                field: Some(16),
+                field: Some(17),
                 severity: ValidationSeverity::Info,
-                message: "Ollama does not use the API key field.".to_string(),
+                message: "Ollama does not use the API key fields.".to_string(),
+            });
+        }
+
+        if self.api_key_value.trim().is_empty()
+            && matches!(
+                self.api_key_source,
+                ApiKeySourceMode::Command | ApiKeySourceMode::Env
+            )
+        {
+            issues.push(ValidationIssue {
+                field: Some(17),
+                severity: ValidationSeverity::Warning,
+                message: match self.api_key_source {
+                    ApiKeySourceMode::Command => {
+                        "Enter a shell command that prints the API key.".to_string()
+                    }
+                    ApiKeySourceMode::Env => {
+                        "Enter the environment variable name that holds the API key.".to_string()
+                    }
+                    ApiKeySourceMode::Text => String::new(),
+                },
             });
         }
 
         if self.quiet && !matches!(self.verbosity, UiVerbosity::Normal) {
             issues.push(ValidationIssue {
-                field: Some(20),
+                field: Some(21),
                 severity: ValidationSeverity::Warning,
                 message: "Quiet mode will suppress most of the extra output from verbose/debug."
                     .to_string(),
@@ -459,7 +484,15 @@ impl RunForm {
             llm_provider: Some(self.llm_provider),
             llm_model: Some(self.llm_model.trim().to_string()),
             llm_base_url: empty_string_to_option(&self.llm_base_url),
-            api_key: empty_string_to_option(&self.api_key),
+            api_key: (self.api_key_source == ApiKeySourceMode::Text)
+                .then(|| empty_string_to_option(&self.api_key_value))
+                .flatten(),
+            api_key_command: (self.api_key_source == ApiKeySourceMode::Command)
+                .then(|| empty_string_to_option(&self.api_key_value))
+                .flatten(),
+            api_key_env: (self.api_key_source == ApiKeySourceMode::Env)
+                .then(|| empty_string_to_option(&self.api_key_value))
+                .flatten(),
             keyword_batch_size: Some(parse_usize("keyword_batch_size", &self.keyword_batch_size)?),
             subcategories_suggestion_number: Some(parse_usize(
                 "subcategories_suggestion_number",
@@ -502,7 +535,7 @@ impl RunForm {
     }
 
     pub(crate) fn editable(&self, index: usize) -> bool {
-        !matches!(index, 2 | 7 | 10 | 11 | 12 | 13 | 19 | 20)
+        !matches!(index, 2 | 7 | 10 | 11 | 12 | 13 | 16 | 20 | 21)
     }
 
     pub(crate) fn toggle_selected(&mut self) {
@@ -510,7 +543,7 @@ impl RunForm {
             2 => self.recursive = !self.recursive,
             11 => self.rebuild = !self.rebuild,
             12 => self.apply = !self.apply,
-            20 => self.quiet = !self.quiet,
+            21 => self.quiet = !self.quiet,
             _ => self.cycle_selected(1),
         }
     }
@@ -520,7 +553,14 @@ impl RunForm {
             7 => self.taxonomy_mode = cycle_taxonomy_mode(self.taxonomy_mode, direction),
             10 => self.placement_mode = cycle_placement_mode(self.placement_mode, direction),
             13 => self.llm_provider = cycle_provider(self.llm_provider, direction),
-            19 => {
+            16 => {
+                self.api_key_source = if direction >= 0 {
+                    self.api_key_source.next()
+                } else {
+                    self.api_key_source.previous()
+                }
+            }
+            20 => {
                 self.verbosity = if direction >= 0 {
                     self.verbosity.next()
                 } else {
@@ -543,9 +583,9 @@ impl RunForm {
             9 => self.placement_batch_size = value,
             14 => self.llm_model = value,
             15 => self.llm_base_url = value,
-            16 => self.api_key = value,
-            17 => self.keyword_batch_size = value,
-            18 => self.subcategories_suggestion_number = value,
+            17 => self.api_key_value = value,
+            18 => self.keyword_batch_size = value,
+            19 => self.subcategories_suggestion_number = value,
             _ => {}
         }
         Ok(())
@@ -569,11 +609,12 @@ impl RunForm {
             13 => provider_label(self.llm_provider).to_string(),
             14 => self.llm_model.clone(),
             15 => self.llm_base_url.clone(),
-            16 => masked_value(&self.api_key),
-            17 => self.keyword_batch_size.clone(),
-            18 => self.subcategories_suggestion_number.clone(),
-            19 => self.verbosity.label().to_string(),
-            20 => bool_label(self.quiet).to_string(),
+            16 => self.api_key_source.label().to_string(),
+            17 => api_key_value_display(self.api_key_source, &self.api_key_value),
+            18 => self.keyword_batch_size.clone(),
+            19 => self.subcategories_suggestion_number.clone(),
+            20 => self.verbosity.label().to_string(),
+            21 => bool_label(self.quiet).to_string(),
             _ => String::new(),
         }
     }
@@ -609,8 +650,11 @@ impl RunForm {
 
         const COLUMN_SECTIONS: [[(&str, &[usize]); 2]; 3] = [
             [("Paths & Scope", &[0, 1, 2]), ("Extraction", &[3, 4, 5])],
-            [("Taxonomy", &[6, 7, 8, 17, 18]), ("Placement", &[9, 10])],
-            [("LLM & API", &[13, 14, 15, 16]), ("Run", &[11, 12, 19, 20])],
+            [("Taxonomy", &[6, 7, 8, 18, 19]), ("Placement", &[9, 10])],
+            [
+                ("LLM & API", &[13, 14, 15, 16, 17]),
+                ("Run", &[11, 12, 20, 21]),
+            ],
         ];
 
         for (column, sections) in chunks.iter().zip(COLUMN_SECTIONS.iter()) {
@@ -727,6 +771,16 @@ impl RunForm {
                     } else {
                         self.llm_model.trim()
                     }
+                ),
+                Color::Green,
+                Color::White,
+            ),
+            labeled_value_line(
+                "Auth",
+                &format!(
+                    "{} / {}",
+                    self.api_key_source.label(),
+                    api_key_summary(self.api_key_source, &self.api_key_value)
                 ),
                 Color::Green,
                 Color::White,
@@ -996,6 +1050,26 @@ fn display_path_line(value: &str, default_value: &str) -> String {
         default_value.to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+fn api_key_value_display(source: ApiKeySourceMode, value: &str) -> String {
+    match source {
+        ApiKeySourceMode::Text => masked_value(value),
+        ApiKeySourceMode::Command | ApiKeySourceMode::Env => value.trim().to_string(),
+    }
+}
+
+fn api_key_summary(source: ApiKeySourceMode, value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "<empty>".to_string();
+    }
+
+    match source {
+        ApiKeySourceMode::Text => format!("{} chars", trimmed.chars().count()),
+        ApiKeySourceMode::Command => "shell command".to_string(),
+        ApiKeySourceMode::Env => trimmed.to_string(),
     }
 }
 

@@ -38,12 +38,13 @@ pub trait LlmClient: Send + Sync {
     }
 }
 
-pub fn build_client(config: &AppConfig) -> Box<dyn LlmClient> {
-    match config.llm_provider {
+pub fn build_client(config: &AppConfig) -> Result<Box<dyn LlmClient>> {
+    let api_key = config.resolved_api_key()?;
+    Ok(match config.llm_provider {
         LlmProvider::Openai => Box::new(providers::openai::OpenAiClient::new(
             config.llm_model.clone(),
             config.llm_base_url.clone(),
-            config.api_key.clone(),
+            api_key.clone(),
         )),
         LlmProvider::Ollama => Box::new(providers::ollama::OllamaClient::new(
             config.llm_model.clone(),
@@ -52,7 +53,7 @@ pub fn build_client(config: &AppConfig) -> Box<dyn LlmClient> {
         LlmProvider::Gemini => Box::new(providers::gemini::GeminiClient::new(
             config.llm_model.clone(),
             config.llm_base_url.clone(),
-            config.api_key.clone(),
+            api_key,
         )),
-    }
+    })
 }

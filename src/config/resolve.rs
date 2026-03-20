@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    config::AppConfig,
+    config::{ApiKeySource, AppConfig},
     error::{AppError, Result},
 };
 
@@ -110,7 +110,13 @@ pub(super) fn resolve_from_sources(
         .llm_base_url
         .or(env_cfg.llm_base_url)
         .or(file_cfg.llm_base_url);
-    let api_key = cli.api_key.or(env_cfg.api_key).or(file_cfg.api_key);
+    let api_key = cli
+        .api_key
+        .map(ApiKeySource::Text)
+        .or(cli.api_key_command.map(ApiKeySource::Command))
+        .or(cli.api_key_env.map(ApiKeySource::Env))
+        .or(env_cfg.api_key)
+        .or(file_cfg.api_key);
     let keyword_batch_size = cli
         .keyword_batch_size
         .or(env_cfg.keyword_batch_size)

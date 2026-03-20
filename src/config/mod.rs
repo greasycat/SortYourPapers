@@ -5,6 +5,8 @@ mod xdg;
 #[cfg(test)]
 mod tests;
 
+use std::{env, path::PathBuf, process::Command};
+
 use serde::{Deserialize, Serialize};
 
 pub use crate::cli::{Cli, CliArgs, Commands, ExtractTextArgs, InitArgs, SessionCommands};
@@ -21,8 +23,6 @@ use crate::{
     papers::placement::PlacementMode,
     papers::taxonomy::TaxonomyMode,
 };
-
-use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -42,7 +42,7 @@ pub struct AppConfig {
     pub llm_provider: LlmProvider,
     pub llm_model: String,
     pub llm_base_url: Option<String>,
-    pub api_key: Option<String>,
+    pub api_key: Option<ApiKeySource>,
     pub keyword_batch_size: usize,
     pub batch_start_delay_ms: u64,
     pub subcategories_suggestion_number: usize,
@@ -52,6 +52,30 @@ pub struct AppConfig {
     pub debug: bool,
     #[serde(default)]
     pub quiet: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "source", content = "value", rename_all = "kebab-case")]
+pub enum ApiKeySource {
+    Text(String),
+    Command(String),
+    Env(String),
+}
+
+impl ApiKeySource {
+    pub fn resolve(&self) -> Result<String> {
+        match self {
+            Self::Text(value) => resolve_api_key_text(value),
+            Self::Command(command) => resolve_api_key_command(command),
+            Self::Env(name) => resolve_api_key_env(name),
+        }
+    }
+}
+
+impl AppConfig {
+    pub fn resolved_api_key(&self) -> Result<Option<String>> {
+        self.api_key.as_ref().map(ApiKeySource::resolve).transpose()
+    }
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -71,7 +95,7 @@ struct FileConfig {
     llm_provider: Option<LlmProvider>,
     llm_model: Option<String>,
     llm_base_url: Option<String>,
-    api_key: Option<String>,
+    api_key: Option<ApiKeySource>,
     keyword_batch_size: Option<usize>,
     batch_start_delay_ms: Option<u64>,
     subcategories_suggestion_number: Option<usize>,
@@ -94,7 +118,7 @@ struct EnvConfig {
     llm_provider: Option<LlmProvider>,
     llm_model: Option<String>,
     llm_base_url: Option<String>,
-    api_key: Option<String>,
+    api_key: Option<ApiKeySource>,
     keyword_batch_size: Option<usize>,
     batch_start_delay_ms: Option<u64>,
     subcategories_suggestion_number: Option<usize>,
@@ -142,4 +166,57 @@ pub fn default_config_toml() -> String {
 /// cannot be written.
 pub fn save_xdg_config(config: &AppConfig) -> Result<PathBuf> {
     xdg::save_xdg_config(config)
+}
+
+fn resolve_api_key_text(value: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(crate::error::AppError::Config(
+            "api key text value is empty".to_string(),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn resolve_api_key_env(name: &str) -> Result<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(crate::error::AppError::Config(
+            "api key env variable name is empty".to_string(),
+        ));
+    }
+
+    let value = env::var(trimmed).map_err(|_| {
+        crate::error::AppError::Config(format!("api key env variable {trimmed} is not set"))
+    })?;
+    resolve_api_key_text(&value)
+}
+
+fn resolve_api_key_command(command: &str) -> Result<String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return Err(crate::error::AppError::Config(
+            "api key command is empty".to_string(),
+        ));
+    }
+
+    #[cfg(target_family = "windows")]
+    let output = Command::new("cmd").args(["/C", trimmed]).output()?;
+    #[cfg(not(target_family = "windows"))]
+    let output = Command::new("sh").args(["-lc", trimmed]).output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let detail = if stderr.is_empty() {
+            format!("command exited with status {}", output.status)
+        } else {
+            stderr
+        };
+        return Err(crate::error::AppError::Config(format!(
+            "api key command failed: {detail}"
+        )));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    resolve_api_key_text(stdout.trim())
 }

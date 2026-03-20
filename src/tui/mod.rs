@@ -318,8 +318,9 @@ mod tests {
         assert!(!form.editable(11));
         assert!(!form.editable(12));
         assert!(!form.editable(13));
-        assert!(!form.editable(19));
+        assert!(!form.editable(16));
         assert!(!form.editable(20));
+        assert!(!form.editable(21));
         assert!(form.editable(14));
         assert!(form.editable(18));
     }
@@ -336,7 +337,11 @@ mod tests {
         form.toggle_selected();
         assert_eq!(form.placement_mode, PlacementMode::AllowNew);
 
-        form.selected = 19;
+        form.selected = 16;
+        form.toggle_selected();
+        assert_eq!(form.value(16), "command");
+
+        form.selected = 20;
         form.toggle_selected();
         assert!(matches!(form.verbosity, UiVerbosity::Verbose));
 
@@ -344,7 +349,7 @@ mod tests {
         form.toggle_selected();
         assert!(form.rebuild);
 
-        form.selected = 20;
+        form.selected = 21;
         form.toggle_selected();
         assert!(form.quiet);
     }
@@ -353,7 +358,7 @@ mod tests {
     fn run_form_navigation_skips_hidden_output_fields() {
         let mut form = RunForm::default();
 
-        form.selected = 16;
+        form.selected = 17;
         form.select_next();
         assert_eq!(form.selected, 11);
 
@@ -370,13 +375,13 @@ mod tests {
 
         form.selected = 4;
         form.move_column_right();
-        assert_eq!(form.selected, 18);
+        assert_eq!(form.selected, 19);
 
         form.move_column_right();
-        assert_eq!(form.selected, 11);
+        assert_eq!(form.selected, 17);
 
         form.move_column_left();
-        assert_eq!(form.selected, 18);
+        assert_eq!(form.selected, 19);
 
         form.move_column_left();
         assert_eq!(form.selected, 4);
@@ -386,12 +391,12 @@ mod tests {
     fn run_form_column_navigation_clamps_to_shorter_columns() {
         let mut form = RunForm::default();
 
-        form.selected = 20;
+        form.selected = 21;
         form.move_column_left();
         assert_eq!(form.selected, 10);
 
         form.move_column_right();
-        assert_eq!(form.selected, 19);
+        assert_eq!(form.selected, 12);
     }
 
     #[test]
@@ -414,13 +419,14 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("Launch")));
         assert!(lines.iter().any(|line| line.contains("Selected Field")));
         assert!(lines.iter().any(|line| line.contains("Input Folder")));
+        assert!(lines.iter().any(|line| line.contains("API Key Source")));
     }
 
     #[test]
     fn run_form_scrolls_to_keep_selected_field_visible() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
-        app.run_form.selected = 20;
+        app.run_form.selected = 21;
 
         let lines = render_lines(&app, 140, 24);
 
@@ -484,6 +490,17 @@ mod tests {
         );
         assert!(!lines.iter().any(|line| line.contains("Provider Notes")));
         assert!(!lines.iter().any(|line| line.contains("Controls")));
+    }
+
+    #[test]
+    fn run_form_renders_api_key_source_and_value_fields() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+
+        let lines = render_lines(&app, 140, 40);
+
+        assert!(lines.iter().any(|line| line.contains("API Key Source")));
+        assert!(lines.iter().any(|line| line.contains("API Key Value")));
     }
 
     #[test]

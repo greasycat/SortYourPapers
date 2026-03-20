@@ -20,7 +20,7 @@ struct RunFieldDescriptor {
     help: &'static str,
 }
 
-const RUN_FIELDS: [RunFieldDescriptor; 21] = [
+const RUN_FIELDS: [RunFieldDescriptor; 22] = [
     RunFieldDescriptor {
         key: "input",
         label: "Input Folder",
@@ -102,9 +102,14 @@ const RUN_FIELDS: [RunFieldDescriptor; 21] = [
         help: "Custom provider endpoint. Leave blank to use the provider default.",
     },
     RunFieldDescriptor {
-        key: "api_key",
-        label: "API Key",
-        help: "Credential for hosted providers. Usually needed for Gemini or OpenAI.",
+        key: "api_key_source",
+        label: "API Key Source",
+        help: "How the API key is loaded: literal text, shell command output, or an environment variable.",
+    },
+    RunFieldDescriptor {
+        key: "api_key_value",
+        label: "API Key Value",
+        help: "Used as the literal key, the shell command, or the environment variable name based on API Key Source.",
     },
     RunFieldDescriptor {
         key: "keyword_batch_size",
@@ -215,6 +220,39 @@ fn provider_label(value: LlmProvider) -> &'static str {
         LlmProvider::Openai => "openai",
         LlmProvider::Ollama => "ollama",
         LlmProvider::Gemini => "gemini",
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ApiKeySourceMode {
+    Text,
+    Command,
+    Env,
+}
+
+impl ApiKeySourceMode {
+    pub(super) fn next(self) -> Self {
+        match self {
+            Self::Text => Self::Command,
+            Self::Command => Self::Env,
+            Self::Env => Self::Text,
+        }
+    }
+
+    pub(super) fn previous(self) -> Self {
+        match self {
+            Self::Text => Self::Env,
+            Self::Command => Self::Text,
+            Self::Env => Self::Command,
+        }
+    }
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Command => "command",
+            Self::Env => "env",
+        }
     }
 }
 

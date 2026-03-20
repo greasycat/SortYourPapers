@@ -463,7 +463,7 @@ fn build_llm_client_stage(
             config.llm_provider, config.llm_model
         ),
     );
-    let client = Arc::<dyn llm::LlmClient>::from(build_client(config));
+    let client = Arc::<dyn llm::LlmClient>::from(build_client(config)?);
     workspace.mark_stage(RunStage::BuildLlmClient)?;
     log_stage(verbosity, "build-llm-client", "client ready".to_string());
     log_timing(verbosity, "build-llm-client", stage_started.elapsed());

@@ -1,6 +1,7 @@
 use std::{env, path::PathBuf};
 
 use crate::{
+    config::ApiKeySource,
     error::{AppError, Result},
     llm::LlmProvider,
     papers::placement::PlacementMode,
@@ -26,7 +27,7 @@ pub(super) fn env_config_from_process() -> Result<EnvConfig> {
         llm_provider: parse_env_provider("SYP_LLM_PROVIDER")?,
         llm_model: env::var("SYP_LLM_MODEL").ok(),
         llm_base_url: env::var("SYP_LLM_BASE_URL").ok(),
-        api_key: env::var("SYP_API_KEY").ok(),
+        api_key: parse_env_api_key_source()?,
         keyword_batch_size: parse_env_usize("SYP_KEYWORD_BATCH_SIZE")?,
         batch_start_delay_ms: parse_env_u64("SYP_BATCH_START_DELAY_MS")?,
         subcategories_suggestion_number: parse_env_usize("SYP_SUBCATEGORIES_SUGGESTION_NUMBER")?,
@@ -118,4 +119,24 @@ fn parse_bool(key: &str, value: &str) -> Result<bool> {
             "{key} must be a boolean-like value"
         ))),
     }
+}
+
+fn parse_env_api_key_source() -> Result<Option<ApiKeySource>> {
+    let text = env::var("SYP_API_KEY").ok();
+    let command = env::var("SYP_API_KEY_COMMAND").ok();
+    let env_name = env::var("SYP_API_KEY_ENV").ok();
+
+    let configured = usize::from(text.is_some())
+        + usize::from(command.is_some())
+        + usize::from(env_name.is_some());
+    if configured > 1 {
+        return Err(AppError::Config(
+            "set only one of SYP_API_KEY, SYP_API_KEY_COMMAND, or SYP_API_KEY_ENV".to_string(),
+        ));
+    }
+
+    Ok(text
+        .map(ApiKeySource::Text)
+        .or(command.map(ApiKeySource::Command))
+        .or(env_name.map(ApiKeySource::Env)))
 }

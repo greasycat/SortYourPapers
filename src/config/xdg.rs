@@ -8,11 +8,11 @@ use serde::Serialize;
 
 use crate::{
     config::{
-        AppConfig, DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT,
-        DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OUTPUT,
-        DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS, DEFAULT_PLACEMENT_BATCH_SIZE,
-        DEFAULT_REBUILD, DEFAULT_RECURSIVE, DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER,
-        DEFAULT_TAXONOMY_BATCH_SIZE, FileConfig,
+        ApiKeySource, AppConfig, DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH,
+        DEFAULT_INPUT, DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_MAX_FILE_SIZE_MB,
+        DEFAULT_OUTPUT, DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS,
+        DEFAULT_PLACEMENT_BATCH_SIZE, DEFAULT_REBUILD, DEFAULT_RECURSIVE,
+        DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER, DEFAULT_TAXONOMY_BATCH_SIZE, FileConfig,
     },
     error::{AppError, Result},
 };
@@ -73,7 +73,7 @@ pub(super) fn default_config_toml() -> String {
             "batch_start_delay_ms = {batch_start_delay_ms}\n",
             "subcategories_suggestion_number = {subcategories_suggestion_number}\n",
             "# llm_base_url = \"https://generativelanguage.googleapis.com/v1beta\"\n",
-            "# api_key = \"\"\n"
+            "# api_key = {{ source = \"env\", value = \"OPENAI_API_KEY\" }}\n"
         ),
         input = DEFAULT_INPUT,
         output = DEFAULT_OUTPUT,
@@ -160,7 +160,7 @@ struct PersistedConfig<'a> {
     llm_provider: crate::llm::LlmProvider,
     llm_model: &'a str,
     llm_base_url: Option<&'a str>,
-    api_key: Option<&'a str>,
+    api_key: Option<&'a ApiKeySource>,
     keyword_batch_size: usize,
     batch_start_delay_ms: u64,
     subcategories_suggestion_number: usize,
@@ -184,7 +184,7 @@ impl<'a> From<&'a AppConfig> for PersistedConfig<'a> {
             llm_provider: config.llm_provider,
             llm_model: config.llm_model.as_str(),
             llm_base_url: config.llm_base_url.as_deref(),
-            api_key: config.api_key.as_deref(),
+            api_key: config.api_key.as_ref(),
             keyword_batch_size: config.keyword_batch_size,
             batch_start_delay_ms: config.batch_start_delay_ms,
             subcategories_suggestion_number: config.subcategories_suggestion_number,

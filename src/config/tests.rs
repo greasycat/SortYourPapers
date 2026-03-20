@@ -4,7 +4,7 @@ use clap::Parser;
 use tempfile::tempdir;
 
 use super::{
-    AppConfig, Cli, CliArgs, Commands, EnvConfig, FileConfig, SessionCommands,
+    ApiKeySource, AppConfig, Cli, CliArgs, Commands, EnvConfig, FileConfig, SessionCommands,
     resolve::resolve_from_sources,
     xdg::{write_default_config_at, write_saved_config_at},
 };
@@ -70,7 +70,7 @@ fn cli_overrides_env_and_file() {
         llm_provider: Some(LlmProvider::Ollama),
         llm_model: Some("env-model".to_string()),
         llm_base_url: Some("http://env".to_string()),
-        api_key: Some("env-key".to_string()),
+        api_key: Some(ApiKeySource::Text("env-key".to_string())),
         keyword_batch_size: Some(30),
         batch_start_delay_ms: Some(250),
         subcategories_suggestion_number: Some(9),
@@ -92,7 +92,7 @@ fn cli_overrides_env_and_file() {
         llm_provider: Some(LlmProvider::Ollama),
         llm_model: Some("file-model".to_string()),
         llm_base_url: Some("http://file".to_string()),
-        api_key: Some("file-key".to_string()),
+        api_key: Some(ApiKeySource::Text("file-key".to_string())),
         keyword_batch_size: Some(25),
         batch_start_delay_ms: Some(150),
         subcategories_suggestion_number: Some(7),
@@ -116,7 +116,7 @@ fn cli_overrides_env_and_file() {
     assert_eq!(cfg.llm_provider, LlmProvider::Openai);
     assert_eq!(cfg.llm_model, "gpt-test");
     assert_eq!(cfg.llm_base_url.as_deref(), Some("http://cli.example/v1"));
-    assert_eq!(cfg.api_key.as_deref(), Some("cli-key"));
+    assert_eq!(cfg.api_key, Some(ApiKeySource::Text("cli-key".to_string())));
     assert_eq!(cfg.keyword_batch_size, 12);
     assert_eq!(cfg.batch_start_delay_ms, 250);
     assert_eq!(cfg.subcategories_suggestion_number, 9);
@@ -180,7 +180,7 @@ fn save_writes_current_config_values() {
         llm_provider: LlmProvider::Openai,
         llm_model: "gpt-test".to_string(),
         llm_base_url: Some("http://localhost:1234/v1".to_string()),
-        api_key: Some("secret".to_string()),
+        api_key: Some(ApiKeySource::Env("OPENAI_API_KEY".to_string())),
         keyword_batch_size: 21,
         batch_start_delay_ms: 250,
         subcategories_suggestion_number: 7,
@@ -201,10 +201,82 @@ fn save_writes_current_config_values() {
     assert!(raw.contains("llm_provider = \"openai\""));
     assert!(raw.contains("llm_model = \"gpt-test\""));
     assert!(raw.contains("llm_base_url = \"http://localhost:1234/v1\""));
-    assert!(raw.contains("api_key = \"secret\""));
+    assert!(raw.contains("source = \"env\""));
+    assert!(raw.contains("value = \"OPENAI_API_KEY\""));
     assert!(raw.contains("batch_start_delay_ms = 250"));
     assert!(!raw.contains("dry_run ="));
     assert!(!raw.contains("quiet ="));
+}
+
+#[test]
+fn resolved_api_key_reads_from_env_source() {
+    let expected = std::env::var("PATH").expect("PATH should exist for tests");
+    let config = AppConfig {
+        input: PathBuf::from("/papers"),
+        output: PathBuf::from("/sorted"),
+        recursive: false,
+        max_file_size_mb: 16,
+        page_cutoff: 1,
+        pdf_extract_workers: 8,
+        category_depth: 2,
+        taxonomy_mode: TaxonomyMode::BatchMerge,
+        taxonomy_batch_size: 4,
+        placement_batch_size: 10,
+        placement_mode: PlacementMode::ExistingOnly,
+        rebuild: false,
+        dry_run: true,
+        llm_provider: LlmProvider::Gemini,
+        llm_model: "gemini-3-flash-preview".to_string(),
+        llm_base_url: None,
+        api_key: Some(ApiKeySource::Env("PATH".to_string())),
+        keyword_batch_size: 20,
+        batch_start_delay_ms: 100,
+        subcategories_suggestion_number: 5,
+        verbose: false,
+        debug: false,
+        quiet: false,
+    };
+
+    let resolved = config
+        .resolved_api_key()
+        .expect("env source should resolve successfully");
+
+    assert_eq!(resolved, Some(expected));
+}
+
+#[test]
+fn resolved_api_key_runs_command_source() {
+    let config = AppConfig {
+        input: PathBuf::from("/papers"),
+        output: PathBuf::from("/sorted"),
+        recursive: false,
+        max_file_size_mb: 16,
+        page_cutoff: 1,
+        pdf_extract_workers: 8,
+        category_depth: 2,
+        taxonomy_mode: TaxonomyMode::BatchMerge,
+        taxonomy_batch_size: 4,
+        placement_batch_size: 10,
+        placement_mode: PlacementMode::ExistingOnly,
+        rebuild: false,
+        dry_run: true,
+        llm_provider: LlmProvider::Gemini,
+        llm_model: "gemini-3-flash-preview".to_string(),
+        llm_base_url: None,
+        api_key: Some(ApiKeySource::Command("printf 'cmd-key'".to_string())),
+        keyword_batch_size: 20,
+        batch_start_delay_ms: 100,
+        subcategories_suggestion_number: 5,
+        verbose: false,
+        debug: false,
+        quiet: false,
+    };
+
+    let resolved = config
+        .resolved_api_key()
+        .expect("command source should resolve successfully");
+
+    assert_eq!(resolved, Some("cmd-key".to_string()));
 }
 
 #[test]
@@ -307,7 +379,7 @@ fn supports_shorthand_flags() {
         cfg.llm_base_url.as_deref(),
         Some("https://generativelanguage.googleapis.com/v1beta")
     );
-    assert_eq!(cfg.api_key.as_deref(), Some("abc"));
+    assert_eq!(cfg.api_key, Some(ApiKeySource::Text("abc".to_string())));
     assert_eq!(cfg.keyword_batch_size, 64);
     assert_eq!(cfg.batch_start_delay_ms, 100);
     assert_eq!(cfg.subcategories_suggestion_number, 11);
