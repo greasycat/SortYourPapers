@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 
@@ -411,6 +411,28 @@ impl RunForm {
                     ApiKeySourceMode::Text => String::new(),
                 },
             });
+        }
+
+        if self.api_key_source == ApiKeySourceMode::Env && !self.api_key_value.trim().is_empty() {
+            match env::var(self.api_key_value.trim()) {
+                Ok(value) if !value.trim().is_empty() => {}
+                Ok(_) => issues.push(ValidationIssue {
+                    field: Some(17),
+                    severity: ValidationSeverity::Warning,
+                    message: format!(
+                        "Environment variable {} is set but empty.",
+                        self.api_key_value.trim()
+                    ),
+                }),
+                Err(_) => issues.push(ValidationIssue {
+                    field: Some(17),
+                    severity: ValidationSeverity::Warning,
+                    message: format!(
+                        "Environment variable {} is not set.",
+                        self.api_key_value.trim()
+                    ),
+                }),
+            }
         }
 
         if self.quiet && !matches!(self.verbosity, UiVerbosity::Normal) {

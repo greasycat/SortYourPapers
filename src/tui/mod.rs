@@ -978,6 +978,52 @@ mod tests {
     }
 
     #[test]
+    fn run_form_analysis_warns_when_api_key_env_is_missing() {
+        let temp = tempdir().expect("tempdir should build");
+        let mut form = RunForm::default();
+        form.input = temp.path().display().to_string();
+        form.output = temp.path().join("sorted").display().to_string();
+
+        form.selected = 16;
+        form.toggle_selected();
+        form.toggle_selected();
+        form.selected = 17;
+        form.apply_edit("SYP_MISSING_API_KEY_FOR_TEST".to_string())
+            .expect("api key env name should apply");
+
+        let analysis = form.analysis();
+
+        let issue = analysis
+            .field_issue(17)
+            .expect("missing env should create a field issue");
+        assert_eq!(issue.severity, ValidationSeverity::Warning);
+        assert!(issue.message.contains("Environment variable"));
+    }
+
+    #[test]
+    fn run_form_analysis_accepts_present_api_key_env() {
+        let temp = tempdir().expect("tempdir should build");
+        let mut form = RunForm::default();
+        form.input = temp.path().display().to_string();
+        form.output = temp.path().join("sorted").display().to_string();
+
+        form.selected = 16;
+        form.toggle_selected();
+        form.toggle_selected();
+        form.selected = 17;
+        form.apply_edit("PATH".to_string())
+            .expect("api key env name should apply");
+
+        let analysis = form.analysis();
+
+        assert!(
+            analysis
+                .field_issue(17)
+                .is_none_or(|issue| !issue.message.contains("Environment variable"))
+        );
+    }
+
+    #[test]
     fn run_form_launch_with_errors_opens_notice_instead_of_starting() {
         let temp = tempdir().expect("tempdir should build");
         let mut app = test_app();
