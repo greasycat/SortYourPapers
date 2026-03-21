@@ -552,17 +552,17 @@ impl App {
                     KeyCode::Enter => {
                         self.apply_edit(buffer.clone())?;
                     }
-                    KeyCode::Down | KeyCode::Char('j') => {
+                    KeyCode::Down => {
                         *selected = (*selected + 1).min(directories.len().saturating_sub(1));
                         self.overlay = Some(overlay);
                         return Ok(true);
                     }
-                    KeyCode::Up | KeyCode::Char('k') => {
+                    KeyCode::Up => {
                         *selected = selected.saturating_sub(1);
                         self.overlay = Some(overlay);
                         return Ok(true);
                     }
-                    KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                    KeyCode::Tab | KeyCode::Right => {
                         if let Some(choice) = directories.get(*selected).cloned() {
                             *buffer = choice;
                             Self::refresh_path_overlay(buffer, directories, selected)?;

@@ -912,6 +912,33 @@ mod tests {
     }
 
     #[test]
+    fn path_overlay_treats_plain_characters_as_text_input() {
+        let mut app = test_app();
+        app.screen = Screen::RunForm;
+        app.run_form.selected = 0;
+        app.overlay = Some(Overlay::SelectPath {
+            label: "Input Folder".to_string(),
+            buffer: "pap".to_string(),
+            directories: vec!["papers".to_string(), "reports".to_string()],
+            selected: 0,
+        });
+
+        let runtime = test_runtime();
+        runtime
+            .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)))
+            .expect("typing should extend the path buffer");
+
+        assert!(matches!(
+            app.overlay,
+            Some(Overlay::SelectPath {
+                ref buffer,
+                selected,
+                ..
+            }) if buffer == "papl" && selected == 0
+        ));
+    }
+
+    #[test]
     fn path_overlay_renders_relative_folder_list() {
         let mut app = test_app();
         app.screen = Screen::RunForm;
