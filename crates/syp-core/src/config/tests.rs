@@ -5,7 +5,7 @@ use tempfile::tempdir;
 use super::{
     ApiKeySource, AppConfig, EnvConfig, FileConfig,
     resolve::resolve_from_sources,
-    xdg::{write_default_config_at, write_saved_config_at},
+    xdg::{write_default_config_at, write_saved_config_at, xdg_testset_cache_dir},
 };
 use crate::{
     inputs::RunOverrides, llm::LlmProvider, papers::placement::PlacementMode,
@@ -214,6 +214,13 @@ fn resolved_api_key_runs_command_source() {
         .expect("command source should resolve successfully");
 
     assert_eq!(resolved, Some("cmd-key".to_string()));
+}
+
+#[test]
+fn testset_cache_dir_lives_under_sortyourpapers_cache_root() {
+    let path = xdg_testset_cache_dir().expect("xdg cache dir");
+
+    assert!(path.ends_with("sortyourpapers/testsets"));
 }
 
 fn sample_config(api_key: Option<ApiKeySource>) -> AppConfig {

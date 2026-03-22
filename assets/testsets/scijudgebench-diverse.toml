@@ -1,0 +1,12 @@
+id = "scijudgebench-diverse"
+description = "Scaffold manifest for a SciJudgeBench-derived arXiv test set."
+source_dataset = "OpenMOSS-Team/SciJudgeBench"
+generated_at_ms = 0
+papers = []
+
+[selection_policy]
+top_n_per_category = 5
+bottom_n_per_category = 5
+random_n_per_category = 5
+random_seed = 1511510650
+per_subcategory_cap = 2

@@ -4,7 +4,9 @@ This document is a repo-structure reference for the current codebase. It reflect
 
 ## Repository Layout
 - `assets/papers/`: sample PDFs used for local runs and manual testing.
+- `assets/testsets/`: committed test-set manifests for fetched paper corpora.
 - `crates/paperdb/`: DuckDB-backed paper and embedding storage crate.
+- `crates/paperfetch/`: arXiv test-set fetcher and SciJudgeBench-based curation crate.
 - `crates/syp-core/`: shared library crate.
 - `crates/syp/`: batch CLI crate for the `syp` binary.
 - `crates/syptui/`: TUI crate for the `syptui` binary.
@@ -21,6 +23,7 @@ This document is a repo-structure reference for the current codebase. It reflect
 - `crates/syp/src/cli.rs`: clap argument types for the batch CLI, including run arguments, session commands, and `extract-text`.
 - `crates/syp/src/entrypoints.rs`: CLI dispatch and top-level error hint printing.
 - `crates/paperdb/src/lib.rs`: DuckDB schema bootstrap, paper upserts, and embedding-sync APIs.
+- `crates/paperfetch/src/`: SciJudgeBench catalog loading, deterministic sampling, manifest I/O, and arXiv PDF materialization.
 - `crates/syp-core/src/error.rs`: application error types and shared result aliases.
 - `crates/syp-core/src/report.rs`: final run report structures and file action summaries.
 - `crates/syp-core/src/app/`: orchestration for a full sorting run, including config resolution handoff, debug-TUI seeded runs, and report rendering.
@@ -42,6 +45,12 @@ The core workflow is grouped under `crates/syp-core/src/papers/` rather than spl
 - `crates/syp-core/src/papers/placement/`: output inspection, placement prompts, placement batching/runtime logic, and validation.
 - `crates/syp-core/src/papers/fs_ops/`: plan construction and filesystem execution for preview/apply mode.
 - `crates/syp-core/src/papers/mod.rs`: shared pipeline data types such as `PdfCandidate`, `PaperText`, keyword state, and synthesized category state.
+
+## Test-Set Fetching Layout
+- `crates/paperfetch/src/catalog.rs`: Hugging Face dataset split loading and SciJudgeBench pair flattening.
+- `crates/paperfetch/src/curate.rs`: top/bottom/random citation sampling per category with subcategory caps.
+- `crates/paperfetch/src/manifest.rs`: TOML manifest types plus load/save validation.
+- `crates/paperfetch/src/materialize.rs`: arXiv PDF download, cache verification, and export helpers.
 
 ## TUI Layout
 - `crates/syptui/src/tui/app.rs`: application state and key-driven behavior.
@@ -79,4 +88,5 @@ Run state is stored under the XDG cache tree managed by `crates/syp-core/src/ses
 
 ## Notes
 - Taxonomy, placement, and filesystem planning now live under `crates/syp-core/src/papers/`. Older references to top-level `src/taxonomy/`, `src/placement/`, or `src/fs_*` directories are outdated.
+- Test-set cache paths resolve under `syp-core`'s XDG cache root via `config::xdg_testset_cache_dir()`.
 - The original greenfield implementation plan lives in `docs/archive/initial-implementation-plan.md`.
