@@ -65,10 +65,7 @@ pub(crate) fn format_stage_description(verbosity: Verbosity, description: &str) 
     format!("{} {}", verbosity.accent(verb), remainder)
 }
 
-pub(crate) fn stage_sequence(
-    include_discover_output: bool,
-    include_llm_client: bool,
-) -> Vec<RunStage> {
+pub fn stage_sequence(include_discover_output: bool, include_llm_client: bool) -> Vec<RunStage> {
     let mut stages = vec![
         RunStage::DiscoverInput,
         RunStage::Dedupe,

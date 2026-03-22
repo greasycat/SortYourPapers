@@ -1,31 +1,18 @@
 use std::path::PathBuf;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
-
-use crate::{
-    llm::LlmProvider, papers::extract::ExtractorMode, papers::placement::PlacementMode,
-    papers::taxonomy::TaxonomyMode, session::RunStage,
+use syp_core::{
+    defaults::{DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS},
+    inputs::{ExtractTextRequest, RunOverrides},
+    llm::LlmProvider,
+    papers::extract::ExtractorMode,
+    papers::placement::PlacementMode,
+    papers::taxonomy::TaxonomyMode,
+    session::RunStage,
 };
 
-pub(crate) const DEFAULT_INPUT: &str = ".";
-pub(crate) const DEFAULT_OUTPUT: &str = "./sorted";
-pub(crate) const DEFAULT_MAX_FILE_SIZE_MB: u64 = 16;
-pub(crate) const DEFAULT_PAGE_CUTOFF: u8 = 1;
-pub(crate) const DEFAULT_PDF_EXTRACT_WORKERS: usize = 8;
-pub(crate) const DEFAULT_CATEGORY_DEPTH: u8 = 2;
-pub(crate) const DEFAULT_KEYWORD_BATCH_SIZE: usize = 20;
-pub(crate) const DEFAULT_BATCH_START_DELAY_MS: u64 = 100;
-pub(crate) const DEFAULT_TAXONOMY_BATCH_SIZE: usize = 4;
-pub(crate) const DEFAULT_PLACEMENT_BATCH_SIZE: usize = 10;
-pub(crate) const DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER: usize = 5;
-pub(crate) const DEFAULT_RECURSIVE: bool = false;
-pub(crate) const DEFAULT_REBUILD: bool = false;
-pub(crate) const DEFAULT_USE_CURRENT_FOLDER_TREE: bool = false;
-pub(crate) const DEFAULT_LLM_PROVIDER: LlmProvider = LlmProvider::Gemini;
-pub(crate) const DEFAULT_LLM_MODEL: &str = "gemini-3-flash-preview";
-
 #[derive(Debug, Parser)]
-#[command(name = "sortyourpapers", version, about = "Sort PDFs with LLMs")]
+#[command(name = "syp", version, about = "Sort PDFs with LLMs")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -199,4 +186,117 @@ pub struct CliArgs {
 
     #[arg(short = 'q', long, action = ArgAction::SetTrue)]
     pub quiet: bool,
+}
+
+impl CliArgs {
+    pub fn into_run_overrides(self) -> RunOverrides {
+        RunOverrides {
+            input: self.input,
+            output: self.output,
+            recursive: self.recursive,
+            max_file_size_mb: self.max_file_size_mb,
+            page_cutoff: self.page_cutoff,
+            pdf_extract_workers: self.pdf_extract_workers,
+            category_depth: self.category_depth,
+            taxonomy_mode: self.taxonomy_mode,
+            taxonomy_batch_size: self.taxonomy_batch_size,
+            use_current_folder_tree: self.use_current_folder_tree,
+            placement_batch_size: self.placement_batch_size,
+            placement_mode: self.placement_mode,
+            rebuild: self.rebuild,
+            apply: self.apply,
+            llm_provider: self.llm_provider,
+            llm_model: self.llm_model,
+            llm_base_url: self.llm_base_url,
+            api_key: self.api_key,
+            api_key_command: self.api_key_command,
+            api_key_env: self.api_key_env,
+            keyword_batch_size: self.keyword_batch_size,
+            subcategories_suggestion_number: self.subcategories_suggestion_number,
+            verbosity: self.verbosity,
+            quiet: self.quiet,
+        }
+    }
+}
+
+impl ExtractTextArgs {
+    pub fn into_request(self) -> ExtractTextRequest {
+        ExtractTextRequest {
+            files: self.files,
+            page_cutoff: self.page_cutoff,
+            extractor: self.extractor,
+            pdf_extract_workers: self.pdf_extract_workers,
+            verbosity: self.verbosity,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, Commands, SessionCommands};
+    use syp_core::{papers::extract::ExtractorMode, session::RunStage};
+
+    #[test]
+    fn parses_extract_text_subcommand() {
+        let cli = Cli::parse_from([
+            "syp",
+            "extract-text",
+            "--page-cutoff",
+            "2",
+            "--extractor",
+            "pdf-oxide",
+            "-vv",
+            "/tmp/a.pdf",
+            "/tmp/b.pdf",
+        ]);
+
+        match cli.command {
+            Some(Commands::ExtractText(args)) => {
+                assert_eq!(args.page_cutoff, 2);
+                assert_eq!(args.extractor, ExtractorMode::PdfOxide);
+                assert_eq!(args.pdf_extract_workers, 8);
+                assert_eq!(args.verbosity, 2);
+                assert_eq!(args.files.len(), 2);
+            }
+            _ => panic!("expected extract-text command"),
+        }
+    }
+
+    #[test]
+    fn parses_session_rerun_subcommand_with_stage() {
+        let cli = Cli::parse_from([
+            "syp",
+            "session",
+            "rerun",
+            "--stage",
+            "extract-keywords",
+            "--apply",
+            "-v",
+            "run-123",
+        ]);
+
+        match cli.command {
+            Some(Commands::Session(args)) => match args.command {
+                SessionCommands::Rerun(args) => {
+                    assert_eq!(args.run_id.as_deref(), Some("run-123"));
+                    assert_eq!(args.stage, Some(RunStage::ExtractKeywords));
+                    assert!(args.apply);
+                    assert_eq!(args.verbosity, 1);
+                    assert!(!args.quiet);
+                }
+                _ => panic!("expected session rerun command"),
+            },
+            _ => panic!("expected session command"),
+        }
+    }
+
+    #[test]
+    fn rejects_bare_session_command() {
+        let err = Cli::try_parse_from(["syp", "session"])
+            .expect_err("session should require a subcommand");
+
+        assert!(err.to_string().contains("subcommand"));
+    }
 }

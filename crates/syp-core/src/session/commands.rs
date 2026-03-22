@@ -44,7 +44,7 @@ impl RerunArtifact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RerunImpact {
+pub struct RerunImpact {
     pub(crate) start_stage: RunStage,
     pub(crate) previous_last_completed_stage: Option<RunStage>,
     pub(crate) cleared_stage_files: Vec<RunStage>,
@@ -53,7 +53,7 @@ pub(crate) struct RerunImpact {
 }
 
 impl RerunImpact {
-    pub(crate) fn lines(&self) -> Vec<String> {
+    pub fn lines(&self) -> Vec<String> {
         let mut lines = vec![
             format!(
                 "Restart stage: {} | {}",
@@ -658,10 +658,7 @@ fn validate_rerun_stage(stage: RunStage, stages: &[RunStage]) -> Result<RunStage
         })
 }
 
-pub(crate) fn describe_rerun_impact(
-    config: &AppConfig,
-    start_stage: RunStage,
-) -> Result<RerunImpact> {
+pub fn describe_rerun_impact(config: &AppConfig, start_stage: RunStage) -> Result<RerunImpact> {
     let stages = available_rerun_stages(config);
     let Some(start_index) = stages.iter().position(|stage| *stage == start_stage) else {
         return Err(AppError::Execution(format!(

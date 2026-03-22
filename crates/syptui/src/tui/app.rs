@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, sync::mpsc, thread, time::Instant};
 
-use crate::{CliArgs, config, error::Result};
+use crate::{CliArgs, config, error::Result, prefs};
 
 use super::{
     backend::BackendEvent,
@@ -105,7 +105,7 @@ impl App {
         self.theme_name = self.theme_name.next();
         self.theme = self.theme_name.palette();
 
-        if let Err(err) = config::save_tui_preferences(&config::TuiPreferences {
+        if let Err(err) = prefs::save_tui_preferences(&prefs::TuiPreferences {
             theme: self.theme_name,
         }) {
             self.overlay = Some(Overlay::Notice {

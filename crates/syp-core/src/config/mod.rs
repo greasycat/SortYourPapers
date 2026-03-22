@@ -7,24 +7,11 @@ mod tests;
 
 use std::{env, path::PathBuf, process::Command};
 
-use serde::{Deserialize, Serialize};
-
-pub use crate::cli::{Cli, CliArgs, Commands, ExtractTextArgs, InitArgs, SessionCommands};
 use crate::{
-    cli::{
-        DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT,
-        DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER,
-        DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OUTPUT, DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS,
-        DEFAULT_PLACEMENT_BATCH_SIZE, DEFAULT_REBUILD, DEFAULT_RECURSIVE,
-        DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER, DEFAULT_TAXONOMY_BATCH_SIZE,
-        DEFAULT_USE_CURRENT_FOLDER_TREE,
-    },
-    error::Result,
-    llm::LlmProvider,
-    papers::placement::PlacementMode,
+    error::Result, inputs::RunOverrides, llm::LlmProvider, papers::placement::PlacementMode,
     papers::taxonomy::TaxonomyMode,
-    tui::theme::UiThemeName,
 };
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -55,20 +42,6 @@ pub struct AppConfig {
     pub debug: bool,
     #[serde(default)]
     pub quiet: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct TuiPreferences {
-    #[serde(default)]
-    pub(crate) theme: UiThemeName,
-}
-
-impl Default for TuiPreferences {
-    fn default() -> Self {
-        Self {
-            theme: UiThemeName::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,15 +116,16 @@ struct EnvConfig {
     subcategories_suggestion_number: Option<usize>,
 }
 
-/// Resolves the runtime configuration from CLI, environment, XDG config, and defaults.
+/// Resolves the runtime configuration from explicit overrides, environment,
+/// XDG config, and defaults.
 ///
 /// # Errors
 /// Returns an error when config sources cannot be loaded or the resolved
 /// configuration contains invalid values.
-pub fn resolve_config(cli: CliArgs) -> Result<AppConfig> {
+pub fn resolve_config(overrides: RunOverrides) -> Result<AppConfig> {
     let file_cfg = xdg::load_xdg_config()?;
     let env_cfg = sources::env_config_from_process()?;
-    resolve::resolve_from_sources(cli, env_cfg, file_cfg)
+    resolve::resolve_from_sources(overrides, env_cfg, file_cfg)
 }
 
 #[must_use]
@@ -185,14 +159,6 @@ pub fn default_config_toml() -> String {
 /// cannot be written.
 pub fn save_xdg_config(config: &AppConfig) -> Result<PathBuf> {
     xdg::save_xdg_config(config)
-}
-
-pub(crate) fn load_tui_preferences() -> Result<TuiPreferences> {
-    xdg::load_tui_preferences()
-}
-
-pub(crate) fn save_tui_preferences(prefs: &TuiPreferences) -> Result<PathBuf> {
-    xdg::save_tui_preferences(prefs)
 }
 
 fn resolve_api_key_text(value: &str) -> Result<String> {

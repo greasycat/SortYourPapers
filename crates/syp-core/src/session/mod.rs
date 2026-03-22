@@ -9,7 +9,8 @@ pub use commands::{
 };
 #[cfg(test)]
 pub(crate) use runtime::format_stage_description;
-pub(crate) use runtime::{run_with_workspace, stage_sequence};
+pub(crate) use runtime::run_with_workspace;
+pub use runtime::stage_sequence;
 pub use workspace::RunStage;
 pub use workspace::{
     ExtractTextState, FilterSizeState, RunSummary, RunWorkspace, SessionConfigSummary,

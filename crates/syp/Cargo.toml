@@ -1,0 +1,12 @@
+[package]
+name = "syp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+clap.workspace = true
+syp-core = { path = "../syp-core" }
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

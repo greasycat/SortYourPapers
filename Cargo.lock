@@ -2045,30 +2045,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sortyourpapers"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "crossterm",
- "directories",
- "indicatif",
- "pdf_oxide",
- "ratatui",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "tui-tree-widget",
- "walkdir",
-]
-
-[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2154,6 +2130,54 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "syp"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "syp-core",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "syp-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "clap",
+ "directories",
+ "indicatif",
+ "pdf_oxide",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "walkdir",
+]
+
+[[package]]
+name = "syptui"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "crossterm",
+ "directories",
+ "ratatui",
+ "serde",
+ "syp-core",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tui-tree-widget",
 ]
 
 [[package]]

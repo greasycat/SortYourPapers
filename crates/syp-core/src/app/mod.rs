@@ -7,10 +7,10 @@ use std::{
 use serde::Serialize;
 
 use crate::{
-    cli::{CliArgs, ExtractTextArgs},
     config,
     config::AppConfig,
     error::{AppError, Result},
+    inputs::{ExtractTextRequest, RunOverrides},
     papers::extract::{extract_text_batch, reset_debug_extract_log},
     papers::placement::PlacementDecision,
     papers::taxonomy::CategoryTree,
@@ -30,8 +30,8 @@ const DEBUG_TUI_PROGRESS_SETTLE_DELAY: Duration = Duration::from_millis(250);
 ///
 /// # Errors
 /// Returns an error when config resolution fails or the run itself fails.
-pub async fn run_with_args(cli: CliArgs) -> Result<RunReport> {
-    let config = config::resolve_config(cli)?;
+pub async fn run_with_args(overrides: RunOverrides) -> Result<RunReport> {
+    let config = config::resolve_config(overrides)?;
     run(config).await
 }
 
@@ -54,7 +54,7 @@ pub async fn run(config: AppConfig) -> Result<RunReport> {
     run_with_workspace(config, &mut workspace).await
 }
 
-pub(crate) async fn run_debug_tui(config: AppConfig) -> Result<RunReport> {
+pub async fn run_debug_tui(config: AppConfig) -> Result<RunReport> {
     let mut config = absolutize_config(config)?;
     config.rebuild = false;
     config.dry_run = true;
@@ -419,7 +419,7 @@ fn remove_category_path(categories: &mut Vec<CategoryTree>, path: &[&str]) -> bo
 /// # Errors
 /// Returns an error when arguments are invalid, extraction fails, or any file
 /// cannot be processed.
-pub async fn run_extract_text(args: ExtractTextArgs) -> Result<()> {
+pub async fn run_extract_text(args: ExtractTextRequest) -> Result<()> {
     if args.page_cutoff == 0 {
         return Err(AppError::Validation(
             "page_cutoff must be greater than 0".to_string(),

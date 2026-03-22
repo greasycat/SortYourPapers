@@ -2,11 +2,9 @@
 Use LLMs to sort papers.
 
 ## Architecture
-- CLI parsing lives in `src/cli.rs`, while config loading lives in `src/config/`.
-- Run orchestration lives in `src/app/` and persisted resume state lives in `src/session/`.
-- Session orchestration, resume/rerun commands, and persisted run workspace state all live in `src/session/`.
-- Paper ingestion lives in `src/papers/`, taxonomy generation in `src/taxonomy/`, placement logic in `src/placement/`, and filesystem mutation in `src/fs/`.
-- LLM clients live in `src/llm/` and terminal output helpers live in `src/terminal/`.
+- `crates/syp-core/` holds the shared runtime, config resolution, session persistence, paper pipeline, report types, and plain terminal backend.
+- `crates/syp/` holds the batch CLI parser and dispatch layer for the `syp` binary.
+- `crates/syptui/` holds the `ratatui` frontend, TUI-only preferences, and the `syptui` binary.
 
 ## What It Does
 - Scans a folder for PDFs (optional recursive mode)
@@ -41,17 +39,17 @@ XDG config path:
 ## Quick Start
 Create default XDG config:
 ```bash
-cargo run -- init
+cargo run -p syp -- init
 ```
 
 Overwrite existing config:
 ```bash
-cargo run -- init --force
+cargo run -p syp -- init --force
 ```
 
 Then run sorting:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   --recursive \
@@ -59,34 +57,39 @@ cargo run -- \
   --llm-model llama3.1
 ```
 
+Launch the TUI:
+```bash
+cargo run -p syptui --
+```
+
 If a run is interrupted after some stages completed, list saved runs and choose one to resume:
 ```bash
-cargo run -- session resume
+cargo run -p syp -- session resume
 ```
 
 Resume a specific run id:
 ```bash
-cargo run -- session resume run-123456789
+cargo run -p syp -- session resume run-123456789
 ```
 
 List saved sessions without resuming:
 ```bash
-cargo run -- session list
+cargo run -p syp -- session list
 ```
 
 Remove a saved session:
 ```bash
-cargo run -- session remove run-123456789
+cargo run -p syp -- session remove run-123456789
 ```
 
 Clear all incomplete sessions for the current workspace:
 ```bash
-cargo run -- session clear
+cargo run -p syp -- session clear
 ```
 
 Show verbose timing and resume diagnostics:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   -v
@@ -94,7 +97,7 @@ cargo run -- \
 
 Show full debug output including raw LLM requests:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   -vv
@@ -102,7 +105,7 @@ cargo run -- \
 
 Suppress progress bars and final summary:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   --quiet
@@ -110,7 +113,7 @@ cargo run -- \
 
 Apply real moves:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   --llm-provider openai \
@@ -121,7 +124,7 @@ cargo run -- \
 
 Manual text extraction for debugging:
 ```bash
-cargo run -- extract-text \
+cargo run -p syp -- extract-text \
   --page-cutoff 2 \
   --pdf-extract-workers 4 \
   --extractor pdf-oxide \

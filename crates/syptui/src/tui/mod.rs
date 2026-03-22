@@ -24,7 +24,7 @@ use crossterm::{
 };
 use ratatui::{Terminal, prelude::CrosstermBackend};
 
-use crate::{error::Result, terminal::install_backend};
+use crate::{error::Result, prefs, terminal::install_backend};
 
 use self::{app::App, backend::TuiBackend};
 
@@ -48,7 +48,7 @@ pub async fn run(debug_tui: bool) -> Result<()> {
     let (op_tx, op_rx) = mpsc::channel();
     let _backend_guard = install_backend(Arc::new(TuiBackend::new(backend_tx)));
 
-    let prefs = crate::config::load_tui_preferences()?;
+    let prefs = prefs::load_tui_preferences()?;
     let mut app = App::new(backend_rx, op_rx, op_tx, debug_tui, prefs.theme)?;
     let run_result = run_loop(&mut terminal, &mut app).await;
 

@@ -24,7 +24,7 @@ pub fn render_category_tree(categories: &[CategoryTree]) -> String {
     lines.join("\n")
 }
 
-pub(crate) fn render_report_lines(report: &RunReport, verbosity: Verbosity) -> Vec<String> {
+pub fn render_report_lines(report: &RunReport, verbosity: Verbosity) -> Vec<String> {
     let mut lines = render_report_summary_lines(report, verbosity);
     let action_lines = render_report_action_lines(report, verbosity);
     if !action_lines.is_empty() {
@@ -34,7 +34,7 @@ pub(crate) fn render_report_lines(report: &RunReport, verbosity: Verbosity) -> V
     lines
 }
 
-pub(crate) fn render_report_summary_lines(report: &RunReport, verbosity: Verbosity) -> Vec<String> {
+pub fn render_report_summary_lines(report: &RunReport, verbosity: Verbosity) -> Vec<String> {
     let mut lines = vec![
         verbosity.header_stdout("SortYourPapers Summary"),
         format!(
@@ -99,7 +99,7 @@ pub(crate) fn render_report_summary_lines(report: &RunReport, verbosity: Verbosi
     lines
 }
 
-pub(crate) fn render_report_action_lines(report: &RunReport, verbosity: Verbosity) -> Vec<String> {
+pub fn render_report_action_lines(report: &RunReport, verbosity: Verbosity) -> Vec<String> {
     if report.actions.is_empty() {
         return Vec::new();
     }

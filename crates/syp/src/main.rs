@@ -1,5 +1,5 @@
 use clap::Parser;
-use sortyourpapers::{Cli, print_error_with_hints, run_cli};
+use syp::{Cli, print_error_with_hints, run_cli};
 
 #[tokio::main]
 async fn main() {
