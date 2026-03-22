@@ -26,6 +26,10 @@ pub(super) fn xdg_cache_dir() -> Option<PathBuf> {
     BaseDirs::new().map(|base| base.cache_dir().join("sortyourpapers"))
 }
 
+pub(super) fn xdg_data_dir() -> Option<PathBuf> {
+    BaseDirs::new().map(|base| base.data_dir().join("sortyourpapers"))
+}
+
 pub(super) fn init_xdg_config(force: bool) -> Result<PathBuf> {
     let Some(path) = xdg_config_path() else {
         return Err(AppError::Config(

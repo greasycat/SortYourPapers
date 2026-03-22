@@ -4,6 +4,7 @@ This document is a repo-structure reference for the current codebase. It reflect
 
 ## Repository Layout
 - `assets/papers/`: sample PDFs used for local runs and manual testing.
+- `crates/paperdb/`: DuckDB-backed paper and embedding storage crate.
 - `crates/syp-core/`: shared library crate.
 - `crates/syp/`: batch CLI crate for the `syp` binary.
 - `crates/syptui/`: TUI crate for the `syptui` binary.
@@ -19,6 +20,7 @@ This document is a repo-structure reference for the current codebase. It reflect
 ## Top-Level Source Modules
 - `crates/syp/src/cli.rs`: clap argument types for the batch CLI, including run arguments, session commands, and `extract-text`.
 - `crates/syp/src/entrypoints.rs`: CLI dispatch and top-level error hint printing.
+- `crates/paperdb/src/lib.rs`: DuckDB schema bootstrap, paper upserts, and embedding-sync APIs.
 - `crates/syp-core/src/error.rs`: application error types and shared result aliases.
 - `crates/syp-core/src/report.rs`: final run report structures and file action summaries.
 - `crates/syp-core/src/app/`: orchestration for a full sorting run, including config resolution handoff, debug-TUI seeded runs, and report rendering.

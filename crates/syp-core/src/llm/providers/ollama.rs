@@ -176,7 +176,11 @@ impl OllamaClient {
         let url = format!("{}/api/embed", self.base_url.trim_end_matches('/'));
         let payload = EmbedRequest {
             model: self.model.clone(),
-            input: request.inputs.iter().map(|input| input.text.clone()).collect(),
+            input: request
+                .inputs
+                .iter()
+                .map(|input| input.text.clone())
+                .collect(),
         };
 
         let resp = self

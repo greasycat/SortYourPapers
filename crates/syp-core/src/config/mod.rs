@@ -138,6 +138,11 @@ pub fn xdg_cache_dir() -> Option<PathBuf> {
     xdg::xdg_cache_dir()
 }
 
+#[must_use]
+pub fn xdg_data_dir() -> Option<PathBuf> {
+    xdg::xdg_data_dir()
+}
+
 /// Initializes the default XDG configuration file.
 ///
 /// # Errors

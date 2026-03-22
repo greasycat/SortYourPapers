@@ -572,16 +572,17 @@ mod tests {
         let request = String::from_utf8(request).expect("request should be utf8");
         let body = request_body_json(&request);
 
-        assert!(
-            request.starts_with(
-                "POST /models/text-embedding-004:batchEmbedContents?key=test-key HTTP/1.1"
-            )
-        );
+        assert!(request.starts_with(
+            "POST /models/text-embedding-004:batchEmbedContents?key=test-key HTTP/1.1"
+        ));
         assert_eq!(
             body["requests"][0]["model"],
             Value::String("models/text-embedding-004".to_string())
         );
-        assert_eq!(body["requests"][0]["content"]["parts"][0]["text"], "paper text");
+        assert_eq!(
+            body["requests"][0]["content"]["parts"][0]["text"],
+            "paper text"
+        );
 
         handle.join().expect("server thread");
     }

@@ -263,7 +263,11 @@ impl OpenAiClient {
         let headers = self.request_headers()?;
         let payload = EmbeddingsRequest {
             model: self.model.clone(),
-            input: request.inputs.iter().map(|input| input.text.clone()).collect(),
+            input: request
+                .inputs
+                .iter()
+                .map(|input| input.text.clone())
+                .collect(),
         };
 
         let body = self.post_openai_json(&url, headers, &payload).await?;
@@ -512,9 +516,7 @@ fn embedding_request_chars(request: &EmbeddingRequest) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::OpenAiClient;
-    use crate::llm::{
-        EmbeddingClient, EmbeddingRequest, JsonResponseSchema, LlmClient,
-    };
+    use crate::llm::{EmbeddingClient, EmbeddingRequest, JsonResponseSchema, LlmClient};
     use serde_json::{Value, json};
     use std::{
         env,

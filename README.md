@@ -3,6 +3,7 @@ Use LLMs to sort papers.
 
 ## Architecture
 - `crates/syp-core/` holds the shared runtime, config resolution, session persistence, paper pipeline, report types, and plain terminal backend.
+- `crates/paperdb/` holds the DuckDB-backed paper/embedding store and uses `syp-core`'s embedding client API.
 - `crates/syp/` holds the batch CLI parser and dispatch layer for the `syp` binary.
 - `crates/syptui/` holds the `ratatui` frontend, TUI-only preferences, and the `syptui` binary.
 
