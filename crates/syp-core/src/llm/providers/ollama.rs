@@ -6,7 +6,10 @@ use std::time::Duration;
 use crate::error::{AppError, Result};
 use crate::llm::LlmCallMetrics;
 
-use crate::llm::{JsonResponseSchema, LlmClient, LlmResponse};
+use crate::llm::{
+    EmbeddingClient, EmbeddingRequest, EmbeddingResponse, EmbeddingVector, JsonResponseSchema,
+    LlmClient, LlmResponse,
+};
 
 const DEFAULT_BASE_URL: &str = "http://localhost:11434";
 const HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -63,6 +66,19 @@ struct MessageResponse {
     content: String,
 }
 
+#[derive(Debug, Serialize)]
+struct EmbedRequest {
+    model: String,
+    input: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmbedResponse {
+    embeddings: Vec<Vec<f32>>,
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+}
+
 #[async_trait]
 impl LlmClient for OllamaClient {
     async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<LlmResponse> {
@@ -77,6 +93,13 @@ impl LlmClient for OllamaClient {
     ) -> Result<LlmResponse> {
         self.send_chat(system_prompt, user_prompt, Some(schema.schema().clone()))
             .await
+    }
+}
+
+#[async_trait]
+impl EmbeddingClient for OllamaClient {
+    async fn embed(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse> {
+        self.send_embeddings(request).await
     }
 }
 
@@ -142,8 +165,68 @@ impl OllamaClient {
             content,
         })
     }
+
+    async fn send_embeddings(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse> {
+        if request.inputs.is_empty() {
+            return Err(AppError::Validation(
+                "embedding request requires at least one input".to_string(),
+            ));
+        }
+
+        let url = format!("{}/api/embed", self.base_url.trim_end_matches('/'));
+        let payload = EmbedRequest {
+            model: self.model.clone(),
+            input: request.inputs.iter().map(|input| input.text.clone()).collect(),
+        };
+
+        let resp = self
+            .http
+            .post(url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let body: EmbedResponse = resp.json().await?;
+        let embeddings = body
+            .embeddings
+            .into_iter()
+            .map(|values| EmbeddingVector { values })
+            .collect::<Vec<_>>();
+
+        if embeddings.len() != request.inputs.len() {
+            return Err(AppError::Llm(format!(
+                "Ollama embedding response count {} did not match request count {}",
+                embeddings.len(),
+                request.inputs.len()
+            )));
+        }
+
+        Ok(EmbeddingResponse {
+            embeddings,
+            metrics: LlmCallMetrics {
+                provider: "ollama".to_string(),
+                model: self.model.clone(),
+                endpoint_kind: "embedding".to_string(),
+                request_chars: embedding_request_chars(request),
+                response_chars: 0,
+                input_tokens: body.prompt_eval_count,
+                output_tokens: None,
+                total_tokens: body.prompt_eval_count,
+                ..LlmCallMetrics::default()
+            },
+        })
+    }
 }
 
 fn prompt_chars(system_prompt: &str, user_prompt: &str) -> u64 {
     (system_prompt.chars().count() + user_prompt.chars().count()) as u64
+}
+
+fn embedding_request_chars(request: &EmbeddingRequest) -> u64 {
+    request
+        .inputs
+        .iter()
+        .map(|input| input.text.chars().count() as u64)
+        .sum()
 }

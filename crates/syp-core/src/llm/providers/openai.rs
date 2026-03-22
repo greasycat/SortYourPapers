@@ -7,7 +7,10 @@ use std::time::Duration;
 use crate::error::{AppError, Result};
 use crate::llm::LlmCallMetrics;
 
-use crate::llm::{JsonResponseSchema, LlmClient, LlmResponse};
+use crate::llm::{
+    EmbeddingClient, EmbeddingRequest, EmbeddingResponse, EmbeddingVector, JsonResponseSchema,
+    LlmClient, LlmResponse,
+};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 const HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -155,6 +158,24 @@ struct OpenAiUsage {
     total_tokens: Option<u64>,
 }
 
+#[derive(Debug, Serialize)]
+struct EmbeddingsRequest {
+    model: String,
+    input: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmbeddingsResponse {
+    data: Vec<EmbeddingData>,
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmbeddingData {
+    embedding: Vec<f32>,
+}
+
 #[async_trait]
 impl LlmClient for OpenAiClient {
     async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<LlmResponse> {
@@ -169,6 +190,13 @@ impl LlmClient for OpenAiClient {
     ) -> Result<LlmResponse> {
         self.send_chat(system_prompt, user_prompt, Some(schema))
             .await
+    }
+}
+
+#[async_trait]
+impl EmbeddingClient for OpenAiClient {
+    async fn embed(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse> {
+        self.send_embeddings(request).await
     }
 }
 
@@ -221,6 +249,46 @@ impl OpenAiClient {
                 parsed.usage.as_ref(),
             ),
             content,
+        })
+    }
+
+    async fn send_embeddings(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse> {
+        if request.inputs.is_empty() {
+            return Err(AppError::Validation(
+                "embedding request requires at least one input".to_string(),
+            ));
+        }
+
+        let url = format!("{}/embeddings", self.base_url.trim_end_matches('/'));
+        let headers = self.request_headers()?;
+        let payload = EmbeddingsRequest {
+            model: self.model.clone(),
+            input: request.inputs.iter().map(|input| input.text.clone()).collect(),
+        };
+
+        let body = self.post_openai_json(&url, headers, &payload).await?;
+        let response_chars = body.to_string().chars().count() as u64;
+        let parsed: EmbeddingsResponse = serde_json::from_value(body)?;
+        let usage = parsed.usage.clone();
+        let embeddings = parsed
+            .data
+            .into_iter()
+            .map(|item| EmbeddingVector {
+                values: item.embedding,
+            })
+            .collect::<Vec<_>>();
+
+        if embeddings.len() != request.inputs.len() {
+            return Err(AppError::Llm(format!(
+                "OpenAI embedding response count {} did not match request count {}",
+                embeddings.len(),
+                request.inputs.len()
+            )));
+        }
+
+        Ok(EmbeddingResponse {
+            embeddings,
+            metrics: self.embedding_metrics(request, response_chars, usage.as_ref()),
         })
     }
 
@@ -322,6 +390,34 @@ impl OpenAiClient {
             ..LlmCallMetrics::default()
         }
     }
+
+    fn embedding_metrics(
+        &self,
+        request: &EmbeddingRequest,
+        response_chars: u64,
+        usage: Option<&OpenAiUsage>,
+    ) -> LlmCallMetrics {
+        let usage = usage.cloned().unwrap_or_default();
+        let input_tokens = usage.input_tokens.or(usage.prompt_tokens);
+        let output_tokens = usage.output_tokens.or(usage.completion_tokens);
+        let total_tokens = usage.total_tokens.or_else(|| {
+            input_tokens
+                .zip(output_tokens)
+                .map(|(input, output)| input + output)
+        });
+
+        LlmCallMetrics {
+            provider: "openai".to_string(),
+            model: self.model.clone(),
+            endpoint_kind: "embeddings".to_string(),
+            request_chars: embedding_request_chars(request),
+            response_chars,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            ..LlmCallMetrics::default()
+        }
+    }
 }
 
 fn chat_response_format(schema: &JsonResponseSchema) -> ChatResponseFormat {
@@ -405,10 +501,20 @@ fn prompt_chars(system_prompt: &str, user_prompt: &str) -> u64 {
     (system_prompt.chars().count() + user_prompt.chars().count()) as u64
 }
 
+fn embedding_request_chars(request: &EmbeddingRequest) -> u64 {
+    request
+        .inputs
+        .iter()
+        .map(|input| input.text.chars().count() as u64)
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::OpenAiClient;
-    use crate::llm::{JsonResponseSchema, LlmClient};
+    use crate::llm::{
+        EmbeddingClient, EmbeddingRequest, JsonResponseSchema, LlmClient,
+    };
     use serde_json::{Value, json};
     use std::{
         env,
@@ -520,6 +626,37 @@ mod tests {
         assert_eq!(payload["messages"][0]["role"], "system");
         assert_eq!(payload["messages"][1]["role"], "user");
         assert_eq!(body.content, "ok");
+
+        handle.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn embeddings_use_openai_embeddings_endpoint() {
+        let (base_url, request_rx, handle) = spawn_single_request_server(
+            "HTTP/1.1 200 OK",
+            r#"{"data":[{"embedding":[0.1,0.2]},{"embedding":[0.3,0.4]}],"usage":{"prompt_tokens":5,"total_tokens":5}}"#,
+        );
+        let client = OpenAiClient::new("text-embedding-3-small".to_string(), Some(base_url), None);
+        let request = EmbeddingRequest::from_texts(["first paper", "second paper"]);
+
+        let response = client
+            .embed(&request)
+            .await
+            .expect("embedding request should succeed");
+
+        assert_eq!(response.embeddings.len(), 2);
+        assert_eq!(response.embeddings[0].values, vec![0.1_f32, 0.2_f32]);
+        assert_eq!(response.metrics.endpoint_kind, "embeddings");
+        assert_eq!(response.metrics.input_tokens, Some(5));
+
+        let request = request_rx.recv().expect("captured request");
+        let request_str = String::from_utf8(request).expect("utf8 request");
+        let payload = request_body_json(&request_str);
+
+        assert!(request_str.starts_with("POST /embeddings HTTP/1.1"));
+        assert_eq!(payload["model"], "text-embedding-3-small");
+        assert_eq!(payload["input"][0], "first paper");
+        assert_eq!(payload["input"][1], "second paper");
 
         handle.join().expect("server thread");
     }

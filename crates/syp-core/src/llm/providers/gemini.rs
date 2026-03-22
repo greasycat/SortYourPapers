@@ -6,7 +6,10 @@ use std::time::Duration;
 use crate::error::{AppError, Result};
 use crate::llm::LlmCallMetrics;
 
-use crate::llm::{JsonResponseSchema, LlmClient, LlmResponse};
+use crate::llm::{
+    EmbeddingClient, EmbeddingRequest, EmbeddingResponse, EmbeddingVector, JsonResponseSchema,
+    LlmClient, LlmResponse,
+};
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 const HTTP_CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -100,6 +103,27 @@ struct GeminiUsageMetadata {
     total_token_count: Option<u64>,
 }
 
+#[derive(Debug, Serialize)]
+struct BatchEmbedContentsRequest {
+    requests: Vec<EmbedContentRequest>,
+}
+
+#[derive(Debug, Serialize)]
+struct EmbedContentRequest {
+    model: String,
+    content: Content,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchEmbedContentsResponse {
+    embeddings: Option<Vec<GeminiEmbedding>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiEmbedding {
+    values: Vec<f32>,
+}
+
 #[async_trait]
 impl LlmClient for GeminiClient {
     async fn chat(&self, system_prompt: &str, user_prompt: &str) -> Result<LlmResponse> {
@@ -123,6 +147,13 @@ impl LlmClient for GeminiClient {
             Some(gemini_response_schema(schema.schema())),
         )
         .await
+    }
+}
+
+#[async_trait]
+impl EmbeddingClient for GeminiClient {
+    async fn embed(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse> {
+        self.send_embeddings(request).await
     }
 }
 
@@ -211,6 +242,78 @@ impl GeminiClient {
             content,
         })
     }
+
+    async fn send_embeddings(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse> {
+        if request.inputs.is_empty() {
+            return Err(AppError::Validation(
+                "embedding request requires at least one input".to_string(),
+            ));
+        }
+
+        let api_key = self
+            .api_key
+            .as_deref()
+            .ok_or(AppError::MissingConfig("api_key (required for gemini)"))?;
+        let url = format!(
+            "{}/models/{}:batchEmbedContents",
+            self.base_url.trim_end_matches('/'),
+            self.normalized_model()
+        );
+        let payload = BatchEmbedContentsRequest {
+            requests: request
+                .inputs
+                .iter()
+                .map(|input| EmbedContentRequest {
+                    model: format!("models/{}", self.normalized_model()),
+                    content: Content {
+                        role: None,
+                        parts: vec![Part {
+                            text: input.text.clone(),
+                        }],
+                    },
+                })
+                .collect(),
+        };
+
+        let resp = self
+            .http
+            .post(url)
+            .query(&[("key", api_key)])
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let body: BatchEmbedContentsResponse = resp.json().await?;
+        let embeddings = body
+            .embeddings
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| EmbeddingVector {
+                values: item.values,
+            })
+            .collect::<Vec<_>>();
+
+        if embeddings.len() != request.inputs.len() {
+            return Err(AppError::Llm(format!(
+                "Gemini embedding response count {} did not match request count {}",
+                embeddings.len(),
+                request.inputs.len()
+            )));
+        }
+
+        Ok(EmbeddingResponse {
+            embeddings,
+            metrics: LlmCallMetrics {
+                provider: "gemini".to_string(),
+                model: self.model.clone(),
+                endpoint_kind: "embedding".to_string(),
+                request_chars: embedding_request_chars(request),
+                response_chars: 0,
+                ..LlmCallMetrics::default()
+            },
+        })
+    }
 }
 
 fn prompt_chars(system_prompt: &str, user_prompt: &str) -> u64 {
@@ -219,6 +322,14 @@ fn prompt_chars(system_prompt: &str, user_prompt: &str) -> u64 {
 
 fn combine_prompts(system_prompt: &str, user_prompt: &str) -> String {
     format!("{system_prompt}\n\n{user_prompt}")
+}
+
+fn embedding_request_chars(request: &EmbeddingRequest) -> u64 {
+    request
+        .inputs
+        .iter()
+        .map(|input| input.text.chars().count() as u64)
+        .sum()
 }
 
 fn gemini_response_schema(schema: &Value) -> Value {
@@ -260,6 +371,7 @@ fn gemini_response_schema(schema: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::{EmbeddingClient, EmbeddingRequest};
     use serde_json::{Value, json};
     use std::{
         env,
@@ -431,6 +543,45 @@ mod tests {
             "MEDIUM"
         );
         assert!(body["generationConfig"]["temperature"].is_null());
+
+        handle.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn embedding_requests_use_batch_embed_contents_endpoint() {
+        let (base_url, request_rx, handle) = spawn_single_request_server(
+            "HTTP/1.1 200 OK",
+            r#"{"embeddings":[{"values":[0.1,0.2,0.3]}]}"#,
+        );
+        let client = GeminiClient::new(
+            "models/text-embedding-004".to_string(),
+            Some(base_url),
+            Some("test-key".to_string()),
+        );
+        let request = EmbeddingRequest::from_texts(["paper text"]);
+
+        let response = client
+            .embed(&request)
+            .await
+            .expect("embedding request should succeed");
+
+        assert_eq!(response.embeddings.len(), 1);
+        assert_eq!(response.metrics.endpoint_kind, "embedding");
+
+        let request = request_rx.recv().expect("captured request");
+        let request = String::from_utf8(request).expect("request should be utf8");
+        let body = request_body_json(&request);
+
+        assert!(
+            request.starts_with(
+                "POST /models/text-embedding-004:batchEmbedContents?key=test-key HTTP/1.1"
+            )
+        );
+        assert_eq!(
+            body["requests"][0]["model"],
+            Value::String("models/text-embedding-004".to_string())
+        );
+        assert_eq!(body["requests"][0]["content"]["parts"][0]["text"], "paper text");
 
         handle.join().expect("server thread");
     }

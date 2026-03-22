@@ -1,5 +1,6 @@
 mod batch;
 mod client;
+mod embedding;
 pub mod providers;
 mod retry;
 mod schema;
@@ -166,6 +167,10 @@ pub use batch::{
 };
 pub(crate) use batch::{batch_dispatch_spacing, wait_for_dispatch_slot};
 pub use client::{LlmClient, LlmResponse, ParsedLlmResponse, build_client};
+pub use embedding::{
+    EmbeddingClient, EmbeddingConfig, EmbeddingInput, EmbeddingRequest, EmbeddingResponse,
+    EmbeddingVector, build_embedding_client,
+};
 pub use providers::{gemini, ollama, openai};
 pub(crate) use retry::strip_code_fence;
 pub use retry::{call_json_with_retry, call_text_with_retry};
