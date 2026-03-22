@@ -4,7 +4,7 @@ Use LLMs to sort papers.
 ## Architecture
 - `crates/syp-core/` holds the shared runtime, config resolution, session persistence, paper pipeline, report types, and plain terminal backend.
 - `crates/paperdb/` holds the DuckDB-backed paper/embedding store and uses `syp-core`'s embedding client API.
-- `crates/paperfetch/` holds the library-only arXiv test-set fetcher and SciJudgeBench-driven curation logic.
+- `python/` holds the `uv`-managed maintainer tooling for SciJudgeBench-backed arXiv test-set curation and export.
 - `crates/syp/` holds the batch CLI parser and dispatch layer for the `syp` binary.
 - `crates/syptui/` holds the `ratatui` frontend, TUI-only preferences, and the `syptui` binary.
 
@@ -20,7 +20,7 @@ Use LLMs to sort papers.
 - Prints the final synthesized category tree at the end of a successful run
 - Keeps `taxonomy-mode` for CLI/config compatibility, and uses `taxonomy-batch-size` to control batching of aggregated preliminary-category entries during taxonomy synthesis
 - Saves completed taxonomy batches during synthesis so an interrupted run can resume without redoing finished batches
-- Supports committed test-set manifests under `assets/testsets/` and on-demand arXiv PDF materialization through the `paperfetch` library crate
+- Supports committed test-set manifests under `assets/testsets/` and a separate Python maintainer workflow for SciJudgeBench sampling and arXiv PDF materialization
 - Uses an LLM to:
   - extract keywords per paper
   - suggest a preliminary category text per paper
@@ -185,7 +185,9 @@ Use `session resume --quiet` if you only want the exit status without the progre
 
 ## Test Sets
 - `assets/testsets/` stores committed TOML manifests for curated paper sets.
-- `paperfetch` reads SciJudgeBench metadata from Hugging Face, samples top/bottom/random citation papers per category, and materializes the selected arXiv PDFs into `$XDG_CACHE_HOME/sortyourpapers/testsets/`.
+- `uv run --project python paperfetch build-manifest` reads SciJudgeBench metadata from Hugging Face Hub, samples top/bottom/random citation papers per category, and writes a manifest.
+- `uv run --project python paperfetch materialize assets/testsets/scijudgebench-diverse.toml` downloads the selected arXiv PDFs into `$XDG_CACHE_HOME/sortyourpapers/testsets/`.
+- `uv run --project python paperfetch export assets/testsets/scijudgebench-diverse.toml ./tmp/scijudgebench` copies the cached PDFs into a local directory for runs or manual inspection.
 - The starter scaffold manifest is `assets/testsets/scijudgebench-diverse.toml`.
 
 ## Environment Variables
