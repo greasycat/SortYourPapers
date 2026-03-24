@@ -10,6 +10,7 @@ chrono.workspace = true
 clap.workspace = true
 directories.workspace = true
 indicatif.workspace = true
+paperdb = { path = "../paperdb" }
 pdf_oxide.workspace = true
 reqwest.workspace = true
 serde.workspace = true

@@ -1,7 +1,7 @@
 use crate::{
     error::{AppError, Result},
     papers::PaperText,
-    papers::taxonomy::CategoryTree,
+    papers::taxonomy::{CategoryTree, TaxonomyReferenceEvidence},
 };
 
 use super::{MAX_SEMANTIC_ATTEMPTS, MAX_TEXT_CHARS_PER_FILE, MAX_TOTAL_BATCH_TEXT_CHARS};
@@ -22,17 +22,21 @@ pub(super) fn build_merge_category_prompt(
     subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
     existing_output_folders: Option<&[String]>,
+    reference_evidence: Option<&TaxonomyReferenceEvidence>,
 ) -> Result<String> {
     let category_paths = flatten_and_sort_category_paths(batch_categories);
     let suggestion_section = format_merge_suggestion_section(user_suggestion);
     let existing_folder_rule = format_existing_folder_rule(existing_output_folders);
     let existing_folder_section = format_existing_folder_section(existing_output_folders)?;
+    let reference_rule = format_reference_evidence_rule(reference_evidence);
+    let reference_section = format_reference_evidence_section(reference_evidence)?;
 
     Ok(format!(
-        "Return JSON with schema:\n{{\"categories\":[[\"Top Level\"],[\"Top Level\",\"Subcategory\"]]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below as the primary taxonomy evidence\n- each entry in `categories` must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy{existing_folder_rule}\n\ncategory_paths:\n{}{}{}",
+        "Return JSON with schema:\n{{\"categories\":[[\"Top Level\"],[\"Top Level\",\"Subcategory\"]]}}\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below as the primary taxonomy evidence\n- each entry in `categories` must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy{existing_folder_rule}{reference_rule}\n\ncategory_paths:\n{}{}{}{}",
         serde_json::to_string(&category_paths).map_err(AppError::from)?,
         suggestion_section,
-        existing_folder_section
+        existing_folder_section,
+        reference_section
     ))
 }
 
@@ -42,17 +46,21 @@ pub(super) fn build_merge_category_plain_text_prompt(
     subcategories_suggestion_number: usize,
     user_suggestion: Option<&str>,
     existing_output_folders: Option<&[String]>,
+    reference_evidence: Option<&TaxonomyReferenceEvidence>,
 ) -> Result<String> {
     let category_paths = flatten_and_sort_category_paths(batch_categories);
     let suggestion_section = format_merge_suggestion_section(user_suggestion);
     let existing_folder_rule = format_existing_folder_rule(existing_output_folders);
     let existing_folder_section = format_existing_folder_section(existing_output_folders)?;
+    let reference_rule = format_reference_evidence_rule(reference_evidence);
+    let reference_section = format_reference_evidence_section(reference_evidence)?;
 
     Ok(format!(
-        "Return plain text only.\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below as the primary taxonomy evidence\n- return one full category path per line\n- use ` > ` between path segments\n- each line must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- no JSON\n- no markdown\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy{existing_folder_rule}\n\ncategory_paths:\n{}{}{}",
+        "Return plain text only.\nRules:\n- merge the partial taxonomies below into one final taxonomy\n- use only the category paths below as the primary taxonomy evidence\n- return one full category path per line\n- use ` > ` between path segments\n- each line must be a full category path from root to a category node\n- include parent paths before child paths\n- category depth must be <= {category_depth}\n- names must be filesystem-friendly (letters, numbers, spaces, dashes)\n- avoid duplicate category paths\n- output at least one top-level category path\n- try your best to keep the number of subcategories less than {subcategories_suggestion_number}\n- no JSON\n- no markdown\n- if a user merge suggestion is provided, treat it as optional guidance for shaping the final taxonomy{existing_folder_rule}{reference_rule}\n\ncategory_paths:\n{}{}{}{}",
         serde_json::to_string(&category_paths).map_err(AppError::from)?,
         suggestion_section,
-        existing_folder_section
+        existing_folder_section,
+        reference_section
     ))
 }
 
@@ -89,6 +97,29 @@ fn format_existing_folder_section(existing_output_folders: Option<&[String]>) ->
     Ok(format!(
         "\n\nexisting_output_folders:\n{}",
         serde_json::to_string(folders).map_err(AppError::from)?
+    ))
+}
+
+fn format_reference_evidence_rule(
+    reference_evidence: Option<&TaxonomyReferenceEvidence>,
+) -> &'static str {
+    if reference_evidence.is_some() {
+        "\n- reference_label_evidence is secondary guidance from nearest labeled papers stored in DuckDB\n- use reference_label_evidence only to sharpen naming or grouping when it agrees with the category paths above"
+    } else {
+        ""
+    }
+}
+
+fn format_reference_evidence_section(
+    reference_evidence: Option<&TaxonomyReferenceEvidence>,
+) -> Result<String> {
+    let Some(reference_evidence) = reference_evidence else {
+        return Ok(String::new());
+    };
+
+    Ok(format!(
+        "\n\nreference_label_evidence:\n{}",
+        serde_json::to_string(reference_evidence).map_err(AppError::from)?
     ))
 }
 

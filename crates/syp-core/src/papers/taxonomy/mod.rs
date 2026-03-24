@@ -1,6 +1,7 @@
 mod batching;
 mod keywords;
 mod prompts;
+mod reference;
 mod taxonomy;
 mod validation;
 
@@ -30,11 +31,48 @@ pub enum TaxonomyMode {
     BatchMerge,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TaxonomyAssistance {
+    #[default]
+    LlmOnly,
+    EmbeddingGuided,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CategoryTree {
     pub name: String,
     #[serde(default)]
     pub children: Vec<CategoryTree>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReferenceLabelScore {
+    pub label: String,
+    pub weight: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReferenceExemplar {
+    pub paper_id: String,
+    pub title: String,
+    pub category: String,
+    pub subcategory: String,
+    pub similarity: f32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaxonomyReferenceEvidence {
+    #[serde(default)]
+    pub set_id: String,
+    pub query_paper_count: usize,
+    pub top_k_per_paper: usize,
+    #[serde(default)]
+    pub top_categories: Vec<ReferenceLabelScore>,
+    #[serde(default)]
+    pub top_subcategory_tokens: Vec<ReferenceLabelScore>,
+    #[serde(default)]
+    pub exemplar_matches: Vec<ReferenceExemplar>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +113,7 @@ pub(crate) struct TaxonomyBatchProgress {
 
 pub use keywords::extract_keywords;
 pub(crate) use keywords::extract_keywords_with_progress;
+pub(crate) use reference::{collect_reference_evidence, index_reference_manifest};
 pub use taxonomy::synthesize_categories;
 #[allow(unused_imports)]
 pub(crate) use taxonomy::synthesize_categories_with_progress;

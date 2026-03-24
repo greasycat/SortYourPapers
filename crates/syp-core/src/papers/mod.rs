@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::papers::taxonomy::CategoryTree;
+use crate::papers::taxonomy::{CategoryTree, TaxonomyReferenceEvidence};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfCandidate {
@@ -57,4 +57,6 @@ pub struct SynthesizeCategoriesState {
     pub categories: Vec<CategoryTree>,
     #[serde(default)]
     pub partial_categories: Vec<Vec<CategoryTree>>,
+    #[serde(default)]
+    pub reference_evidence: Option<TaxonomyReferenceEvidence>,
 }

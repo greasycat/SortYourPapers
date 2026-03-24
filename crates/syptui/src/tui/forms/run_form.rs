@@ -575,10 +575,13 @@ impl RunForm {
             )?),
             category_depth: Some(parse_u8("category_depth", &self.category_depth)?),
             taxonomy_mode: Some(self.taxonomy_mode),
+            taxonomy_assistance: None,
             taxonomy_batch_size: Some(parse_usize(
                 "taxonomy_batch_size",
                 &self.taxonomy_batch_size,
             )?),
+            reference_manifest_path: None,
+            reference_top_k: None,
             use_current_folder_tree: Some(self.use_current_folder_tree),
             placement_batch_size: Some(parse_usize(
                 "placement_batch_size",
@@ -599,6 +602,12 @@ impl RunForm {
             api_key_env: (self.api_key_source == ApiKeySourceMode::Env)
                 .then(|| empty_string_to_option(&self.api_key_value))
                 .flatten(),
+            embedding_provider: None,
+            embedding_model: None,
+            embedding_base_url: None,
+            embedding_api_key: None,
+            embedding_api_key_command: None,
+            embedding_api_key_env: None,
             keyword_batch_size: Some(parse_usize("keyword_batch_size", &self.keyword_batch_size)?),
             subcategories_suggestion_number: Some(parse_usize(
                 "subcategories_suggestion_number",

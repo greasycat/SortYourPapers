@@ -5,7 +5,7 @@ use crate::{
     error::{AppError, Result},
     llm::LlmProvider,
     papers::placement::PlacementMode,
-    papers::taxonomy::TaxonomyMode,
+    papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
 };
 
 use super::EnvConfig;
@@ -20,7 +20,12 @@ pub(super) fn env_config_from_process() -> Result<EnvConfig> {
         pdf_extract_workers: parse_env_usize("SYP_PDF_EXTRACT_WORKERS")?,
         category_depth: parse_env_u8("SYP_CATEGORY_DEPTH")?,
         taxonomy_mode: parse_env_taxonomy_mode("SYP_TAXONOMY_MODE")?,
+        taxonomy_assistance: parse_env_taxonomy_assistance("SYP_TAXONOMY_ASSISTANCE")?,
         taxonomy_batch_size: parse_env_usize("SYP_TAXONOMY_BATCH_SIZE")?,
+        reference_manifest_path: env::var("SYP_REFERENCE_MANIFEST_PATH")
+            .ok()
+            .map(PathBuf::from),
+        reference_top_k: parse_env_usize("SYP_REFERENCE_TOP_K")?,
         use_current_folder_tree: parse_env_bool("SYP_USE_CURRENT_FOLDER_TREE")?,
         placement_batch_size: parse_env_usize("SYP_PLACEMENT_BATCH_SIZE")?,
         placement_mode: parse_env_placement_mode("SYP_PLACEMENT_MODE")?,
@@ -28,7 +33,15 @@ pub(super) fn env_config_from_process() -> Result<EnvConfig> {
         llm_provider: parse_env_provider("SYP_LLM_PROVIDER")?,
         llm_model: env::var("SYP_LLM_MODEL").ok(),
         llm_base_url: env::var("SYP_LLM_BASE_URL").ok(),
-        api_key: parse_env_api_key_source()?,
+        api_key: parse_env_api_key_source("SYP_API_KEY", "SYP_API_KEY_COMMAND", "SYP_API_KEY_ENV")?,
+        embedding_provider: parse_env_provider("SYP_EMBEDDING_PROVIDER")?,
+        embedding_model: env::var("SYP_EMBEDDING_MODEL").ok(),
+        embedding_base_url: env::var("SYP_EMBEDDING_BASE_URL").ok(),
+        embedding_api_key: parse_env_api_key_source(
+            "SYP_EMBEDDING_API_KEY",
+            "SYP_EMBEDDING_API_KEY_COMMAND",
+            "SYP_EMBEDDING_API_KEY_ENV",
+        )?,
         keyword_batch_size: parse_env_usize("SYP_KEYWORD_BATCH_SIZE")?,
         batch_start_delay_ms: parse_env_u64("SYP_BATCH_START_DELAY_MS")?,
         subcategories_suggestion_number: parse_env_usize("SYP_SUBCATEGORIES_SUGGESTION_NUMBER")?,
@@ -99,6 +112,19 @@ fn parse_env_taxonomy_mode(key: &str) -> Result<Option<TaxonomyMode>> {
     }
 }
 
+fn parse_env_taxonomy_assistance(key: &str) -> Result<Option<TaxonomyAssistance>> {
+    match env::var(key) {
+        Ok(value) => match value.to_ascii_lowercase().as_str() {
+            "llm-only" => Ok(Some(TaxonomyAssistance::LlmOnly)),
+            "embedding-guided" => Ok(Some(TaxonomyAssistance::EmbeddingGuided)),
+            _ => Err(AppError::Config(format!(
+                "{key} must be one of: llm-only, embedding-guided"
+            ))),
+        },
+        Err(_) => Ok(None),
+    }
+}
+
 fn parse_env_placement_mode(key: &str) -> Result<Option<PlacementMode>> {
     match env::var(key) {
         Ok(value) => match value.to_ascii_lowercase().as_str() {
@@ -122,18 +148,22 @@ fn parse_bool(key: &str, value: &str) -> Result<bool> {
     }
 }
 
-fn parse_env_api_key_source() -> Result<Option<ApiKeySource>> {
-    let text = env::var("SYP_API_KEY").ok();
-    let command = env::var("SYP_API_KEY_COMMAND").ok();
-    let env_name = env::var("SYP_API_KEY_ENV").ok();
+fn parse_env_api_key_source(
+    text_key: &str,
+    command_key: &str,
+    env_key: &str,
+) -> Result<Option<ApiKeySource>> {
+    let text = env::var(text_key).ok();
+    let command = env::var(command_key).ok();
+    let env_name = env::var(env_key).ok();
 
     let configured = usize::from(text.is_some())
         + usize::from(command.is_some())
         + usize::from(env_name.is_some());
     if configured > 1 {
-        return Err(AppError::Config(
-            "set only one of SYP_API_KEY, SYP_API_KEY_COMMAND, or SYP_API_KEY_ENV".to_string(),
-        ));
+        return Err(AppError::Config(format!(
+            "set only one of {text_key}, {command_key}, or {env_key}"
+        )));
     }
 
     Ok(text

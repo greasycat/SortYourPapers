@@ -26,7 +26,9 @@ use super::{
 };
 use crate::error::Result;
 use crate::llm::{JsonResponseSchema, LlmCallMetrics, LlmClient, LlmResponse, LlmUsageSummary};
-use crate::papers::taxonomy::CategoryTree;
+use crate::papers::taxonomy::{
+    CategoryTree, ReferenceExemplar, ReferenceLabelScore, TaxonomyReferenceEvidence,
+};
 use crate::papers::{KeywordSet, PaperText, PreliminaryCategoryPair};
 use crate::terminal::Verbosity;
 
@@ -514,6 +516,7 @@ fn merge_prompt_flattens_and_sorts_category_paths() {
         5,
         Some("Merge speech categories under one parent"),
         None,
+        None,
     )
     .expect("prompt");
 
@@ -543,6 +546,7 @@ fn merge_plain_text_prompt_uses_line_format() {
         5,
         None,
         None,
+        None,
     )
     .expect("plain-text prompt");
 
@@ -569,12 +573,56 @@ fn merge_prompt_includes_existing_output_folders_when_provided() {
         5,
         None,
         Some(existing_output_folders.as_slice()),
+        None,
     )
     .expect("prompt");
 
     assert!(prompt.contains("existing_output_folders"));
     assert!(prompt.contains("\"AI/Vision\""));
     assert!(prompt.contains("align naming and grouping with them"));
+}
+
+#[test]
+fn merge_prompt_includes_reference_label_evidence_when_provided() {
+    let reference_evidence = TaxonomyReferenceEvidence {
+        set_id: "scijudgebench-diverse".to_string(),
+        query_paper_count: 3,
+        top_k_per_paper: 5,
+        top_categories: vec![ReferenceLabelScore {
+            label: "Computer Science".to_string(),
+            weight: 2.7,
+        }],
+        top_subcategory_tokens: vec![ReferenceLabelScore {
+            label: "cs.LG".to_string(),
+            weight: 1.9,
+        }],
+        exemplar_matches: vec![ReferenceExemplar {
+            paper_id: "arxiv-1412.6980".to_string(),
+            title: "Adam".to_string(),
+            category: "Computer Science".to_string(),
+            subcategory: "cs.LG".to_string(),
+            similarity: 0.91,
+        }],
+    };
+
+    let prompt = build_merge_category_prompt(
+        &[vec![CategoryTree {
+            name: "AI".to_string(),
+            children: vec![],
+        }]],
+        2,
+        5,
+        None,
+        None,
+        Some(&reference_evidence),
+    )
+    .expect("prompt");
+
+    assert!(prompt.contains("reference_label_evidence"));
+    assert!(prompt.contains("nearest labeled papers stored in DuckDB"));
+    assert!(prompt.contains("\"Computer Science\""));
+    assert!(prompt.contains("\"cs.LG\""));
+    assert!(prompt.contains("\"Adam\""));
 }
 
 #[test]
@@ -619,6 +667,7 @@ async fn taxonomy_merge_keeps_structured_schema_before_timeout() {
         5,
         None,
         Some(&["AI".to_string(), "AI/Vision".to_string()]),
+        None,
         Verbosity::new(false, false, false),
         Duration::from_secs(1),
     )
@@ -669,6 +718,7 @@ async fn taxonomy_merge_times_out_to_plain_text_paths() {
         5,
         None,
         None,
+        None,
         Verbosity::new(false, false, false),
         Duration::from_millis(5),
     )
@@ -714,6 +764,7 @@ async fn taxonomy_merge_plain_text_retry_repairs_invalid_response() {
         5,
         None,
         None,
+        None,
         Verbosity::new(false, false, false),
         Duration::from_millis(5),
     )
@@ -755,6 +806,7 @@ async fn taxonomy_merge_uses_plain_text_directly_for_plain_text_clients() {
         &partial_categories,
         2,
         5,
+        None,
         None,
         None,
         Verbosity::new(false, false, false),

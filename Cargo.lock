@@ -1885,9 +1885,9 @@ name = "paperdb"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "directories",
  "duckdb",
  "serde_json",
- "syp-core",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -2873,6 +2873,7 @@ dependencies = [
  "clap",
  "directories",
  "indicatif",
+ "paperdb",
  "pdf_oxide",
  "reqwest",
  "serde",

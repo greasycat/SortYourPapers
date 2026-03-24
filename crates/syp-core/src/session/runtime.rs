@@ -11,8 +11,9 @@ use crate::{
     papers::extract::{ExtractorMode, extract_text_batch, reset_debug_extract_log},
     papers::placement::PlacementDecision,
     papers::taxonomy::{
-        KeywordBatchProgress, TaxonomyBatchProgress, extract_keywords_with_progress,
-        merge_category_batches, synthesize_category_batches_with_progress,
+        KeywordBatchProgress, TaxonomyBatchProgress, collect_reference_evidence,
+        extract_keywords_with_progress, merge_category_batches,
+        synthesize_category_batches_with_progress,
     },
     papers::{
         KeywordStageState, PdfCandidate, SynthesizeCategoriesState, discovery::dedupe_candidates,
@@ -185,6 +186,7 @@ pub(crate) async fn run_with_workspace(
     } else {
         synthesize_categories_stage(
             llm_client.as_ref(),
+            &extract_state.papers,
             &keyword_sets,
             &config,
             &mut report,
@@ -526,6 +528,7 @@ async fn extract_keywords_stage(
 #[allow(clippy::too_many_arguments)]
 async fn synthesize_categories_stage(
     llm_client: Option<&Arc<dyn llm::LlmClient>>,
+    papers: &[crate::papers::PaperText],
     keyword_state: &KeywordStageState,
     config: &AppConfig,
     report: &mut RunReport,
@@ -562,6 +565,8 @@ async fn synthesize_categories_stage(
         .iter()
         .map(|batch| batch.categories.clone())
         .collect::<Vec<_>>();
+    let (reference_evidence, reference_usage) =
+        collect_reference_evidence(papers, config, verbosity).await?;
     let existing_output_folders = existing_output_folders_for_taxonomy_merge(config)?;
     let (categories, merge_usage) = merge_category_batches(
         require_llm_client(llm_client)?.as_ref(),
@@ -570,15 +575,18 @@ async fn synthesize_categories_stage(
         config.subcategories_suggestion_number,
         None,
         existing_output_folders.as_deref(),
+        reference_evidence.as_ref(),
         verbosity,
     )
     .await?;
     let mut usage = batch_progress.usage;
+    usage.merge(&reference_usage);
     usage.merge(&merge_usage);
     report.llm_usage.taxonomy = usage;
     let state = SynthesizeCategoriesState {
         categories,
         partial_categories,
+        reference_evidence,
     };
     workspace.save_stage(RunStage::SynthesizeCategories, &state)?;
     workspace.remove_artifact(TAXONOMY_BATCH_PROGRESS_FILE)?;

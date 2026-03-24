@@ -787,7 +787,9 @@ mod tests {
     use crate::config::{ApiKeySource, AppConfig};
     use crate::llm::LlmProvider;
     use crate::papers::placement::PlacementMode;
-    use crate::papers::taxonomy::{CategoryTree, KeywordBatchProgress, TaxonomyMode};
+    use crate::papers::taxonomy::{
+        CategoryTree, KeywordBatchProgress, TaxonomyAssistance, TaxonomyMode,
+    };
     use crate::papers::{PdfCandidate, SynthesizeCategoriesState};
     use crate::report::RunReport;
 
@@ -801,7 +803,10 @@ mod tests {
             pdf_extract_workers: 4,
             category_depth: 2,
             taxonomy_mode: TaxonomyMode::BatchMerge,
+            taxonomy_assistance: TaxonomyAssistance::LlmOnly,
             taxonomy_batch_size: 3,
+            reference_manifest_path: "assets/testsets/scijudgebench-diverse.toml".into(),
+            reference_top_k: 5,
             use_current_folder_tree: false,
             placement_batch_size: 25,
             placement_mode: PlacementMode::ExistingOnly,
@@ -811,6 +816,10 @@ mod tests {
             llm_model: "gemini-3-flash-preview".to_string(),
             llm_base_url: None,
             api_key: Some(ApiKeySource::Text("secret".to_string())),
+            embedding_provider: LlmProvider::Gemini,
+            embedding_model: "text-embedding-004".to_string(),
+            embedding_base_url: None,
+            embedding_api_key: None,
             keyword_batch_size: 50,
             batch_start_delay_ms: 100,
             subcategories_suggestion_number: 5,
@@ -1089,6 +1098,7 @@ mod tests {
                         children: vec![],
                     }],
                     partial_categories: Vec::new(),
+                    reference_evidence: None,
                 },
             )
             .expect("save taxonomy");

@@ -107,13 +107,20 @@ pub fn load_manifest(set_id: &str) -> Result<CuratedTestSet> {
     load_manifest_from_path(&manifest_json_path(set_id)?)
 }
 
+pub fn load_manifest_from_path(path: &Path) -> Result<CuratedTestSet> {
+    load_manifest_file_from_path(path)
+}
+
 pub fn load_state(set_id: &str) -> Result<MaterializedState> {
     load_state_from_path(&state_path(set_id)?)
 }
 
-fn load_manifest_from_path(path: &Path) -> Result<CuratedTestSet> {
+fn load_manifest_file_from_path(path: &Path) -> Result<CuratedTestSet> {
     let raw = fs::read_to_string(path)?;
-    serde_json::from_str(&raw).map_err(AppError::from)
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("toml") => toml::from_str(&raw).map_err(AppError::from),
+        _ => serde_json::from_str(&raw).map_err(AppError::from),
+    }
 }
 
 fn load_state_from_path(path: &Path) -> Result<MaterializedState> {
@@ -177,6 +184,48 @@ mod tests {
         assert_eq!(manifest.papers.len(), 1);
         assert_eq!(manifest.papers[0].paper_id, "arxiv-1234.5678");
         assert_eq!(manifest.papers[0].byte_size, Some(12));
+    }
+
+    #[test]
+    fn loads_manifest_toml() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("manifest.toml");
+        fs::write(
+            &path,
+            r#"
+id = "demo"
+description = "Demo set"
+source_dataset = "OpenMOSS-Team/SciJudgeBench"
+generated_at_ms = 1
+
+[selection_policy]
+top_n_per_category = 5
+bottom_n_per_category = 5
+random_n_per_category = 5
+random_seed = 1511510650
+per_subcategory_cap = 2
+
+[[papers]]
+paper_id = "arxiv-1234.5678"
+arxiv_id = "1234.5678"
+title = "Example"
+category = "CS"
+subcategory = "cs.AI"
+citations = 10
+date = "2024-01-01"
+abstract_excerpt = "Excerpt"
+selection_bucket = "top"
+paper_url = "https://arxiv.org/abs/1234.5678"
+pdf_url = "https://arxiv.org/pdf/1234.5678.pdf"
+source_splits = ["train"]
+"#,
+        )
+        .expect("write manifest");
+
+        let manifest: CuratedTestSet = load_manifest_from_path(&path).expect("load manifest");
+        assert_eq!(manifest.set_id, "demo");
+        assert_eq!(manifest.papers.len(), 1);
+        assert_eq!(manifest.papers[0].subcategory, "cs.AI");
     }
 
     #[test]

@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+async-trait.workspace = true
+directories.workspace = true
 duckdb.workspace = true
 serde_json.workspace = true
-syp-core = { path = "../syp-core" }
 thiserror.workspace = true
 
 [dev-dependencies]
-async-trait.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

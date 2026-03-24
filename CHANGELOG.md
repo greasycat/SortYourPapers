@@ -1,2 +1,3 @@
+- Add an embedding-guided taxonomy path backed by DuckDB reference indexing, nearest-label retrieval, dedicated embedding config, and the new `syp reference index` command.
 - Add a shared `dev.toml` test-set cache root so Python materialization and Rust manifest/state readers use the same repo-relative PDF and metadata cache.
 - Remove legacy `assets/papers/` sample PDFs now that curated test-set artifacts and shared cache-backed materialization cover the dataset workflow.

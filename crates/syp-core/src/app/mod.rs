@@ -14,6 +14,7 @@ use crate::{
     papers::extract::{extract_text_batch, reset_debug_extract_log},
     papers::placement::PlacementDecision,
     papers::taxonomy::CategoryTree,
+    papers::taxonomy::index_reference_manifest as build_reference_index_report,
     papers::{
         KeywordSet, KeywordStageState, PaperText, PdfCandidate, PreliminaryCategoryPair,
         SynthesizeCategoriesState,
@@ -52,6 +53,26 @@ pub async fn run(config: AppConfig) -> Result<RunReport> {
         ),
     );
     run_with_workspace(config, &mut workspace).await
+}
+
+pub async fn index_reference_manifest(
+    config: AppConfig,
+    manifest_path: Option<PathBuf>,
+    force: bool,
+) -> Result<()> {
+    let config = absolutize_config(config)?;
+    let verbosity = Verbosity::new(config.verbose, config.debug, config.quiet);
+    let report = build_reference_index_report(&config, manifest_path, force, verbosity).await?;
+    println!(
+        "{} reference index for {} using {}:{} at {} ({} paper(s))",
+        if report.skipped { "Reused" } else { "Updated" },
+        report.set_id,
+        report.provider,
+        report.model,
+        report.db_path.display(),
+        report.papers_indexed
+    );
+    Ok(())
 }
 
 pub async fn run_debug_tui(config: AppConfig) -> Result<RunReport> {
@@ -199,6 +220,7 @@ fn seed_debug_stages(workspace: &mut RunWorkspace, config: &AppConfig) -> Result
         &SynthesizeCategoriesState {
             categories: categories.clone(),
             partial_categories: vec![categories.clone()],
+            reference_evidence: None,
         },
     )?;
     workspace.save_stage(RunStage::GeneratePlacements, &placements)?;
@@ -519,7 +541,7 @@ mod tests {
         config::AppConfig,
         llm::LlmProvider,
         papers::placement::PlacementMode,
-        papers::taxonomy::{CategoryTree, TaxonomyMode},
+        papers::taxonomy::{CategoryTree, TaxonomyAssistance, TaxonomyMode},
         session::{RunStage, RunWorkspace},
         terminal::{
             AlertSeverity, InspectReviewPrompt, InspectReviewRequest, TerminalBackend, Verbosity,
@@ -540,7 +562,10 @@ mod tests {
             pdf_extract_workers: 2,
             category_depth: 2,
             taxonomy_mode: TaxonomyMode::BatchMerge,
+            taxonomy_assistance: TaxonomyAssistance::LlmOnly,
             taxonomy_batch_size: 2,
+            reference_manifest_path: dir.path().join("references.toml"),
+            reference_top_k: 5,
             use_current_folder_tree: false,
             placement_batch_size: 2,
             placement_mode: PlacementMode::AllowNew,
@@ -550,6 +575,10 @@ mod tests {
             llm_model: "debug-model".to_string(),
             llm_base_url: None,
             api_key: None,
+            embedding_provider: LlmProvider::Gemini,
+            embedding_model: "text-embedding-004".to_string(),
+            embedding_base_url: None,
+            embedding_api_key: None,
             keyword_batch_size: 2,
             batch_start_delay_ms: 0,
             subcategories_suggestion_number: 4,

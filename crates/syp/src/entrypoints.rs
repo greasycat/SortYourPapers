@@ -4,7 +4,7 @@ use syp_core::{
     session,
 };
 
-use crate::{Cli, Commands, SessionCommands};
+use crate::{Cli, Commands, ReferenceCommands, SessionCommands};
 
 /// Dispatches the existing clap-based CLI surface.
 ///
@@ -18,6 +18,12 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                 println!("Wrote default config to {}", path.display());
             }
             Commands::ExtractText(args) => app::run_extract_text(args.into_request()).await?,
+            Commands::Reference(args) => match args.command {
+                ReferenceCommands::Index(args) => {
+                    let config = config::resolve_config(Default::default())?;
+                    app::index_reference_manifest(config, args.manifest, args.force).await?;
+                }
+            },
             Commands::Session(args) => match args.command {
                 SessionCommands::Resume(args) => {
                     session::resume_run(args.run_id, args.apply, args.verbosity, args.quiet)

@@ -46,6 +46,7 @@ pub(super) async fn inspect_output_stage(
     let review_category_depth = config.category_depth;
     let review_subcategories_suggestion_number = config.subcategories_suggestion_number;
     let review_existing_output_folders = existing_output_folders_for_taxonomy_merge(config)?;
+    let review_reference_evidence = taxonomy_state.reference_evidence.clone();
 
     inspect_output_stage_with_interaction(
         taxonomy_state,
@@ -61,6 +62,7 @@ pub(super) async fn inspect_output_stage(
             let review_client = review_client.clone();
             let improvement_source = vec![current_categories.to_vec()];
             let review_existing_output_folders = review_existing_output_folders.clone();
+            let review_reference_evidence = review_reference_evidence.clone();
             Box::pin(async move {
                 merge_category_batches(
                     review_client
@@ -72,6 +74,7 @@ pub(super) async fn inspect_output_stage(
                     review_subcategories_suggestion_number,
                     Some(suggestion),
                     review_existing_output_folders.as_deref(),
+                    review_reference_evidence.as_ref(),
                     merge_verbosity,
                 )
                 .await
@@ -380,7 +383,7 @@ mod tests {
         llm::{LlmProvider, LlmUsageSummary},
         papers::SynthesizeCategoriesState,
         papers::placement::PlacementMode,
-        papers::taxonomy::{CategoryTree, TaxonomyMode},
+        papers::taxonomy::{CategoryTree, TaxonomyAssistance, TaxonomyMode},
         report::RunReport,
         session::{RunStage, RunWorkspace, runtime::StagePlan},
         terminal::InspectReviewPrompt,
@@ -567,7 +570,10 @@ mod tests {
             pdf_extract_workers: 8,
             category_depth: 2,
             taxonomy_mode: TaxonomyMode::BatchMerge,
+            taxonomy_assistance: TaxonomyAssistance::LlmOnly,
             taxonomy_batch_size: 4,
+            reference_manifest_path: PathBuf::from("assets/testsets/scijudgebench-diverse.toml"),
+            reference_top_k: 5,
             use_current_folder_tree: false,
             placement_batch_size: 10,
             placement_mode: PlacementMode::ExistingOnly,
@@ -577,6 +583,10 @@ mod tests {
             llm_model: "gemini-3-flash-preview".to_string(),
             llm_base_url: None,
             api_key: None,
+            embedding_provider: LlmProvider::Gemini,
+            embedding_model: "text-embedding-004".to_string(),
+            embedding_base_url: None,
+            embedding_api_key: None,
             keyword_batch_size: 20,
             batch_start_delay_ms: 100,
             subcategories_suggestion_number: 5,
@@ -597,6 +607,7 @@ mod tests {
         SynthesizeCategoriesState {
             categories: categories.clone(),
             partial_categories: vec![categories],
+            reference_evidence: None,
         }
     }
 

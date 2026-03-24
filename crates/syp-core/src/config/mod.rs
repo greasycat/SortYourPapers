@@ -8,8 +8,11 @@ mod tests;
 use std::{env, path::PathBuf, process::Command};
 
 use crate::{
-    error::Result, inputs::RunOverrides, llm::LlmProvider, papers::placement::PlacementMode,
-    papers::taxonomy::TaxonomyMode,
+    error::Result,
+    inputs::RunOverrides,
+    llm::LlmProvider,
+    papers::placement::PlacementMode,
+    papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +26,10 @@ pub struct AppConfig {
     pub pdf_extract_workers: usize,
     pub category_depth: u8,
     pub taxonomy_mode: TaxonomyMode,
+    pub taxonomy_assistance: TaxonomyAssistance,
     pub taxonomy_batch_size: usize,
+    pub reference_manifest_path: PathBuf,
+    pub reference_top_k: usize,
     pub use_current_folder_tree: bool,
     pub placement_batch_size: usize,
     pub placement_mode: PlacementMode,
@@ -33,6 +39,10 @@ pub struct AppConfig {
     pub llm_model: String,
     pub llm_base_url: Option<String>,
     pub api_key: Option<ApiKeySource>,
+    pub embedding_provider: LlmProvider,
+    pub embedding_model: String,
+    pub embedding_base_url: Option<String>,
+    pub embedding_api_key: Option<ApiKeySource>,
     pub keyword_batch_size: usize,
     pub batch_start_delay_ms: u64,
     pub subcategories_suggestion_number: usize,
@@ -66,6 +76,13 @@ impl AppConfig {
     pub fn resolved_api_key(&self) -> Result<Option<String>> {
         self.api_key.as_ref().map(ApiKeySource::resolve).transpose()
     }
+
+    pub fn resolved_embedding_api_key(&self) -> Result<Option<String>> {
+        self.embedding_api_key
+            .as_ref()
+            .map(ApiKeySource::resolve)
+            .transpose()
+    }
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -78,7 +95,10 @@ struct FileConfig {
     pdf_extract_workers: Option<usize>,
     category_depth: Option<u8>,
     taxonomy_mode: Option<TaxonomyMode>,
+    taxonomy_assistance: Option<TaxonomyAssistance>,
     taxonomy_batch_size: Option<usize>,
+    reference_manifest_path: Option<PathBuf>,
+    reference_top_k: Option<usize>,
     use_current_folder_tree: Option<bool>,
     placement_batch_size: Option<usize>,
     placement_mode: Option<PlacementMode>,
@@ -87,6 +107,10 @@ struct FileConfig {
     llm_model: Option<String>,
     llm_base_url: Option<String>,
     api_key: Option<ApiKeySource>,
+    embedding_provider: Option<LlmProvider>,
+    embedding_model: Option<String>,
+    embedding_base_url: Option<String>,
+    embedding_api_key: Option<ApiKeySource>,
     keyword_batch_size: Option<usize>,
     batch_start_delay_ms: Option<u64>,
     subcategories_suggestion_number: Option<usize>,
@@ -102,7 +126,10 @@ struct EnvConfig {
     pdf_extract_workers: Option<usize>,
     category_depth: Option<u8>,
     taxonomy_mode: Option<TaxonomyMode>,
+    taxonomy_assistance: Option<TaxonomyAssistance>,
     taxonomy_batch_size: Option<usize>,
+    reference_manifest_path: Option<PathBuf>,
+    reference_top_k: Option<usize>,
     use_current_folder_tree: Option<bool>,
     placement_batch_size: Option<usize>,
     placement_mode: Option<PlacementMode>,
@@ -111,6 +138,10 @@ struct EnvConfig {
     llm_model: Option<String>,
     llm_base_url: Option<String>,
     api_key: Option<ApiKeySource>,
+    embedding_provider: Option<LlmProvider>,
+    embedding_model: Option<String>,
+    embedding_base_url: Option<String>,
+    embedding_api_key: Option<ApiKeySource>,
     keyword_batch_size: Option<usize>,
     batch_start_delay_ms: Option<u64>,
     subcategories_suggestion_number: Option<usize>,

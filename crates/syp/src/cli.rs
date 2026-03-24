@@ -7,7 +7,7 @@ use syp_core::{
     llm::LlmProvider,
     papers::extract::ExtractorMode,
     papers::placement::PlacementMode,
-    papers::taxonomy::TaxonomyMode,
+    papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
     session::RunStage,
 };
 
@@ -25,6 +25,7 @@ pub struct Cli {
 pub enum Commands {
     Init(InitArgs),
     ExtractText(ExtractTextArgs),
+    Reference(ReferenceArgs),
     Session(SessionArgs),
 }
 
@@ -56,6 +57,26 @@ pub struct ExtractTextArgs {
 pub struct SessionArgs {
     #[command(subcommand)]
     pub command: SessionCommands,
+}
+
+#[derive(Debug, Args)]
+pub struct ReferenceArgs {
+    #[command(subcommand)]
+    pub command: ReferenceCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ReferenceCommands {
+    Index(ReferenceIndexArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ReferenceIndexArgs {
+    #[arg(long)]
+    pub manifest: Option<PathBuf>,
+
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub force: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -140,7 +161,16 @@ pub struct CliArgs {
     pub taxonomy_mode: Option<TaxonomyMode>,
 
     #[arg(long)]
+    pub taxonomy_assistance: Option<TaxonomyAssistance>,
+
+    #[arg(long)]
     pub taxonomy_batch_size: Option<usize>,
+
+    #[arg(long)]
+    pub reference_manifest_path: Option<PathBuf>,
+
+    #[arg(long)]
+    pub reference_top_k: Option<usize>,
 
     #[arg(long, num_args = 0..=1, default_missing_value = "true")]
     pub use_current_folder_tree: Option<bool>,
@@ -176,6 +206,24 @@ pub struct CliArgs {
     pub api_key_env: Option<String>,
 
     #[arg(long)]
+    pub embedding_provider: Option<LlmProvider>,
+
+    #[arg(long)]
+    pub embedding_model: Option<String>,
+
+    #[arg(long)]
+    pub embedding_base_url: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["embedding_api_key_command", "embedding_api_key_env"])]
+    pub embedding_api_key: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["embedding_api_key", "embedding_api_key_env"])]
+    pub embedding_api_key_command: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["embedding_api_key", "embedding_api_key_command"])]
+    pub embedding_api_key_env: Option<String>,
+
+    #[arg(long)]
     pub keyword_batch_size: Option<usize>,
 
     #[arg(long)]
@@ -199,7 +247,10 @@ impl CliArgs {
             pdf_extract_workers: self.pdf_extract_workers,
             category_depth: self.category_depth,
             taxonomy_mode: self.taxonomy_mode,
+            taxonomy_assistance: self.taxonomy_assistance,
             taxonomy_batch_size: self.taxonomy_batch_size,
+            reference_manifest_path: self.reference_manifest_path,
+            reference_top_k: self.reference_top_k,
             use_current_folder_tree: self.use_current_folder_tree,
             placement_batch_size: self.placement_batch_size,
             placement_mode: self.placement_mode,
@@ -211,6 +262,12 @@ impl CliArgs {
             api_key: self.api_key,
             api_key_command: self.api_key_command,
             api_key_env: self.api_key_env,
+            embedding_provider: self.embedding_provider,
+            embedding_model: self.embedding_model,
+            embedding_base_url: self.embedding_base_url,
+            embedding_api_key: self.embedding_api_key,
+            embedding_api_key_command: self.embedding_api_key_command,
+            embedding_api_key_env: self.embedding_api_key_env,
             keyword_batch_size: self.keyword_batch_size,
             subcategories_suggestion_number: self.subcategories_suggestion_number,
             verbosity: self.verbosity,
@@ -235,7 +292,7 @@ impl ExtractTextArgs {
 mod tests {
     use clap::Parser;
 
-    use super::{Cli, Commands, SessionCommands};
+    use super::{Cli, Commands, ReferenceCommands, SessionCommands};
     use syp_core::{papers::extract::ExtractorMode, session::RunStage};
 
     #[test]
@@ -261,6 +318,31 @@ mod tests {
                 assert_eq!(args.files.len(), 2);
             }
             _ => panic!("expected extract-text command"),
+        }
+    }
+
+    #[test]
+    fn parses_reference_index_subcommand() {
+        let cli = Cli::parse_from([
+            "syp",
+            "reference",
+            "index",
+            "--manifest",
+            "assets/testsets/scijudgebench-diverse.toml",
+            "--force",
+        ]);
+
+        match cli.command {
+            Some(Commands::Reference(args)) => match args.command {
+                ReferenceCommands::Index(index) => {
+                    assert_eq!(
+                        index.manifest,
+                        Some("assets/testsets/scijudgebench-diverse.toml".into())
+                    );
+                    assert!(index.force);
+                }
+            },
+            other => panic!("expected reference index command, got {other:?}"),
         }
     }
 
