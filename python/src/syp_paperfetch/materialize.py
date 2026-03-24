@@ -59,7 +59,6 @@ def materialize_test_set(
             CuratedPaper(
                 paper_id=paper.paper_id,
                 arxiv_id=paper.arxiv_id,
-                canonical_pdf_url=paper.canonical_pdf_url,
                 title=paper.title,
                 category=paper.category,
                 subcategory=paper.subcategory,
@@ -67,6 +66,9 @@ def materialize_test_set(
                 date=paper.date,
                 abstract_excerpt=paper.abstract_excerpt,
                 selection_bucket=paper.selection_bucket,
+                paper_url=paper.paper_url,
+                pdf_url=paper.pdf_url,
+                source_splits=list(paper.source_splits),
                 sha256=paper.sha256,
                 byte_size=paper.byte_size,
             )
@@ -83,7 +85,7 @@ def materialize_test_set(
             paper.byte_size = entry.byte_size
             state[paper.paper_id] = {
                 "arxiv_id": paper.arxiv_id,
-                "source_url": paper.canonical_pdf_url,
+                "source_url": paper.pdf_url,
                 "sha256": entry.sha256,
                 "byte_size": entry.byte_size,
                 "verified_at_ms": int(time.time() * 1000),
@@ -91,6 +93,7 @@ def materialize_test_set(
 
     state_path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
     save_test_set(set_dir / "manifest.toml", manifest_copy)
+    save_test_set(set_dir / "manifest.json", manifest_copy)
 
     return MaterializeReport(set_id=test_set.set_id, cache_dir=set_dir, papers=materialized)
 
@@ -125,14 +128,14 @@ def _materialize_one(
             return MaterializedPaper(
                 paper_id=paper.paper_id,
                 arxiv_id=paper.arxiv_id,
-                source_url=paper.canonical_pdf_url,
+                source_url=paper.pdf_url,
                 path=target,
                 sha256=current_hash,
                 byte_size=target.stat().st_size,
                 downloaded=False,
             )
 
-    response = client.get(paper.canonical_pdf_url)
+    response = client.get(paper.pdf_url)
     response.raise_for_status()
     target.write_bytes(response.content)
     current_hash = sha256_file(target)
@@ -141,7 +144,7 @@ def _materialize_one(
     return MaterializedPaper(
         paper_id=paper.paper_id,
         arxiv_id=paper.arxiv_id,
-        source_url=paper.canonical_pdf_url,
+        source_url=paper.pdf_url,
         path=target,
         sha256=current_hash,
         byte_size=target.stat().st_size,

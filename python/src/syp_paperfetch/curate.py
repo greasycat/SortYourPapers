@@ -149,7 +149,6 @@ def _to_curated_paper(candidate: Candidate, bucket: SelectionBucket) -> CuratedP
     return CuratedPaper(
         paper_id=f"arxiv-{candidate.arxiv_id.replace('/', '-')}",
         arxiv_id=candidate.arxiv_id,
-        canonical_pdf_url=f"https://arxiv.org/pdf/{candidate.arxiv_id}.pdf",
         title=candidate.title,
         category=candidate.category or "uncategorized",
         subcategory=candidate.subcategory or "uncategorized",
@@ -157,6 +156,9 @@ def _to_curated_paper(candidate: Candidate, bucket: SelectionBucket) -> CuratedP
         date=candidate.date,
         abstract_excerpt=_excerpt(candidate.abstract_text, 320),
         selection_bucket=bucket,
+        paper_url=f"https://arxiv.org/abs/{candidate.arxiv_id}",
+        pdf_url=f"https://arxiv.org/pdf/{candidate.arxiv_id}.pdf",
+        source_splits=sorted(candidate.source_splits),
     )
 
 

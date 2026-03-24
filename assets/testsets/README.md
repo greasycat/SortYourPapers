@@ -1,10 +1,11 @@
 # Test Sets
 
-Curated paper test sets live here as TOML manifests.
+Curated paper test sets live here as committed TOML and JSON artifacts.
 
-- Commit manifests only.
+- Commit metadata artifacts only.
 - Materialized PDFs are downloaded on demand into the XDG cache tree.
 - The maintainer workflow lives under `python/` and is run via `uv`.
+- `scijudgebench-diverse.{toml,json}` is built from SciJudgeBench using a `5 top + 5 bottom + 5 deterministic random` policy per category.
+- Every sample stores paper metadata plus both the arXiv abstract URL and direct PDF URL.
+- `uv run --project python paperfetch build-manifest --output assets/testsets/scijudgebench-diverse.toml` refreshes both committed artifacts.
 - `uv run --project python paperfetch materialize assets/testsets/scijudgebench-diverse.toml` downloads the referenced arXiv PDFs into the cache.
-
-The initial scaffold manifest is `scijudgebench-diverse.toml`.

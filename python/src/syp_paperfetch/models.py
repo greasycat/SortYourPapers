@@ -38,7 +38,6 @@ class SamplingPolicy:
 class CuratedPaper:
     paper_id: str
     arxiv_id: str
-    canonical_pdf_url: str
     title: str
     category: str
     subcategory: str
@@ -46,13 +45,16 @@ class CuratedPaper:
     date: str | None
     abstract_excerpt: str
     selection_bucket: SelectionBucket
+    paper_url: str
+    pdf_url: str
+    source_splits: list[str] = field(default_factory=list)
     sha256: str | None = None
     byte_size: int | None = None
 
     def as_dict(self) -> dict[str, object]:
         raw = asdict(self)
         raw["selection_bucket"] = self.selection_bucket.value
-        return raw
+        return {key: value for key, value in raw.items() if value is not None}
 
 
 @dataclass(slots=True)

@@ -184,11 +184,12 @@ If a run resumes after taxonomy synthesis but before placement generation, the m
 Use `session resume --quiet` if you only want the exit status without the progress stream or final summary.
 
 ## Test Sets
-- `assets/testsets/` stores committed TOML manifests for curated paper sets.
-- `uv run --project python paperfetch build-manifest` reads SciJudgeBench metadata from Hugging Face Hub, samples top/bottom/random citation papers per category, and writes a manifest.
+- `assets/testsets/` stores committed TOML and JSON metadata artifacts for curated paper sets.
+- `uv run --project python paperfetch build-manifest` reads SciJudgeBench metadata from Hugging Face Hub, samples top/bottom/random citation papers per category, and writes matching TOML and JSON artifacts.
 - `uv run --project python paperfetch materialize assets/testsets/scijudgebench-diverse.toml` downloads the selected arXiv PDFs into `$XDG_CACHE_HOME/sortyourpapers/testsets/`.
 - `uv run --project python paperfetch export assets/testsets/scijudgebench-diverse.toml ./tmp/scijudgebench` copies the cached PDFs into a local directory for runs or manual inspection.
-- The starter scaffold manifest is `assets/testsets/scijudgebench-diverse.toml`.
+- Each curated sample stores paper metadata, the arXiv abstract page URL, and the direct PDF URL.
+- The checked-in `scijudgebench-diverse` artifact uses a `5 top + 5 bottom + 5 deterministic random` policy per category.
 
 ## Environment Variables
 - `SYP_INPUT`

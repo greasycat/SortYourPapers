@@ -18,7 +18,7 @@ def build_manifest(
     output: Path = typer.Option(
         Path("assets/testsets/scijudgebench-diverse.toml"),
         "--output",
-        help="Manifest path to write.",
+        help="Base manifest path to write. Writes both .toml and .json artifacts.",
     ),
     top_n: int = typer.Option(5, "--top-n"),
     bottom_n: int = typer.Option(5, "--bottom-n"),
@@ -40,8 +40,10 @@ def build_manifest(
             per_subcategory_cap=per_subcategory_cap,
         ),
     )
-    save_test_set(output, test_set)
-    typer.echo(f"Wrote manifest to {output}")
+    toml_path, json_path = _artifact_paths(output)
+    save_test_set(toml_path, test_set)
+    save_test_set(json_path, test_set)
+    typer.echo(f"Wrote manifests to {toml_path} and {json_path}")
 
 
 @app.command("materialize")
@@ -70,6 +72,11 @@ def export(
 
 def main() -> None:
     app()
+
+
+def _artifact_paths(output: Path) -> tuple[Path, Path]:
+    base = output.with_suffix("") if output.suffix.lower() in {".toml", ".json"} else output
+    return base.with_suffix(".toml"), base.with_suffix(".json")
 
 
 if __name__ == "__main__":

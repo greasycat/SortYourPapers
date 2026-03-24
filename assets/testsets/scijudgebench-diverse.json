@@ -1,0 +1,975 @@
+{
+  "description": "Curated SciJudgeBench arXiv test set with top, bottom, and deterministic random citation samples per category.",
+  "generated_at_ms": 1774373082781,
+  "id": "scijudgebench-diverse",
+  "papers": [
+    {
+      "abstract_excerpt": "We introduce Adam, an algorithm for first-order gradient-based optimization\nof stochastic objective functions, based on adaptive estimates of lower-order\nmoments. The method is straightforward to implement, is computationally\nefficient, has little memory requirements, is invariant to diagonal rescaling\nof the gradient\u2026",
+      "arxiv_id": "1412.6980",
+      "category": "Computer Science",
+      "citations": 67241,
+      "date": "2014-12-22",
+      "paper_id": "arxiv-1412.6980",
+      "paper_url": "https://arxiv.org/abs/1412.6980",
+      "pdf_url": "https://arxiv.org/pdf/1412.6980.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.LG",
+      "title": "Adam: A Method for Stochastic Optimization"
+    },
+    {
+      "abstract_excerpt": "In this work we investigate the effect of the convolutional network depth on\nits accuracy in the large-scale image recognition setting. Our main\ncontribution is a thorough evaluation of networks of increasing depth using an\narchitecture with very small (3x3) convolution filters, which shows that a\nsignificant improvem\u2026",
+      "arxiv_id": "1409.1556",
+      "category": "Computer Science",
+      "citations": 32074,
+      "date": "2014-09-04",
+      "paper_id": "arxiv-1409.1556",
+      "paper_url": "https://arxiv.org/abs/1409.1556",
+      "pdf_url": "https://arxiv.org/pdf/1409.1556.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "test"
+      ],
+      "subcategory": "cs.CV",
+      "title": "Very Deep Convolutional Networks for Large-Scale Image Recognition"
+    },
+    {
+      "abstract_excerpt": "Deeper neural networks are more difficult to train. We present a residual\nlearning framework to ease the training of networks that are substantially\ndeeper than those used previously. We explicitly reformulate the layers as\nlearning residual functions with reference to the layer inputs, instead of\nlearning unreference\u2026",
+      "arxiv_id": "1512.03385",
+      "category": "Computer Science",
+      "citations": 28207,
+      "date": "2015-12-10",
+      "paper_id": "arxiv-1512.03385",
+      "paper_url": "https://arxiv.org/abs/1512.03385",
+      "pdf_url": "https://arxiv.org/pdf/1512.03385.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.CV",
+      "title": "Deep Residual Learning for Image Recognition"
+    },
+    {
+      "abstract_excerpt": "We introduce a new language representation model called BERT, which stands\nfor Bidirectional Encoder Representations from Transformers. Unlike recent\nlanguage representation models, BERT is designed to pre-train deep\nbidirectional representations from unlabeled text by jointly conditioning on\nboth left and right conte\u2026",
+      "arxiv_id": "1810.04805",
+      "category": "Computer Science",
+      "citations": 24224,
+      "date": "2018-10-11",
+      "paper_id": "arxiv-1810.04805",
+      "paper_url": "https://arxiv.org/abs/1810.04805",
+      "pdf_url": "https://arxiv.org/pdf/1810.04805.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.CL",
+      "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language\n  Understanding"
+    },
+    {
+      "abstract_excerpt": "While the Transformer architecture has become the de-facto standard for\nnatural language processing tasks, its applications to computer vision remain\nlimited. In vision, attention is either applied in conjunction with\nconvolutional networks, or used to replace certain components of convolutional\nnetworks while keeping\u2026",
+      "arxiv_id": "2010.11929",
+      "category": "Computer Science",
+      "citations": 22691,
+      "date": "2020-10-22",
+      "paper_id": "arxiv-2010.11929",
+      "paper_url": "https://arxiv.org/abs/2010.11929",
+      "pdf_url": "https://arxiv.org/pdf/2010.11929.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.CV cs.AI cs.LG",
+      "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at\n  Scale"
+    },
+    {
+      "abstract_excerpt": "The paper presents a language model that develops syntactic structure and\nuses it to extract meaningful information from the word history, thus enabling\nthe use of long distance dependencies. The model assigns probability to every\njoint sequence of words--binary-parse-structure with headword annotation and\noperates in\u2026",
+      "arxiv_id": "cs/9811022",
+      "category": "Computer Science",
+      "citations": 0,
+      "date": "1998-11-12",
+      "paper_id": "arxiv-cs-9811022",
+      "paper_url": "https://arxiv.org/abs/cs/9811022",
+      "pdf_url": "https://arxiv.org/pdf/cs/9811022.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.CL",
+      "title": "Expoiting Syntactic Structure for Language Modeling"
+    },
+    {
+      "abstract_excerpt": "A COllective INtelligence (COIN) is a set of interacting reinforcement\nlearning (RL) algorithms designed in an automated fashion so that their\ncollective behavior optimizes a global utility function. We summarize the\ntheory of COINs, then present experiments using that theory to design COINs to\ncontrol internet traffi\u2026",
+      "arxiv_id": "cs/9905004",
+      "category": "Computer Science",
+      "citations": 0,
+      "date": "1999-05-10",
+      "paper_id": "arxiv-cs-9905004",
+      "paper_url": "https://arxiv.org/abs/cs/9905004",
+      "pdf_url": "https://arxiv.org/pdf/cs/9905004.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.LG adap-org cond-mat.stat-mech cs.DC cs.NI nlin.AO",
+      "title": "Using Collective Intelligence to Route Internet Traffic"
+    },
+    {
+      "abstract_excerpt": "This paper addresses a novel task of detecting sub-topic correspondence in a\npair of text fragments, enhancing common notions of text similarity. This task\nis addressed by coupling corresponding term subsets through bipartite\nclustering. The paper presents a cost-based clustering scheme and compares it\nwith a bipartit\u2026",
+      "arxiv_id": "cs/9908001",
+      "category": "Computer Science",
+      "citations": 0,
+      "date": "1999-08-01",
+      "paper_id": "arxiv-cs-9908001",
+      "paper_url": "https://arxiv.org/abs/cs/9908001",
+      "pdf_url": "https://arxiv.org/pdf/cs/9908001.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.CL",
+      "title": "Detecting Sub-Topic Correspondence through Bipartite Term Clustering"
+    },
+    {
+      "abstract_excerpt": "In tree search problem the best-first search algorithm needs too much of\nspace . To remove such drawbacks of these algorithms the IDA* was developed\nwhich is both space and time cost efficient. But again IDA* can give an optimal\nsolution for real valued problems like Flow shop scheduling, Travelling\nSalesman and 0/1 K\u2026",
+      "arxiv_id": "cs/9909003",
+      "category": "Computer Science",
+      "citations": 0,
+      "date": "1999-09-03",
+      "paper_id": "arxiv-cs-9909003",
+      "paper_url": "https://arxiv.org/abs/cs/9909003",
+      "pdf_url": "https://arxiv.org/pdf/cs/9909003.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.AI",
+      "title": "Iterative Deepening Branch and Bound"
+    },
+    {
+      "abstract_excerpt": "We introduce 2-way finite automata with quantum and classical states\n(2qcfa's). This is a variant on the 2-way quantum finite automata (2qfa) model\nwhich may be simpler to implement than unrestricted 2qfa's; the internal state\nof a 2qcfa may include a quantum part that may be in a (mixed) quantum state,\nbut the tape h\u2026",
+      "arxiv_id": "cs/9911009",
+      "category": "Computer Science",
+      "citations": 0,
+      "date": "1999-11-16",
+      "paper_id": "arxiv-cs-9911009",
+      "paper_url": "https://arxiv.org/abs/cs/9911009",
+      "pdf_url": "https://arxiv.org/pdf/cs/9911009.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.CC quant-ph",
+      "title": "Two-way finite automata with quantum and classical states"
+    },
+    {
+      "abstract_excerpt": "Communication and privacy are two critical concerns in distributed learning.\nMany existing works treat these concerns separately. In this work, we argue\nthat a natural connection exists between methods for communication reduction\nand privacy preservation in the context of distributed machine learning. In\nparticular, w\u2026",
+      "arxiv_id": "1911.00972",
+      "category": "Computer Science",
+      "citations": 34,
+      "date": "2019-11-03",
+      "paper_id": "arxiv-1911.00972",
+      "paper_url": "https://arxiv.org/abs/1911.00972",
+      "pdf_url": "https://arxiv.org/pdf/1911.00972.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.LG cs.CR stat.ML",
+      "title": "Privacy for Free: Communication-Efficient Learning with Differential\n  Privacy Using Sketches"
+    },
+    {
+      "abstract_excerpt": "Deep networks have recently enjoyed enormous success when applied to\nrecognition and classification problems in computer vision, but their use in\ngraphics problems has been limited. In this work, we present a novel deep\narchitecture that performs new view synthesis directly from pixels, trained\nfrom a large number of \u2026",
+      "arxiv_id": "1506.06825",
+      "category": "Computer Science",
+      "citations": 15,
+      "date": "2015-06-22",
+      "paper_id": "arxiv-1506.06825",
+      "paper_url": "https://arxiv.org/abs/1506.06825",
+      "pdf_url": "https://arxiv.org/pdf/1506.06825.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.CV",
+      "title": "DeepStereo: Learning to Predict New Views from the World's Imagery"
+    },
+    {
+      "abstract_excerpt": "In this work, we extend the existing framework of inelastic constitutive artificial neural networks (iCANNs) by incorporating plasticity to increase their applicability to model more complex material behavior. The proposed approach ensures objectivity, material symmetry, and thermodynamic consistency, providing a robu\u2026",
+      "arxiv_id": "2407.19326",
+      "category": "Computer Science",
+      "citations": 13,
+      "date": "2024-07-27",
+      "paper_id": "arxiv-2407.19326",
+      "paper_url": "https://arxiv.org/abs/2407.19326",
+      "pdf_url": "https://arxiv.org/pdf/2407.19326.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.LG",
+      "title": "Accounting for plasticity: An extension of inelastic Constitutive Artificial Neural Networks"
+    },
+    {
+      "abstract_excerpt": "Multi-spectral sensors consisting of a standard (visible-light) camera and a\nlong-wave infrared camera can simultaneously provide both visible and thermal\nimages. Since thermal images are independent from environmental illumination,\nthey can help to overcome certain limitations of standard cameras under\ncomplicated il\u2026",
+      "arxiv_id": "1908.08814",
+      "category": "Computer Science",
+      "citations": 0,
+      "date": "2019-08-23",
+      "paper_id": "arxiv-1908.08814",
+      "paper_url": "https://arxiv.org/abs/1908.08814",
+      "pdf_url": "https://arxiv.org/pdf/1908.08814.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.CV",
+      "title": "Multi-Spectral Visual Odometry without Explicit Stereo Matching"
+    },
+    {
+      "abstract_excerpt": "Nearly a decade of research in software engineering has focused on automating\nmobile app testing to help engineers in overcoming the unique challenges\nassociated with the software platform. Much of this work has come in the form\nof Automated Input Generation tools (AIG tools) that dynamically explore app\nscreens. Howe\u2026",
+      "arxiv_id": "2404.01240",
+      "category": "Computer Science",
+      "citations": 0,
+      "date": "2024-04-01",
+      "paper_id": "arxiv-2404.01240",
+      "paper_url": "https://arxiv.org/abs/2404.01240",
+      "pdf_url": "https://arxiv.org/pdf/2404.01240.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cs.SE cs.CL cs.CV cs.HC",
+      "title": "AURORA: Navigating UI Tarpits via Automated Neural Screen Understanding"
+    },
+    {
+      "abstract_excerpt": "The ability to discover physical laws and governing equations from data is\none of humankind's greatest intellectual achievements. A quantitative\nunderstanding of dynamic constraints and balances in nature has facilitated\nrapid development of knowledge and enabled advanced technological achievements,\nincluding aircraft\u2026",
+      "arxiv_id": "1509.03580",
+      "category": "Mathematics",
+      "citations": 2314,
+      "date": "2015-09-11",
+      "paper_id": "arxiv-1509.03580",
+      "paper_url": "https://arxiv.org/abs/1509.03580",
+      "pdf_url": "https://arxiv.org/pdf/1509.03580.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "test"
+      ],
+      "subcategory": "math.DS",
+      "title": "Discovering governing equations from data: Sparse identification of\n  nonlinear dynamical systems"
+    },
+    {
+      "abstract_excerpt": "We present a monotonic expression for the Ricci flow, valid in all dimensions\nand without curvature assumptions. It is interpreted as an entropy for a\ncertain canonical ensemble. Several geometric applications are given. In\nparticular, (1) Ricci flow, considered on the space of riemannian metrics\nmodulo diffeomorphism\u2026",
+      "arxiv_id": "math/0211159",
+      "category": "Mathematics",
+      "citations": 1748,
+      "date": "2002-11-11",
+      "paper_id": "arxiv-math-0211159",
+      "paper_url": "https://arxiv.org/abs/math/0211159",
+      "pdf_url": "https://arxiv.org/pdf/math/0211159.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "math.DG",
+      "title": "The entropy formula for the Ricci flow and its geometric applications"
+    },
+    {
+      "abstract_excerpt": "I prove that every finite-dimensional Poisson manifold X admits a canonical\ndeformation quantization. Informally, it means that the set of equivalence\nclasses of associative algebras close to the algebra of functions on X is in\none-to-one correspondence with the set of equivalence classes of Poisson\nstructures on X mo\u2026",
+      "arxiv_id": "q-alg/9709040",
+      "category": "Mathematics",
+      "citations": 1206,
+      "date": "1997-09-29",
+      "paper_id": "arxiv-q-alg-9709040",
+      "paper_url": "https://arxiv.org/abs/q-alg/9709040",
+      "pdf_url": "https://arxiv.org/pdf/q-alg/9709040.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-alg alg-geom hep-th math.AG math.QA",
+      "title": "Deformation quantization of Poisson manifolds, I"
+    },
+    {
+      "abstract_excerpt": "The Koopman operator is a linear but infinite dimensional operator that\ngoverns the evolution of scalar observables defined on the state space of an\nautonomous dynamical system, and is a powerful tool for the analysis and\ndecomposition of nonlinear dynamical systems. In this manuscript, we present a\ndata driven method\u2026",
+      "arxiv_id": "1408.4408",
+      "category": "Mathematics",
+      "citations": 1046,
+      "date": "2014-08-19",
+      "paper_id": "arxiv-1408.4408",
+      "paper_url": "https://arxiv.org/abs/1408.4408",
+      "pdf_url": "https://arxiv.org/pdf/1408.4408.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "math.DS",
+      "title": "A Data-Driven Approximation of the Koopman Operator: Extending Dynamic\n  Mode Decomposition"
+    },
+    {
+      "abstract_excerpt": "We study a family of \"classical\" orthogonal polynomials which satisfy (apart\nfrom a 3-term recurrence relation) an eigenvalue problem with a differential\noperator of Dunkl-type. These polynomials can be obtained from the little\n$q$-Jacobi polynomials in the limit $q=-1$. We also show that these polynomials\nprovide a n\u2026",
+      "arxiv_id": "1011.1669",
+      "category": "Mathematics",
+      "citations": 993,
+      "date": "2010-11-07",
+      "paper_id": "arxiv-1011.1669",
+      "paper_url": "https://arxiv.org/abs/1011.1669",
+      "pdf_url": "https://arxiv.org/pdf/1011.1669.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "test"
+      ],
+      "subcategory": "math.CA",
+      "title": "A \"missing\" family of classical orthogonal polynomials"
+    },
+    {
+      "abstract_excerpt": "We prove the formula for the traces of certain class of operators in bosonic\nand fermionic Fock spaces. Vertex operators belong to this class. Traces of\nvertex operators can be used for calculation of correlation functions and\nformfactors of integrable models (XXZ, Sine-Gordon, etc.), that is why we are\ninterested in \u2026",
+      "arxiv_id": "q-alg/9703017",
+      "category": "Mathematics",
+      "citations": 0,
+      "date": "1997-03-09",
+      "paper_id": "arxiv-q-alg-9703017",
+      "paper_url": "https://arxiv.org/abs/q-alg/9703017",
+      "pdf_url": "https://arxiv.org/pdf/q-alg/9703017.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-alg funct-an hep-th math.FA math.QA",
+      "title": "Traces of creation-annihilation operators and Fredholm's formulas"
+    },
+    {
+      "abstract_excerpt": "Coherence phenomena appear in two different situations. In the context of\ncategory theory the term `coherence constraints' refers to a set of diagrams\nwhose commutativity implies the commutativity of a larger class of diagrams. In\nthe context of algebra coherence constrains are a minimal set of generators for\nthe seco\u2026",
+      "arxiv_id": "q-alg/9712027",
+      "category": "Mathematics",
+      "citations": 0,
+      "date": "1997-12-10",
+      "paper_id": "arxiv-q-alg-9712027",
+      "paper_url": "https://arxiv.org/abs/q-alg/9712027",
+      "pdf_url": "https://arxiv.org/pdf/q-alg/9712027.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-alg hep-th math.QA",
+      "title": "Coherence Constraints for Operads, Categories and Algebras"
+    },
+    {
+      "abstract_excerpt": "In [H5] (q-alg/9512024) and [H7] (q-alg/9704008), the author introduced the\nnotion of intertwining operator algebra, a nonmeromorphic generalization of the\nnotion of vertex operator algebra involving monodromies. The problem of\nconstructing intertwining operator algebras from representations of suitable\nvertex operato\u2026",
+      "arxiv_id": "q-alg/9712039",
+      "category": "Mathematics",
+      "citations": 0,
+      "date": "1997-12-13",
+      "paper_id": "arxiv-q-alg-9712039",
+      "paper_url": "https://arxiv.org/abs/q-alg/9712039",
+      "pdf_url": "https://arxiv.org/pdf/q-alg/9712039.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-alg hep-th math.QA",
+      "title": "Genus-zero modular functors and intertwining operator algebras"
+    },
+    {
+      "abstract_excerpt": "We study an action of the skew divided difference operators on the Schubert\npolynomials and give an explicit formula for structural constants for the\nSchubert polynomials in terms of certain weighted paths in the Bruhat order on\nthe symmetric group. We also prove that, under certain assumptions, the skew\ndivided diffe\u2026",
+      "arxiv_id": "q-alg/9712053",
+      "category": "Mathematics",
+      "citations": 0,
+      "date": "1997-12-25",
+      "paper_id": "arxiv-q-alg-9712053",
+      "paper_url": "https://arxiv.org/abs/q-alg/9712053",
+      "pdf_url": "https://arxiv.org/pdf/q-alg/9712053.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-alg math.QA",
+      "title": "Skew divided difference operators and Schubert polynomials"
+    },
+    {
+      "abstract_excerpt": "We consider the quantized Knizhnik-Zamolodchikov-Bernard difference equation\n(qKZB) with step $p$ and values in a tensor product of finite dimensional\nevaluation modules over the elliptic quantum group $E_{\\tau,\\eta}(sl_2)$, the\nequation defined in terms of elliptic dynamical R-matrices. We solve the\nequation in terms\u2026",
+      "arxiv_id": "q-alg/9712056",
+      "category": "Mathematics",
+      "citations": 0,
+      "date": "1997-12-26",
+      "paper_id": "arxiv-q-alg-9712056",
+      "paper_url": "https://arxiv.org/abs/q-alg/9712056",
+      "pdf_url": "https://arxiv.org/pdf/q-alg/9712056.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-alg math.QA",
+      "title": "Solutions of the qKZB Equation in Tensor Products of finite dimensional\n  modules over the elliptic quantum group $E_{\\tau,\\eta}sl_2$"
+    },
+    {
+      "abstract_excerpt": "Can every physical system simulate any Turing machine? This is a classical\nproblem which is intimately connected with the undecidability of certain\nphysical phenomena. Concerning fluid flows, Moore asked in [15] if\nhydrodynamics is capable of performing computations. More recently, Tao\nlaunched a programme based on th\u2026",
+      "arxiv_id": "2012.12828",
+      "category": "Mathematics",
+      "citations": 15,
+      "date": "2020-12-23",
+      "paper_id": "arxiv-2012.12828",
+      "paper_url": "https://arxiv.org/abs/2012.12828",
+      "pdf_url": "https://arxiv.org/pdf/2012.12828.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "math.DS cs.CC math.AP math.SG",
+      "title": "Constructing Turing complete Euler flows in dimension $3$"
+    },
+    {
+      "abstract_excerpt": "In this paper we study the regularity of paths in terms of properties of\nadmissible nets. We show the right concentration inequality above the modulus\nof continuity. Using the approach we prove the Bernstein type inequality for\nthe empirical processes. Therefore we obtain the best form of concentration for\nprocesses s\u2026",
+      "arxiv_id": "1405.0676",
+      "category": "Mathematics",
+      "citations": 11,
+      "date": "2014-05-04",
+      "paper_id": "arxiv-1405.0676",
+      "paper_url": "https://arxiv.org/abs/1405.0676",
+      "pdf_url": "https://arxiv.org/pdf/1405.0676.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "math.PR",
+      "title": "Concentration via chaining method and its applications"
+    },
+    {
+      "abstract_excerpt": "We propose a novel measure of statistical depth, the metric spatial depth,\nfor data residing in an arbitrary metric space. The measure assigns high (low)\nvalues for points located near (far away from) the bulk of the data\ndistribution, allowing quantifying their centrality/outlyingness. This depth\nmeasure is shown to \u2026",
+      "arxiv_id": "2306.09740",
+      "category": "Mathematics",
+      "citations": 8,
+      "date": "2023-06-16",
+      "paper_id": "arxiv-2306.09740",
+      "paper_url": "https://arxiv.org/abs/2306.09740",
+      "pdf_url": "https://arxiv.org/pdf/2306.09740.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "math.ST stat.TH",
+      "title": "Spatial depth for data in metric spaces"
+    },
+    {
+      "abstract_excerpt": "We introduce a common generalization of the L-R-smash product and twisted\ntensor product of algebras, under the name L-R-twisted tensor product of\nalgebras. We investigate some properties of this new construction, for instance\nwe prove a result of the type \"invariance under twisting\" and we show that\nunder certain cir\u2026",
+      "arxiv_id": "1007.2372",
+      "category": "Mathematics",
+      "citations": 0,
+      "date": "2010-07-14",
+      "paper_id": "arxiv-1007.2372",
+      "paper_url": "https://arxiv.org/abs/1007.2372",
+      "pdf_url": "https://arxiv.org/pdf/1007.2372.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "math.QA",
+      "title": "L-R-smash products and L-R-twisted tensor products of algebras"
+    },
+    {
+      "abstract_excerpt": "We construct \\'etale generalized Heisenberg group covers of hyperelliptic\ncurves over number fields. We use these to produce infinite families of\nquadratic extensions of cyclotomic fields that admit everywhere unramified\ngeneralized Heisenberg Galois extensions.",
+      "arxiv_id": "1912.03019",
+      "category": "Mathematics",
+      "citations": 0,
+      "date": "2019-12-06",
+      "paper_id": "arxiv-1912.03019",
+      "paper_url": "https://arxiv.org/abs/1912.03019",
+      "pdf_url": "https://arxiv.org/pdf/1912.03019.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "math.NT",
+      "title": "Unramified Heisenberg group extensions of number fields"
+    },
+    {
+      "abstract_excerpt": "How can we perform efficient inference and learning in directed probabilistic\nmodels, in the presence of continuous latent variables with intractable\nposterior distributions, and large datasets? We introduce a stochastic\nvariational inference and learning algorithm that scales to large datasets and,\nunder some mild di\u2026",
+      "arxiv_id": "1312.6114",
+      "category": "Others",
+      "citations": 15147,
+      "date": "2013-12-20",
+      "paper_id": "arxiv-1312.6114",
+      "paper_url": "https://arxiv.org/abs/1312.6114",
+      "pdf_url": "https://arxiv.org/pdf/1312.6114.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "test"
+      ],
+      "subcategory": "stat.ML cs.LG",
+      "title": "Auto-Encoding Variational Bayes"
+    },
+    {
+      "abstract_excerpt": "A very simple way to improve the performance of almost any machine learning\nalgorithm is to train many different models on the same data and then to\naverage their predictions. Unfortunately, making predictions using a whole\nensemble of models is cumbersome and may be too computationally expensive to\nallow deployment t\u2026",
+      "arxiv_id": "1503.02531",
+      "category": "Others",
+      "citations": 11254,
+      "date": "2015-03-09",
+      "paper_id": "arxiv-1503.02531",
+      "paper_url": "https://arxiv.org/abs/1503.02531",
+      "pdf_url": "https://arxiv.org/pdf/1503.02531.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "stat.ML cs.LG cs.NE",
+      "title": "Distilling the Knowledge in a Neural Network"
+    },
+    {
+      "abstract_excerpt": "Training state-of-the-art, deep neural networks is computationally expensive.\nOne way to reduce the training time is to normalize the activities of the\nneurons. A recently introduced technique called batch normalization uses the\ndistribution of the summed input to a neuron over a mini-batch of training\ncases to comput\u2026",
+      "arxiv_id": "1607.06450",
+      "category": "Others",
+      "citations": 7989,
+      "date": "2016-07-21",
+      "paper_id": "arxiv-1607.06450",
+      "paper_url": "https://arxiv.org/abs/1607.06450",
+      "pdf_url": "https://arxiv.org/pdf/1607.06450.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "stat.ML cs.LG",
+      "title": "Layer Normalization"
+    },
+    {
+      "abstract_excerpt": "We present graph attention networks (GATs), novel neural network\narchitectures that operate on graph-structured data, leveraging masked\nself-attentional layers to address the shortcomings of prior methods based on\ngraph convolutions or their approximations. By stacking layers in which nodes\nare able to attend over the\u2026",
+      "arxiv_id": "1710.10903",
+      "category": "Others",
+      "citations": 5552,
+      "date": "2017-10-30",
+      "paper_id": "arxiv-1710.10903",
+      "paper_url": "https://arxiv.org/abs/1710.10903",
+      "pdf_url": "https://arxiv.org/pdf/1710.10903.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "test"
+      ],
+      "subcategory": "stat.ML cs.AI cs.LG cs.SI",
+      "title": "Graph Attention Networks"
+    },
+    {
+      "abstract_excerpt": "UMAP (Uniform Manifold Approximation and Projection) is a novel manifold\nlearning technique for dimension reduction. UMAP is constructed from a\ntheoretical framework based in Riemannian geometry and algebraic topology. The\nresult is a practical scalable algorithm that applies to real world data. The\nUMAP algorithm is \u2026",
+      "arxiv_id": "1802.03426",
+      "category": "Others",
+      "citations": 4380,
+      "date": "2018-02-09",
+      "paper_id": "arxiv-1802.03426",
+      "paper_url": "https://arxiv.org/abs/1802.03426",
+      "pdf_url": "https://arxiv.org/pdf/1802.03426.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "test"
+      ],
+      "subcategory": "stat.ML cs.CG cs.LG",
+      "title": "UMAP: Uniform Manifold Approximation and Projection for Dimension\n  Reduction"
+    },
+    {
+      "abstract_excerpt": "In this Supporting Information, we provide background information on our\nmodel of the in vitro Kai system and the calculations that we have performed.\nWe will closely follow the outline of the main text.",
+      "arxiv_id": "q-bio/0703042",
+      "category": "Others",
+      "citations": 0,
+      "date": "2007-03-19",
+      "paper_id": "arxiv-q-bio-0703042",
+      "paper_url": "https://arxiv.org/abs/q-bio/0703042",
+      "pdf_url": "https://arxiv.org/pdf/q-bio/0703042.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "test"
+      ],
+      "subcategory": "q-bio.MN q-bio.CB",
+      "title": "An allosteric model for circadian KaiC phosphorylation - Supporting\n  Information"
+    },
+    {
+      "abstract_excerpt": "I point out the similarity between the microtubule experiment reported by\nPriel et al [Biophys. J. 90, 4639 (2006)] and the ZnO nanowire experiment of\nWang et al [Nanolett. 6, 2768 (2006)]. It is quite possible that MTs are\nsimilar to a piezoelectric field effect transistor for which the role of the\ncontrol gate elect\u2026",
+      "arxiv_id": "q-bio/0703055",
+      "category": "Others",
+      "citations": 0,
+      "date": "2007-03-26",
+      "paper_id": "arxiv-q-bio-0703055",
+      "paper_url": "https://arxiv.org/abs/q-bio/0703055",
+      "pdf_url": "https://arxiv.org/pdf/q-bio/0703055.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-bio.SC",
+      "title": "The microtubule transistor"
+    },
+    {
+      "abstract_excerpt": "It is the goal of systems biology to understand the behavior of the whole in\nterms of the knowledge of the parts. This is hard to achieve in many cases due\nto the difficulty of characterizing the many constituents and their complex web\nof interactions involved in a biological system. The lac promoter of E. coli\noffers\u2026",
+      "arxiv_id": "q-bio/0703056",
+      "category": "Others",
+      "citations": 0,
+      "date": "2007-03-26",
+      "paper_id": "arxiv-q-bio-0703056",
+      "paper_url": "https://arxiv.org/abs/q-bio/0703056",
+      "pdf_url": "https://arxiv.org/pdf/q-bio/0703056.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-bio.MN",
+      "title": "Quantitative Characterization of Combinatorial Transcriptional Control\n  of the Lactose Operon of E. coli"
+    },
+    {
+      "abstract_excerpt": "We propose a game-theoretic dynamics of a population of replicating\nindividuals. It consists of two parts: the standard replicator one and a\nmigration between two different habitats. We consider symmetric two-player\ngames with two evolutionarily stable strategies: the efficient one in which the\npopulation is in a stat\u2026",
+      "arxiv_id": "q-bio/0703057",
+      "category": "Others",
+      "citations": 0,
+      "date": "2007-03-27",
+      "paper_id": "arxiv-q-bio-0703057",
+      "paper_url": "https://arxiv.org/abs/q-bio/0703057",
+      "pdf_url": "https://arxiv.org/pdf/q-bio/0703057.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-bio.PE",
+      "title": "Population dynamics with a stable efficient equilibrium"
+    },
+    {
+      "abstract_excerpt": "Immunity is believed to share limited resources with other physiological\nfunctions and this may partly account for the fitness costs of reproduction.\nPrevious studies have shown that the acquired immunity of female common eiders\n(Somateria mollissima) is suppressed during the incubation fast. To save\nenergy, triiodoth\u2026",
+      "arxiv_id": "q-bio/0703064",
+      "category": "Others",
+      "citations": 0,
+      "date": "2007-03-29",
+      "paper_id": "arxiv-q-bio-0703064",
+      "paper_url": "https://arxiv.org/abs/q-bio/0703064",
+      "pdf_url": "https://arxiv.org/pdf/q-bio/0703064.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "q-bio.PE",
+      "title": "Triiodothyronine suppresses humoral immunity but not T-cell-mediated\n  immune response in incubating female eiders (Somateria mollissima)"
+    },
+    {
+      "abstract_excerpt": "In this paper we introduce various techniques to improve the performance of\nelectroencephalography (EEG) features based continuous speech recognition (CSR)\nsystems. A connectionist temporal classification (CTC) based automatic speech\nrecognition (ASR) system was implemented for performing recognition. We\nintroduce tec\u2026",
+      "arxiv_id": "1911.11610",
+      "category": "Others",
+      "citations": 10,
+      "date": "2019-11-24",
+      "paper_id": "arxiv-1911.11610",
+      "paper_url": "https://arxiv.org/abs/1911.11610",
+      "pdf_url": "https://arxiv.org/pdf/1911.11610.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "eess.AS cs.LG cs.SD stat.ML",
+      "title": "Improving EEG based Continuous Speech Recognition"
+    },
+    {
+      "abstract_excerpt": "From two coupled Multiclass Classification (MCC) and Response Manifold\nAnalytics (RMA) perspectives, we develop Categorical Exploratory Data Analysis\n(CEDA) on PITCHf/x database for the information content of Major League\nBaseball's (MLB) pitching dynamics. MCC and RMA information contents are\nrepresented by one colle\u2026",
+      "arxiv_id": "2006.14411",
+      "category": "Others",
+      "citations": 8,
+      "date": "2020-06-25",
+      "paper_id": "arxiv-2006.14411",
+      "paper_url": "https://arxiv.org/abs/2006.14411",
+      "pdf_url": "https://arxiv.org/pdf/2006.14411.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "stat.AP stat.ME",
+      "title": "Categorical Exploratory Data Analysis: From Multiclass Classification\n  and Response Manifold Analytics perspectives of baseball pitching dynamics"
+    },
+    {
+      "abstract_excerpt": "This paper presents methodologies for constructing Control Barrier Functions\n(CBFs) for nonlinear, control-affine systems, in the presence of input\nconstraints and bounded disturbances. More specifically, given a constraint\nfunction with high-relative-degree with respect to the system dynamics, the\npaper considers thr\u2026",
+      "arxiv_id": "2107.04094",
+      "category": "Others",
+      "citations": 8,
+      "date": "2021-07-08",
+      "paper_id": "arxiv-2107.04094",
+      "paper_url": "https://arxiv.org/abs/2107.04094",
+      "pdf_url": "https://arxiv.org/pdf/2107.04094.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "eess.SY cs.SY math.OC",
+      "title": "Robust Control Barrier Functions under High Relative Degree and Input\n  Constraints for Satellite Trajectories"
+    },
+    {
+      "abstract_excerpt": "Single-pixel imaging (SPI) is an emerging technique which has attracts wide\nattention in various research fields. However, restricted by the low\nreconstruction quality and large amount of measurements, the practical\napplication is still in its infancy. Inspired by the fact that natural scenes\nexhibit unique degenerate\u2026",
+      "arxiv_id": "1811.03455",
+      "category": "Others",
+      "citations": 2,
+      "date": "2018-11-07",
+      "paper_id": "arxiv-1811.03455",
+      "paper_url": "https://arxiv.org/abs/1811.03455",
+      "pdf_url": "https://arxiv.org/pdf/1811.03455.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "eess.IV",
+      "title": "High fidelity single-pixel imaging"
+    },
+    {
+      "abstract_excerpt": "Normalized random measures (NRMs) provide a broad class of discrete random\nmeasures that are often used as priors for Bayesian nonparametric models.\nDirichlet process is a well-known example of NRMs. Most of posterior inference\nmethods for NRM mixture models rely on MCMC methods since they are easy to\nimplement and th\u2026",
+      "arxiv_id": "1511.05650",
+      "category": "Others",
+      "citations": 0,
+      "date": "2015-11-18",
+      "paper_id": "arxiv-1511.05650",
+      "paper_url": "https://arxiv.org/abs/1511.05650",
+      "pdf_url": "https://arxiv.org/pdf/1511.05650.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "stat.ML cs.LG",
+      "title": "Tree-Guided MCMC Inference for Normalized Random Measure Mixture Models"
+    },
+    {
+      "abstract_excerpt": "We report a naturally-occurring two-dimensional material (graphene that can\nbe viewed as a gigantic flat fullerene molecule, describe its electronic\nproperties and demonstrate all-metallic field-effect transistor, which uniquely\nexhibits ballistic transport at submicron distances even at room temperature.",
+      "arxiv_id": "cond-mat/0410550",
+      "category": "Physics",
+      "citations": 37326,
+      "date": "2004-10-21",
+      "paper_id": "arxiv-cond-mat-0410550",
+      "paper_url": "https://arxiv.org/abs/cond-mat/0410550",
+      "pdf_url": "https://arxiv.org/pdf/cond-mat/0410550.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cond-mat.mtrl-sci cond-mat.mes-hall",
+      "title": "Electric Field Effect in Atomically Thin Carbon Films"
+    },
+    {
+      "abstract_excerpt": "Quantum ESPRESSO is an integrated suite of computer codes for\nelectronic-structure calculations and materials modeling, based on\ndensity-functional theory, plane waves, and pseudopotentials (norm-conserving,\nultrasoft, and projector-augmented wave). Quantum ESPRESSO stands for \"opEn\nSource Package for Research in Elec\u2026",
+      "arxiv_id": "0906.2569",
+      "category": "Physics",
+      "citations": 18606,
+      "date": "2009-06-14",
+      "paper_id": "arxiv-0906.2569",
+      "paper_url": "https://arxiv.org/abs/0906.2569",
+      "pdf_url": "https://arxiv.org/pdf/0906.2569.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "test"
+      ],
+      "subcategory": "cond-mat.mtrl-sci",
+      "title": "Quantum ESPRESSO: a modular and open-source software project for quantum\n  simulations of materials"
+    },
+    {
+      "abstract_excerpt": "We present cosmological parameter results from the final full-mission Planck\nmeasurements of the CMB anisotropies. We find good consistency with the\nstandard spatially-flat 6-parameter $\\Lambda$CDM cosmology having a power-law\nspectrum of adiabatic scalar perturbations (denoted \"base $\\Lambda$CDM\" in this\npaper), from\u2026",
+      "arxiv_id": "1807.06209",
+      "category": "Physics",
+      "citations": 18161,
+      "date": "2018-07-17",
+      "paper_id": "arxiv-1807.06209",
+      "paper_url": "https://arxiv.org/abs/1807.06209",
+      "pdf_url": "https://arxiv.org/pdf/1807.06209.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "astro-ph.CO",
+      "title": "Planck 2018 results. VI. Cosmological parameters"
+    },
+    {
+      "abstract_excerpt": "We present observations of 10 type Ia supernovae (SNe Ia) between 0.16 < z <\n0.62. With previous data from our High-Z Supernova Search Team, this expanded\nset of 16 high-redshift supernovae and 34 nearby supernovae are used to place\nconstraints on the Hubble constant (H_0), the mass density (Omega_M), the\ncosmological\u2026",
+      "arxiv_id": "astro-ph/9805201",
+      "category": "Physics",
+      "citations": 17733,
+      "date": "1998-05-15",
+      "paper_id": "arxiv-astro-ph-9805201",
+      "paper_url": "https://arxiv.org/abs/astro-ph/9805201",
+      "pdf_url": "https://arxiv.org/pdf/astro-ph/9805201.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "astro-ph",
+      "title": "Observational Evidence from Supernovae for an Accelerating Universe and\n  a Cosmological Constant"
+    },
+    {
+      "abstract_excerpt": "This article reviews the basic theoretical aspects of graphene, a one atom\nthick allotrope of carbon, with unusual two-dimensional Dirac-like electronic\nexcitations. The Dirac electrons can be controlled by application of external\nelectric and magnetic fields, or by altering sample geometry and/or topology.\nWe show th\u2026",
+      "arxiv_id": "0709.1163",
+      "category": "Physics",
+      "citations": 17712,
+      "date": "2007-09-07",
+      "paper_id": "arxiv-0709.1163",
+      "paper_url": "https://arxiv.org/abs/0709.1163",
+      "pdf_url": "https://arxiv.org/pdf/0709.1163.pdf",
+      "selection_bucket": "top",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "cond-mat.other",
+      "title": "The electronic properties of graphene"
+    },
+    {
+      "abstract_excerpt": "We develop a quantum Lax scheme for IRF models and difference versions of\nCalogero-Moser-Sutherland models introduced by Ruijsenaars. The construction is\nin the spirit of the Adler-Kostant-Symes method generalized to the case of face\nHopf algebras and elliptic quantum groups with dynamical R-matrices.",
+      "arxiv_id": "solv-int/9912002",
+      "category": "Physics",
+      "citations": 0,
+      "date": "1999-11-26",
+      "paper_id": "arxiv-solv-int-9912002",
+      "paper_url": "https://arxiv.org/abs/solv-int/9912002",
+      "pdf_url": "https://arxiv.org/pdf/solv-int/9912002.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "solv-int nlin.SI",
+      "title": "Quantum Lax scheme for Ruijsenaars models"
+    },
+    {
+      "abstract_excerpt": "Small perturbation of the Liouville equation under smooth initial data is\nconsidered. Asymptotic solution which is available for a long time interval is\nconstructed by the two scale method.",
+      "arxiv_id": "solv-int/9912011",
+      "category": "Physics",
+      "citations": 0,
+      "date": "1999-12-16",
+      "paper_id": "arxiv-solv-int-9912011",
+      "paper_url": "https://arxiv.org/abs/solv-int/9912011",
+      "pdf_url": "https://arxiv.org/pdf/solv-int/9912011.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "solv-int nlin.SI",
+      "title": "Liouville equation under perturbation"
+    },
+    {
+      "abstract_excerpt": "We show that a 2N junction SQUID (Superconducting QUantum Interference\nDevice) made of 2N overdamped, shunted, identical junctions may be described as\na system having only 6 degrees of freedom for any N > 2. This is achieved by\nmeans of the reduction introduced by Watanabe and Strogatz (Physica D, Vol. 74,\n(1994) p. 1\u2026",
+      "arxiv_id": "supr-con/9507005",
+      "category": "Physics",
+      "citations": 0,
+      "date": "1995-07-18",
+      "paper_id": "arxiv-supr-con-9507005",
+      "paper_url": "https://arxiv.org/abs/supr-con/9507005",
+      "pdf_url": "https://arxiv.org/pdf/supr-con/9507005.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "supr-con chao-dyn cond-mat.supr-con nlin.CD",
+      "title": "Constants of motion in the dynamics of a 2N-junction SQUID"
+    },
+    {
+      "abstract_excerpt": "We obtain self-consistent macroscopic equations describing interlayer\nJosephson effect and intralayer disequilibrium in one-dimensional array of\nJosephson coupled layers. We show that ``nonequilibrium coupling'' can lead to\neffective spatial and time synchronization and formation of coherent dynamic\nresistive state (c\u2026",
+      "arxiv_id": "supr-con/9511001",
+      "category": "Physics",
+      "citations": 0,
+      "date": "1995-11-21",
+      "paper_id": "arxiv-supr-con-9511001",
+      "paper_url": "https://arxiv.org/abs/supr-con/9511001",
+      "pdf_url": "https://arxiv.org/pdf/supr-con/9511001.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "supr-con cond-mat.supr-con",
+      "title": "Synchronization in one-dimensional array of Josephson coupled thin\n  layers"
+    },
+    {
+      "abstract_excerpt": "The thermal conductivity of Zn-doped YBCO crystals was studied at low\ntemperature (0.15 < T < 0.8 K) for different concentrations of Zn impurities. A\nsmall amount of Zn induces a dramatic decrease in the non-linear component of\nthe low-temperature thermal conductivity. Moreover, the magnitude of the linear\ncomponent (\u2026",
+      "arxiv_id": "supr-con/9604002",
+      "category": "Physics",
+      "citations": 0,
+      "date": "1996-04-22",
+      "paper_id": "arxiv-supr-con-9604002",
+      "paper_url": "https://arxiv.org/abs/supr-con/9604002",
+      "pdf_url": "https://arxiv.org/pdf/supr-con/9604002.pdf",
+      "selection_bucket": "bottom",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "supr-con cond-mat.supr-con",
+      "title": "Low temperature thermal conductivity of Zn-doped YBCO: evidence for\n  impurity-induced electronic bound states"
+    },
+    {
+      "abstract_excerpt": "Light curves and color evolutions of two classical novae can be largely\noverlapped if we properly squeeze or stretch the timescale of a target nova\nagainst that of a template nova by $t'=t/f_{\\rm s}$. Then the brightness of the\ntarget nova is related to the brightness of the template nova by $(M[t])_{\\rm\ntemplate} = (\u2026",
+      "arxiv_id": "2012.06100",
+      "category": "Physics",
+      "citations": 14,
+      "date": "2020-12-11",
+      "paper_id": "arxiv-2012.06100",
+      "paper_url": "https://arxiv.org/abs/2012.06100",
+      "pdf_url": "https://arxiv.org/pdf/2012.06100.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "astro-ph.SR",
+      "title": "The $UBV$ Color Evolution of Classical Novae. IV. Time-Stretched\n  $(U-B)_0$-$(M_B-2.5\\log f_{\\rm s})$ and $(V-I)_0$-$(M_I-2.5\\log f_{\\rm s})$\n  Color-Magnitude Diagrams of Novae in Outburst"
+    },
+    {
+      "abstract_excerpt": "Acoustic phased arrays are capable of steering and focusing a beam of sound\nvia selective coordination of the spatial distribution of phase angles between\nmultiple sound emitters. Constrained by the principle of reciprocity,\nconventional phased arrays exhibit identical transmission and reception\npatterns which limit t\u2026",
+      "arxiv_id": "2008.04464",
+      "category": "Physics",
+      "citations": 12,
+      "date": "2020-08-11",
+      "paper_id": "arxiv-2008.04464",
+      "paper_url": "https://arxiv.org/abs/2008.04464",
+      "pdf_url": "https://arxiv.org/pdf/2008.04464.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "physics.app-ph",
+      "title": "Frequency Selective Wave Beaming in Nonreciprocal Acoustic Phased Arrays"
+    },
+    {
+      "abstract_excerpt": "The production of lepton pairs at low invariant mass and finite transverse\nmomentum resolves QCD dynamics at the boundary between the perturbative and\nnon-perturbative domains. We investigate the impact of NNLO QCD corrections on\nthese observables at energies corresponding to the BNL RHIC collider and to\nfixed-target \u2026",
+      "arxiv_id": "2110.15839",
+      "category": "Physics",
+      "citations": 11,
+      "date": "2021-10-29",
+      "paper_id": "arxiv-2110.15839",
+      "paper_url": "https://arxiv.org/abs/2110.15839",
+      "pdf_url": "https://arxiv.org/pdf/2110.15839.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "hep-ph hep-ex",
+      "title": "Transverse momentum distributions in low-mass Drell-Yan lepton pair\n  production at NNLO QCD"
+    },
+    {
+      "abstract_excerpt": "The aim of this thesis is the completion of the NLO automated framework of\nthe MC program WHIZARD, accounting for NLO corrections in the full SM for cross\nsections and distributions of processes at hadron and lepton colliders.\nSpecifically, it builds on the implemented FKS subtraction scheme for NLO QCD\ncalculations, \u2026",
+      "arxiv_id": "2212.04393",
+      "category": "Physics",
+      "citations": 5,
+      "date": "2022-12-08",
+      "paper_id": "arxiv-2212.04393",
+      "paper_url": "https://arxiv.org/abs/2212.04393",
+      "pdf_url": "https://arxiv.org/pdf/2212.04393.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "hep-ph hep-ex",
+      "title": "Automated NLO Electroweak Corrections to Processes at Hadron and Lepton\n  Colliders"
+    },
+    {
+      "abstract_excerpt": "We discuss the physical equivalence between the Einstein and Jordan frames in\nBrans-Dicke theory. The inequivalence of conformal transformed theories is\nclarified with the help of an old equivalence theorem of Chrisholm's.",
+      "arxiv_id": "gr-qc/0004072",
+      "category": "Physics",
+      "citations": 0,
+      "date": "2000-04-24",
+      "paper_id": "arxiv-gr-qc-0004072",
+      "paper_url": "https://arxiv.org/abs/gr-qc/0004072",
+      "pdf_url": "https://arxiv.org/pdf/gr-qc/0004072.pdf",
+      "selection_bucket": "random",
+      "source_splits": [
+        "train"
+      ],
+      "subcategory": "gr-qc",
+      "title": "Equivalent frames in Brans-Dicke theory"
+    }
+  ],
+  "selection_policy": {
+    "bottom_n_per_category": 5,
+    "per_subcategory_cap": 2,
+    "random_n_per_category": 5,
+    "random_seed": 1511510650,
+    "top_n_per_category": 5
+  },
+  "source_dataset": "OpenMOSS-Team/SciJudgeBench"
+}

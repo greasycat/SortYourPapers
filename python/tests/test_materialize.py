@@ -37,7 +37,6 @@ def test_materialize_and_export(tmp_path: Path) -> None:
                 CuratedPaper(
                     paper_id="arxiv-1234.5678",
                     arxiv_id="1234.5678",
-                    canonical_pdf_url=f"http://127.0.0.1:{server.server_port}/paper.pdf",
                     title="Title",
                     category="CS",
                     subcategory="cs.AI",
@@ -45,6 +44,9 @@ def test_materialize_and_export(tmp_path: Path) -> None:
                     date="2024-01-01",
                     abstract_excerpt="Excerpt",
                     selection_bucket=SelectionBucket.TOP,
+                    paper_url="https://arxiv.org/abs/1234.5678",
+                    pdf_url=f"http://127.0.0.1:{server.server_port}/paper.pdf",
+                    source_splits=["train"],
                 )
             ],
         )
@@ -54,6 +56,8 @@ def test_materialize_and_export(tmp_path: Path) -> None:
 
         assert report.papers[0].path.exists()
         assert exported[0].exists()
+        assert (report.cache_dir / "manifest.toml").exists()
+        assert (report.cache_dir / "manifest.json").exists()
     finally:
         server.shutdown()
         thread.join()
