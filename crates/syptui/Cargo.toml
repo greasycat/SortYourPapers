@@ -1,0 +1,19 @@
+[package]
+name = "syptui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+clap.workspace = true
+chrono.workspace = true
+crossterm.workspace = true
+directories.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+syp-core = { path = "../syp-core" }
+tokio.workspace = true
+toml.workspace = true
+tui-tree-widget.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

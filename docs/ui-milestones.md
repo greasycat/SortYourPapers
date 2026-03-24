@@ -1,6 +1,6 @@
 # SortYourPapers UI Milestones
 
-This document proposes a practical milestone plan for the terminal UI based on the current `src/tui/` design. It is not a greenfield redesign. The goal is to improve the existing workflow-first TUI without fighting the current architecture.
+This document proposes a practical milestone plan for the terminal UI based on the current `crates/syptui/src/tui/` design. It is not a greenfield redesign. The goal is to improve the existing workflow-first TUI without fighting the current architecture.
 
 ## Current TUI Baseline
 

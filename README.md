@@ -2,11 +2,11 @@
 Use LLMs to sort papers.
 
 ## Architecture
-- CLI parsing lives in `src/cli.rs`, while config loading lives in `src/config/`.
-- Run orchestration lives in `src/app/` and persisted resume state lives in `src/session/`.
-- Session orchestration, resume/rerun commands, and persisted run workspace state all live in `src/session/`.
-- Paper ingestion lives in `src/papers/`, taxonomy generation in `src/taxonomy/`, placement logic in `src/placement/`, and filesystem mutation in `src/fs/`.
-- LLM clients live in `src/llm/` and terminal output helpers live in `src/terminal/`.
+- `crates/syp-core/` holds the shared runtime, config resolution, session persistence, paper pipeline, report types, and plain terminal backend.
+- `crates/paperdb/` holds the DuckDB-backed paper/embedding store and uses `syp-core`'s embedding client API.
+- `python/` holds the `uv`-managed maintainer tooling for SciJudgeBench-backed arXiv test-set curation and export.
+- `crates/syp/` holds the batch CLI parser and dispatch layer for the `syp` binary.
+- `crates/syptui/` holds the `ratatui` frontend, TUI-only preferences, and the `syptui` binary.
 
 ## What It Does
 - Scans a folder for PDFs (optional recursive mode)
@@ -20,6 +20,7 @@ Use LLMs to sort papers.
 - Prints the final synthesized category tree at the end of a successful run
 - Keeps `taxonomy-mode` for CLI/config compatibility, and uses `taxonomy-batch-size` to control batching of aggregated preliminary-category entries during taxonomy synthesis
 - Saves completed taxonomy batches during synthesis so an interrupted run can resume without redoing finished batches
+- Supports committed test-set manifests under `assets/testsets/` and a separate Python maintainer workflow for SciJudgeBench sampling and arXiv PDF materialization
 - Uses an LLM to:
   - extract keywords per paper
   - suggest a preliminary category text per paper
@@ -41,17 +42,17 @@ XDG config path:
 ## Quick Start
 Create default XDG config:
 ```bash
-cargo run -- init
+cargo run -p syp -- init
 ```
 
 Overwrite existing config:
 ```bash
-cargo run -- init --force
+cargo run -p syp -- init --force
 ```
 
 Then run sorting:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   --recursive \
@@ -59,34 +60,39 @@ cargo run -- \
   --llm-model llama3.1
 ```
 
+Launch the TUI:
+```bash
+cargo run -p syptui --
+```
+
 If a run is interrupted after some stages completed, list saved runs and choose one to resume:
 ```bash
-cargo run -- session resume
+cargo run -p syp -- session resume
 ```
 
 Resume a specific run id:
 ```bash
-cargo run -- session resume run-123456789
+cargo run -p syp -- session resume run-123456789
 ```
 
 List saved sessions without resuming:
 ```bash
-cargo run -- session list
+cargo run -p syp -- session list
 ```
 
 Remove a saved session:
 ```bash
-cargo run -- session remove run-123456789
+cargo run -p syp -- session remove run-123456789
 ```
 
 Clear all incomplete sessions for the current workspace:
 ```bash
-cargo run -- session clear
+cargo run -p syp -- session clear
 ```
 
 Show verbose timing and resume diagnostics:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   -v
@@ -94,7 +100,7 @@ cargo run -- \
 
 Show full debug output including raw LLM requests:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   -vv
@@ -102,7 +108,7 @@ cargo run -- \
 
 Suppress progress bars and final summary:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   --quiet
@@ -110,7 +116,7 @@ cargo run -- \
 
 Apply real moves:
 ```bash
-cargo run -- \
+cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   --llm-provider openai \
@@ -121,7 +127,7 @@ cargo run -- \
 
 Manual text extraction for debugging:
 ```bash
-cargo run -- extract-text \
+cargo run -p syp -- extract-text \
   --page-cutoff 2 \
   --pdf-extract-workers 4 \
   --extractor pdf-oxide \
@@ -176,6 +182,14 @@ If a run resumes after taxonomy synthesis but before placement generation, the m
 `session list` prints saved sessions without resuming.
 `session remove` deletes specific saved sessions, and `session clear` removes incomplete ones for the current workspace.
 Use `session resume --quiet` if you only want the exit status without the progress stream or final summary.
+
+## Test Sets
+- `assets/testsets/` stores committed TOML and JSON metadata artifacts for curated paper sets.
+- `uv run --project python paperfetch build-manifest` reads SciJudgeBench metadata from Hugging Face Hub, samples top/bottom/random citation papers per category, and writes matching TOML and JSON artifacts.
+- `uv run --project python paperfetch materialize assets/testsets/scijudgebench-diverse.toml` downloads the selected arXiv PDFs plus manifest/state metadata into the shared repo-relative cache from `dev.toml` (`.cache/sortyourpapers/testsets/` by default).
+- `uv run --project python paperfetch export assets/testsets/scijudgebench-diverse.toml ./tmp/scijudgebench` copies the cached PDFs into a local directory for runs or manual inspection.
+- Each curated sample stores paper metadata, the arXiv abstract page URL, and the direct PDF URL.
+- The checked-in `scijudgebench-diverse` artifact uses a `5 top + 5 bottom + 5 deterministic random` policy per category.
 
 ## Environment Variables
 - `SYP_INPUT`
