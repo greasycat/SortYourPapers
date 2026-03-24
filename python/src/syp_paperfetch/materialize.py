@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -136,7 +137,22 @@ def _materialize_one(
             )
 
     response = client.get(paper.pdf_url)
-    response.raise_for_status()
+    if response.status_code >= 400 or not _looks_like_pdf(response):
+        if _render_paper_page_to_pdf(paper, target):
+            current_hash = sha256_file(target)
+            if paper.sha256 is not None and paper.sha256 != current_hash:
+                raise ValueError(f"checksum mismatch for {paper.paper_id}")
+            return MaterializedPaper(
+                paper_id=paper.paper_id,
+                arxiv_id=paper.arxiv_id,
+                source_url=paper.pdf_url,
+                path=target,
+                sha256=current_hash,
+                byte_size=target.stat().st_size,
+                downloaded=True,
+            )
+        response.raise_for_status()
+
     target.write_bytes(response.content)
     current_hash = sha256_file(target)
     if paper.sha256 is not None and paper.sha256 != current_hash:
@@ -158,3 +174,49 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def _looks_like_pdf(response: httpx.Response) -> bool:
+    content_type = response.headers.get("content-type", "").lower()
+    if "application/pdf" in content_type:
+        return True
+    return response.content.startswith(b"%PDF")
+
+
+def _render_paper_page_to_pdf(paper: CuratedPaper, target: Path) -> bool:
+    browser = _find_pdf_browser()
+    if browser is None:
+        return False
+
+    html_url = _paper_html_url(paper.paper_url)
+    completed = subprocess.run(
+        [
+            browser,
+            "--headless",
+            "--disable-gpu",
+            "--no-pdf-header-footer",
+            f"--print-to-pdf={target}",
+            html_url,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return completed.returncode == 0 and target.exists() and target.stat().st_size > 0
+
+
+def _find_pdf_browser() -> str | None:
+    for candidate in ("chromium", "chromium-browser", "google-chrome"):
+        browser = shutil.which(candidate)
+        if browser is not None:
+            return browser
+    return None
+
+
+def _paper_html_url(paper_url: str) -> str:
+    if "/abs/" in paper_url:
+        html_url = paper_url.replace("/abs/", "/html/", 1)
+        if not html_url.endswith("/"):
+            html_url = f"{html_url}/"
+        return html_url
+    return paper_url
