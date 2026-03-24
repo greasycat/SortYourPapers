@@ -668,6 +668,44 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    #[ignore = "requires SYP_API_KEY and network access; run explicitly"]
+    async fn live_gemini_embedding_request_returns_non_empty_vectors() {
+        let api_key =
+            env::var("SYP_API_KEY").expect("set SYP_API_KEY to run the live Gemini adapter test");
+        let model = env::var("SYP_EMBEDDING_MODEL")
+            .unwrap_or_else(|_| "gemini-embedding-2-preview".to_string());
+        let base_url = env::var("SYP_EMBEDDING_BASE_URL").ok();
+
+        let client = GeminiClient::new(model, base_url, Some(api_key));
+        let request = EmbeddingRequest::from_texts([
+            "graph neural networks for molecular property prediction",
+            "differential equations and geometric analysis in theoretical physics",
+        ]);
+
+        let response = timeout(Duration::from_secs(90), client.embed(&request))
+            .await
+            .expect("live Gemini embedding request exceeded 90s timeout")
+            .expect("live Gemini embedding request should succeed");
+
+        assert_eq!(
+            response.embeddings.len(),
+            2,
+            "live embedding response should match the number of inputs"
+        );
+        assert!(
+            response
+                .embeddings
+                .iter()
+                .all(|embedding| !embedding.values.is_empty()),
+            "live embedding response should contain non-empty vectors"
+        );
+        assert_eq!(
+            response.metrics.endpoint_kind, "embedding",
+            "live embedding request should report embedding metrics"
+        );
+    }
+
     fn spawn_single_request_server(
         status_line: &str,
         body: &str,
