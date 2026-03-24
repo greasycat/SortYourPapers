@@ -5,7 +5,10 @@ use tempfile::tempdir;
 use super::{
     ApiKeySource, AppConfig, EnvConfig, FileConfig,
     resolve::resolve_from_sources,
-    xdg::{write_default_config_at, write_saved_config_at},
+    xdg::{
+        default_testset_cache_dir, shared_testset_cache_dir_from, write_default_config_at,
+        write_saved_config_at,
+    },
 };
 use crate::{
     inputs::RunOverrides, llm::LlmProvider, papers::placement::PlacementMode,
@@ -214,6 +217,36 @@ fn resolved_api_key_runs_command_source() {
         .expect("command source should resolve successfully");
 
     assert_eq!(resolved, Some("cmd-key".to_string()));
+}
+
+#[test]
+fn shared_testset_cache_dir_uses_dev_toml_relative_path() {
+    let dir = tempdir().expect("tempdir");
+    let nested = dir.path().join("crates").join("syp");
+    fs::create_dir_all(&nested).expect("mkdir");
+    fs::write(
+        dir.path().join("dev.toml"),
+        "[testsets]\ncache_dir = \".cache/sortyourpapers/testsets\"\n",
+    )
+    .expect("write dev config");
+
+    let resolved = shared_testset_cache_dir_from(&nested)
+        .expect("resolve shared cache")
+        .expect("dev.toml path");
+
+    assert_eq!(
+        resolved,
+        dir.path()
+            .join(".cache")
+            .join("sortyourpapers")
+            .join("testsets")
+    );
+}
+
+#[test]
+fn shared_testset_cache_dir_falls_back_to_xdg_layout() {
+    let resolved = default_testset_cache_dir().expect("resolve fallback testset cache");
+    assert!(resolved.ends_with("sortyourpapers/testsets"));
 }
 
 fn sample_config(api_key: Option<ApiKeySource>) -> AppConfig {

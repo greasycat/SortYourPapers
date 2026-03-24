@@ -7,6 +7,7 @@ from threading import Thread
 
 from syp_paperfetch.materialize import export_test_set, materialize_test_set
 from syp_paperfetch.models import CuratedPaper, CuratedTestSet, SamplingPolicy, SelectionBucket
+from syp_paperfetch.dev_config import shared_testsets_cache_root_from, xdg_testsets_cache_root
 
 
 class _PdfHandler(BaseHTTPRequestHandler):
@@ -132,3 +133,24 @@ def test_materialize_falls_back_to_rendered_html_pdf(
     finally:
         server.shutdown()
         thread.join()
+
+
+def test_shared_testsets_cache_root_from_dev_toml(tmp_path: Path) -> None:
+    nested = tmp_path / "python" / "src"
+    nested.mkdir(parents=True)
+    (tmp_path / "dev.toml").write_text(
+        "[testsets]\ncache_dir = \".cache/sortyourpapers/testsets\"\n",
+        encoding="utf-8",
+    )
+
+    resolved = shared_testsets_cache_root_from(nested)
+
+    assert resolved == tmp_path / ".cache" / "sortyourpapers" / "testsets"
+
+
+def test_xdg_testsets_cache_root_uses_env(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+
+    resolved = xdg_testsets_cache_root()
+
+    assert resolved == tmp_path / "xdg" / "sortyourpapers" / "testsets"

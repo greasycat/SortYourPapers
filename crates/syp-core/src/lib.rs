@@ -8,6 +8,7 @@ pub mod papers;
 pub mod report;
 pub mod session;
 pub mod terminal;
+pub mod testsets;
 
 #[cfg(test)]
 mod lib_tests;

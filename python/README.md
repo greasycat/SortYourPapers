@@ -12,3 +12,5 @@ uv run --project python paperfetch materialize ../assets/testsets/scijudgebench-
 uv run --project python paperfetch export ../assets/testsets/scijudgebench-diverse.toml ../tmp/scijudgebench
 uv run --project python --extra dev python -m pytest python/tests
 ```
+
+By default, `materialize` and `export` use the shared repo-relative test-set cache from `../dev.toml`.

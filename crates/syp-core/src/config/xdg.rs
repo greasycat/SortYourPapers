@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 
@@ -18,6 +18,20 @@ use crate::{
     error::{AppError, Result},
 };
 
+const DEV_CONFIG_FILE: &str = "dev.toml";
+const TESTSETS_DIR: &str = "testsets";
+
+#[derive(Default, serde::Deserialize)]
+struct DevConfig {
+    #[serde(default)]
+    testsets: DevTestsetsConfig,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct DevTestsetsConfig {
+    cache_dir: Option<PathBuf>,
+}
+
 pub(super) fn xdg_config_path() -> Option<PathBuf> {
     BaseDirs::new().map(|base| base.config_dir().join("sortyourpapers").join("config.toml"))
 }
@@ -28,6 +42,20 @@ pub(super) fn xdg_cache_dir() -> Option<PathBuf> {
 
 pub(super) fn xdg_data_dir() -> Option<PathBuf> {
     BaseDirs::new().map(|base| base.data_dir().join("sortyourpapers"))
+}
+
+pub(super) fn shared_testset_cache_dir() -> Result<PathBuf> {
+    if let Ok(current_dir) = env::current_dir() {
+        if let Some(path) = shared_testset_cache_dir_from(&current_dir)? {
+            return Ok(path);
+        }
+    }
+
+    if let Some(path) = shared_testset_cache_dir_from(Path::new(env!("CARGO_MANIFEST_DIR")))? {
+        return Ok(path);
+    }
+
+    default_testset_cache_dir()
 }
 
 pub(super) fn init_xdg_config(force: bool) -> Result<PathBuf> {
@@ -115,6 +143,52 @@ fn load_config_from_path(path: &Path) -> Result<FileConfig> {
     let raw = fs::read_to_string(path)?;
     let cfg: FileConfig = toml::from_str(&raw)?;
     Ok(cfg)
+}
+
+fn load_dev_config_from_path(path: &Path) -> Result<DevConfig> {
+    let raw = fs::read_to_string(path)?;
+    let cfg: DevConfig = toml::from_str(&raw)?;
+    Ok(cfg)
+}
+
+pub(super) fn shared_testset_cache_dir_from(start: &Path) -> Result<Option<PathBuf>> {
+    let Some(dev_config_path) = find_dev_config_path(start) else {
+        return Ok(None);
+    };
+
+    let dev_config = load_dev_config_from_path(&dev_config_path)?;
+    let relative = dev_config.testsets.cache_dir.ok_or_else(|| {
+        AppError::Config(format!(
+            "missing [testsets].cache_dir in {}",
+            dev_config_path.display()
+        ))
+    })?;
+    let root = dev_config_path.parent().ok_or_else(|| {
+        AppError::Config(format!(
+            "could not resolve parent directory for {}",
+            dev_config_path.display()
+        ))
+    })?;
+    Ok(Some(root.join(relative)))
+}
+
+pub(super) fn default_testset_cache_dir() -> Result<PathBuf> {
+    let Some(cache_root) = xdg_cache_dir() else {
+        return Err(AppError::Config(
+            "could not resolve XDG cache directory".to_string(),
+        ));
+    };
+    Ok(cache_root.join(TESTSETS_DIR))
+}
+
+fn find_dev_config_path(start: &Path) -> Option<PathBuf> {
+    for dir in start.ancestors() {
+        let candidate = dir.join(DEV_CONFIG_FILE);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 pub(super) fn write_default_config_at(path: &Path, force: bool) -> Result<()> {

@@ -1,0 +1,1 @@
+- Add a shared `dev.toml` test-set cache root so Python materialization and Rust manifest/state readers use the same repo-relative PDF and metadata cache.

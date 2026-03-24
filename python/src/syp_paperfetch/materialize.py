@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 
+from .dev_config import shared_testsets_cache_root
 from .manifest import save_test_set
 from .models import CuratedPaper, CuratedTestSet
 
@@ -110,10 +111,7 @@ def export_test_set(report: MaterializeReport, output_dir: Path) -> list[Path]:
 
 
 def default_cache_root() -> Path:
-    xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
-    if xdg_cache_home:
-        return Path(xdg_cache_home) / "sortyourpapers" / "testsets"
-    return Path.home() / ".cache" / "sortyourpapers" / "testsets"
+    return shared_testsets_cache_root()
 
 
 def _materialize_one(
