@@ -77,7 +77,7 @@ fn overrides_beat_env_and_file_sources() {
         llm_base_url: Some("http://env".to_string()),
         api_key: Some(ApiKeySource::Text("env-key".to_string())),
         embedding_provider: Some(LlmProvider::Gemini),
-        embedding_model: Some("text-embedding-004".to_string()),
+        embedding_model: Some("gemini-embedding-2-preview".to_string()),
         embedding_base_url: Some("http://env-embed".to_string()),
         embedding_api_key: Some(ApiKeySource::Text("env-embed-key".to_string())),
         keyword_batch_size: Some(30),
@@ -181,7 +181,7 @@ fn defaults_to_gemini_when_no_sources_provide_values() {
     assert_eq!(cfg.placement_batch_size, 10);
     assert_eq!(cfg.keyword_batch_size, 20);
     assert_eq!(cfg.embedding_provider, LlmProvider::Gemini);
-    assert_eq!(cfg.embedding_model, "text-embedding-004");
+    assert_eq!(cfg.embedding_model, "gemini-embedding-2-preview");
     assert_eq!(cfg.batch_start_delay_ms, 100);
     assert_eq!(cfg.subcategories_suggestion_number, 5);
     assert!(cfg.dry_run);
@@ -331,7 +331,7 @@ fn sample_config(api_key: Option<ApiKeySource>) -> AppConfig {
         llm_base_url: None,
         api_key,
         embedding_provider: LlmProvider::Gemini,
-        embedding_model: "text-embedding-004".to_string(),
+        embedding_model: "gemini-embedding-2-preview".to_string(),
         embedding_base_url: None,
         embedding_api_key: None,
         keyword_batch_size: 20,

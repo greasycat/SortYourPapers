@@ -20,4 +20,4 @@ pub const DEFAULT_LLM_MODEL: &str = "gemini-3-flash-preview";
 pub const DEFAULT_TAXONOMY_ASSISTANCE: TaxonomyAssistance = TaxonomyAssistance::LlmOnly;
 pub const DEFAULT_REFERENCE_MANIFEST_PATH: &str = "assets/testsets/scijudgebench-diverse.toml";
 pub const DEFAULT_OPENAI_EMBEDDING_MODEL: &str = "text-embedding-3-small";
-pub const DEFAULT_GEMINI_EMBEDDING_MODEL: &str = "text-embedding-004";
+pub const DEFAULT_GEMINI_EMBEDDING_MODEL: &str = "gemini-embedding-2-preview";

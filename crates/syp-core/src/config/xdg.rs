@@ -108,7 +108,7 @@ pub(super) fn default_config_toml() -> String {
             "llm_provider = \"gemini\"\n",
             "llm_model = \"{llm_model}\"\n",
             "# embedding_provider = \"gemini\"\n",
-            "# embedding_model = \"text-embedding-004\"\n",
+            "# embedding_model = \"gemini-embedding-2-preview\"\n",
             "# embedding_base_url = \"https://generativelanguage.googleapis.com/v1beta\"\n",
             "# embedding_api_key = {{ source = \"env\", value = \"OPENAI_API_KEY\" }}\n",
             "keyword_batch_size = {keyword_batch_size}\n",
