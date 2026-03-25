@@ -17,12 +17,14 @@ use crate::{
 const KEYWORD_BATCH_PROGRESS_FILE: &str = "06-extract-keywords-partial-batches.json";
 const TAXONOMY_BATCH_PROGRESS_FILE: &str = "07-synthesize-categories-partial-batches.json";
 const PLACEMENT_BATCH_PROGRESS_FILE: &str = "09-generate-placements-partial-batches.json";
+const PLACEMENT_EVIDENCE_FILE: &str = "09-placement-evidence.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RerunArtifact {
     KeywordBatchProgress,
     TaxonomyBatchProgress,
     PlacementBatchProgress,
+    PlacementEvidence,
 }
 
 impl RerunArtifact {
@@ -31,6 +33,7 @@ impl RerunArtifact {
             Self::KeywordBatchProgress => KEYWORD_BATCH_PROGRESS_FILE,
             Self::TaxonomyBatchProgress => TAXONOMY_BATCH_PROGRESS_FILE,
             Self::PlacementBatchProgress => PLACEMENT_BATCH_PROGRESS_FILE,
+            Self::PlacementEvidence => PLACEMENT_EVIDENCE_FILE,
         }
     }
 
@@ -39,6 +42,7 @@ impl RerunArtifact {
             Self::KeywordBatchProgress => "keyword batch progress",
             Self::TaxonomyBatchProgress => "taxonomy batch progress",
             Self::PlacementBatchProgress => "placement batch progress",
+            Self::PlacementEvidence => "placement evidence",
         }
     }
 }
@@ -691,6 +695,7 @@ pub fn describe_rerun_impact(config: &AppConfig, start_stage: RunStage) -> Resul
             .unwrap_or(usize::MAX)
     {
         cleared_artifacts.push(RerunArtifact::PlacementBatchProgress);
+        cleared_artifacts.push(RerunArtifact::PlacementEvidence);
     }
 
     Ok(RerunImpact {

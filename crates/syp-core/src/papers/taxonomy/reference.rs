@@ -5,20 +5,20 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use async_trait::async_trait;
-use paperdb::{
-    EmbeddingCallMetrics as DbEmbeddingCallMetrics, EmbeddingClient as DbEmbeddingClient,
-    EmbeddingModelId, EmbeddingRequest as DbEmbeddingRequest,
-    EmbeddingResponse as DbEmbeddingResponse, EmbeddingVector as DbEmbeddingVector, PaperDb,
-    PaperDbError, PaperInput, ReferencePaperInput, ReferenceSetInput,
-};
+use paperdb::{PaperDb, ReferencePaperInput, ReferenceSetInput};
 
 use crate::{
     config::AppConfig,
-    error::{AppError, Result},
-    llm::{EmbeddingConfig, LlmUsageSummary, build_embedding_client},
-    papers::PaperText,
+    error::Result,
+    llm::{LlmUsageSummary, build_embedding_client},
     papers::taxonomy::{ReferenceExemplar, ReferenceLabelScore, TaxonomyReferenceEvidence},
+    papers::{
+        PaperText,
+        embedding_support::{
+            PaperDbEmbeddingAdapter, embedding_config_from_app, embedding_model_id,
+            map_paperdb_error, paper_input_from, usage_from_db_metrics,
+        },
+    },
     terminal::Verbosity,
     testsets::{CuratedPaper, CuratedTestSet, load_manifest_from_path},
 };
@@ -50,9 +50,9 @@ pub(crate) async fn collect_reference_evidence(
 
     let mut usage = LlmUsageSummary::default();
     let db = PaperDb::open_default().map_err(map_paperdb_error)?;
-    let model_id = embedding_model_id(config);
+    let model_id = embedding_model_id(config.embedding_provider, config.embedding_model.clone());
     let manifest = load_manifest_from_path(&config.reference_manifest_path)?;
-    let client = build_embedding_client(&embedding_config(config)?)?;
+    let client = build_embedding_client(&embedding_config_from_app(config)?)?;
     let adapter = PaperDbEmbeddingAdapter {
         inner: client.as_ref(),
     };
@@ -173,8 +173,8 @@ pub(crate) async fn index_reference_manifest(
     let reference_set = build_reference_set_input(&manifest, &manifest_path)?;
     let db_path = PaperDb::default_path().map_err(map_paperdb_error)?;
     let db = PaperDb::open(&db_path).map_err(map_paperdb_error)?;
-    let model_id = embedding_model_id(config);
-    let client = build_embedding_client(&embedding_config(config)?)?;
+    let model_id = embedding_model_id(config.embedding_provider, config.embedding_model.clone());
+    let client = build_embedding_client(&embedding_config_from_app(config)?)?;
     let adapter = PaperDbEmbeddingAdapter {
         inner: client.as_ref(),
     };
@@ -183,7 +183,7 @@ pub(crate) async fn index_reference_manifest(
         .await
         .map_err(map_paperdb_error)?;
 
-    usage_from_db_metrics(result.metrics.as_ref());
+    let _ = usage_from_db_metrics(result.metrics.as_ref());
     verbosity.stage_line(
         "reference-index",
         format!(
@@ -204,79 +204,6 @@ pub(crate) async fn index_reference_manifest(
         papers_indexed: result.papers_indexed,
         skipped: result.skipped,
     })
-}
-
-struct PaperDbEmbeddingAdapter<'a> {
-    inner: &'a dyn crate::llm::EmbeddingClient,
-}
-
-#[async_trait]
-impl DbEmbeddingClient for PaperDbEmbeddingAdapter<'_> {
-    async fn embed(&self, request: &DbEmbeddingRequest) -> paperdb::Result<DbEmbeddingResponse> {
-        let response = self
-            .inner
-            .embed(&crate::llm::EmbeddingRequest::from_texts(
-                request.inputs.clone(),
-            ))
-            .await
-            .map_err(|err| PaperDbError::Config(err.to_string()))?;
-        Ok(DbEmbeddingResponse {
-            embeddings: response
-                .embeddings
-                .into_iter()
-                .map(|vector| DbEmbeddingVector {
-                    values: vector.values,
-                })
-                .collect(),
-            metrics: DbEmbeddingCallMetrics {
-                provider: response.metrics.provider,
-                model: response.metrics.model,
-                endpoint_kind: response.metrics.endpoint_kind,
-                request_chars: response.metrics.request_chars,
-                response_chars: response.metrics.response_chars,
-                http_attempt_count: response.metrics.http_attempt_count,
-                json_retry_count: response.metrics.json_retry_count,
-                semantic_retry_count: response.metrics.semantic_retry_count,
-                input_tokens: response.metrics.input_tokens,
-                output_tokens: response.metrics.output_tokens,
-                total_tokens: response.metrics.total_tokens,
-            },
-        })
-    }
-}
-
-fn embedding_config(config: &AppConfig) -> Result<EmbeddingConfig> {
-    Ok(EmbeddingConfig {
-        provider: config.embedding_provider,
-        model: config.embedding_model.clone(),
-        base_url: config.embedding_base_url.clone(),
-        api_key: config.resolved_embedding_api_key()?,
-    })
-}
-
-fn embedding_model_id(config: &AppConfig) -> EmbeddingModelId {
-    EmbeddingModelId::new(
-        provider_name(config.embedding_provider),
-        config.embedding_model.clone(),
-    )
-}
-
-fn provider_name(provider: crate::llm::LlmProvider) -> &'static str {
-    match provider {
-        crate::llm::LlmProvider::Openai => "openai",
-        crate::llm::LlmProvider::Ollama => "ollama",
-        crate::llm::LlmProvider::Gemini => "gemini",
-    }
-}
-
-fn paper_input_from(paper: &PaperText) -> PaperInput {
-    PaperInput {
-        file_id: paper.file_id.clone(),
-        source_path: paper.path.clone(),
-        extracted_text: paper.extracted_text.clone(),
-        llm_ready_text: paper.llm_ready_text.clone(),
-        pages_read: paper.pages_read,
-    }
 }
 
 fn build_reference_set_input(
@@ -356,30 +283,4 @@ fn top_exemplars(exemplars: HashMap<String, ReferenceExemplar>) -> Vec<Reference
     });
     items.truncate(MAX_REFERENCE_EXEMPLARS);
     items
-}
-
-fn usage_from_db_metrics(metrics: Option<&DbEmbeddingCallMetrics>) -> LlmUsageSummary {
-    let Some(metrics) = metrics else {
-        return LlmUsageSummary::default();
-    };
-
-    let mut usage = LlmUsageSummary::default();
-    usage.record_call(&crate::llm::LlmCallMetrics {
-        provider: metrics.provider.clone(),
-        model: metrics.model.clone(),
-        endpoint_kind: metrics.endpoint_kind.clone(),
-        request_chars: metrics.request_chars,
-        response_chars: metrics.response_chars,
-        http_attempt_count: metrics.http_attempt_count,
-        json_retry_count: metrics.json_retry_count,
-        semantic_retry_count: metrics.semantic_retry_count,
-        input_tokens: metrics.input_tokens,
-        output_tokens: metrics.output_tokens,
-        total_tokens: metrics.total_tokens,
-    });
-    usage
-}
-
-fn map_paperdb_error(err: PaperDbError) -> AppError {
-    AppError::Execution(format!("paperdb error: {err}"))
 }

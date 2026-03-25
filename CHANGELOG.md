@@ -4,3 +4,4 @@
 - Switch the default Gemini embedding model to `gemini-embedding-2-preview` for embedding-guided taxonomy runs and generated config templates.
 - Add an ignored live Gemini embedding test so real API validation can be run explicitly without affecting the default test suite.
 - Add `docs/embedding_comparison.md` capturing the curated-set embedding-guided vs llm-only taxonomy diff and per-paper category changes with arXiv metadata.
+- Add embedding-primary placement assistance that builds DuckDB-backed category centroids from reference embeddings, uses LLM tie-breaks only for ambiguous files, and saves per-run placement evidence.

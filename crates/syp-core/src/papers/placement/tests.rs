@@ -12,7 +12,7 @@ use super::{
     },
     validation::{path_depth, validate_placements},
 };
-use super::{PlacementDecision, PlacementMode};
+use super::{PlacementAssistance, PlacementDecision, PlacementMode};
 use crate::{
     error::{AppError, Result},
     llm::{LlmCallMetrics, LlmClient, LlmResponse},
@@ -141,6 +141,26 @@ fn placement_prompt_uses_allowed_targets_without_extra_context() {
     assert!(!prompt.contains("\"Vision\""));
 }
 
+#[test]
+fn placement_prompt_includes_embedding_shortlist_rule_when_present() {
+    let prompt = build_placement_prompt(
+        &[serde_json::json!({
+            "file_id": "f1",
+            "file_name": "paper.pdf",
+            "keywords": ["vision"],
+            "preliminary_categories_k_depth": "Vision/Detection",
+            "embedding_ranked_targets": [
+                {"target_rel_path": "Vision/Detection", "similarity": 0.91}
+            ]
+        })],
+        &["Vision/Detection".to_string()],
+    )
+    .expect("prompt");
+
+    assert!(prompt.contains("embedding_ranked_targets"));
+    assert!(prompt.contains("primary candidate set"));
+}
+
 #[tokio::test]
 async fn generate_placements_batches_requests() {
     let client = Arc::new(StubLlmClient {
@@ -241,8 +261,10 @@ async fn generate_placements_batches_requests() {
         PlacementOptions {
             batch_size: 2,
             batch_start_delay_ms: 100,
+            assistance: PlacementAssistance::LlmOnly,
             placement_mode: PlacementMode::AllowNew,
             category_depth: 2,
+            embedding: None,
             verbosity: Verbosity::new(false, false, true),
         },
     )
@@ -356,8 +378,10 @@ async fn generate_placements_uses_stable_batch_order() {
         PlacementOptions {
             batch_size: 2,
             batch_start_delay_ms: 100,
+            assistance: PlacementAssistance::LlmOnly,
             placement_mode: PlacementMode::AllowNew,
             category_depth: 2,
+            embedding: None,
             verbosity: Verbosity::new(false, false, true),
         },
     )
@@ -461,6 +485,7 @@ async fn placement_resume_skips_saved_batches() {
                     target_rel_path: ".".to_string(),
                 },
             ],
+            evidence: Vec::new(),
             elapsed_ms: 10,
         }],
         usage: crate::llm::LlmUsageSummary {
@@ -469,7 +494,7 @@ async fn placement_resume_skips_saved_batches() {
         },
     };
 
-    let (placements, usage) = generate_placements_with_progress(
+    let result = generate_placements_with_progress(
         client.clone(),
         &papers,
         &keyword_sets,
@@ -479,8 +504,10 @@ async fn placement_resume_skips_saved_batches() {
         PlacementOptions {
             batch_size: 2,
             batch_start_delay_ms: 100,
+            assistance: PlacementAssistance::LlmOnly,
             placement_mode: PlacementMode::AllowNew,
             category_depth: 2,
+            embedding: None,
             verbosity: Verbosity::new(false, false, true),
         },
         saved_progress,
@@ -489,11 +516,11 @@ async fn placement_resume_skips_saved_batches() {
     .await
     .expect("placement resume should succeed");
 
-    assert_eq!(usage.call_count, 2);
-    assert_eq!(placements.len(), 3);
-    assert_eq!(placements[0].file_id, "f1");
-    assert_eq!(placements[1].file_id, "f2");
-    assert_eq!(placements[2].file_id, "f3");
+    assert_eq!(result.usage.call_count, 2);
+    assert_eq!(result.placements.len(), 3);
+    assert_eq!(result.placements[0].file_id, "f1");
+    assert_eq!(result.placements[1].file_id, "f2");
+    assert_eq!(result.placements[2].file_id, "f3");
     assert_eq!(*client.calls.lock().await, 1);
 }
 

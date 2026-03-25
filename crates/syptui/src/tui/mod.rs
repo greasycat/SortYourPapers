@@ -99,7 +99,7 @@ mod tests {
 
     use crate::{
         config::{ApiKeySource, AppConfig},
-        papers::placement::PlacementMode,
+        papers::placement::{PlacementAssistance, PlacementMode},
         papers::taxonomy::{CategoryTree, TaxonomyMode},
         report::{FileAction, PlanAction, RunReport},
         session::{
@@ -452,7 +452,13 @@ mod tests {
             reference_top_k: 5,
             use_current_folder_tree: true,
             placement_batch_size: 12,
+            placement_assistance: PlacementAssistance::LlmOnly,
             placement_mode: PlacementMode::AllowNew,
+            placement_reference_top_k: 5,
+            placement_candidate_top_k: 3,
+            placement_min_similarity: 0.20,
+            placement_min_margin: 0.05,
+            placement_min_reference_support: 2,
             rebuild: true,
             dry_run: false,
             llm_provider: crate::llm::LlmProvider::Openai,

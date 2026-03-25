@@ -4,7 +4,7 @@ use crate::{
     config::ApiKeySource,
     error::{AppError, Result},
     llm::LlmProvider,
-    papers::placement::PlacementMode,
+    papers::placement::{PlacementAssistance, PlacementMode},
     papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
 };
 
@@ -28,7 +28,13 @@ pub(super) fn env_config_from_process() -> Result<EnvConfig> {
         reference_top_k: parse_env_usize("SYP_REFERENCE_TOP_K")?,
         use_current_folder_tree: parse_env_bool("SYP_USE_CURRENT_FOLDER_TREE")?,
         placement_batch_size: parse_env_usize("SYP_PLACEMENT_BATCH_SIZE")?,
+        placement_assistance: parse_env_placement_assistance("SYP_PLACEMENT_ASSISTANCE")?,
         placement_mode: parse_env_placement_mode("SYP_PLACEMENT_MODE")?,
+        placement_reference_top_k: parse_env_usize("SYP_PLACEMENT_REFERENCE_TOP_K")?,
+        placement_candidate_top_k: parse_env_usize("SYP_PLACEMENT_CANDIDATE_TOP_K")?,
+        placement_min_similarity: parse_env_f32("SYP_PLACEMENT_MIN_SIMILARITY")?,
+        placement_min_margin: parse_env_f32("SYP_PLACEMENT_MIN_MARGIN")?,
+        placement_min_reference_support: parse_env_usize("SYP_PLACEMENT_MIN_REFERENCE_SUPPORT")?,
         rebuild: parse_env_bool("SYP_REBUILD")?,
         llm_provider: parse_env_provider("SYP_LLM_PROVIDER")?,
         llm_model: env::var("SYP_LLM_MODEL").ok(),
@@ -85,6 +91,16 @@ fn parse_env_usize(key: &str) -> Result<Option<usize>> {
     }
 }
 
+fn parse_env_f32(key: &str) -> Result<Option<f32>> {
+    match env::var(key) {
+        Ok(value) => value
+            .parse::<f32>()
+            .map(Some)
+            .map_err(|_| AppError::Config(format!("{key} must be a number"))),
+        Err(_) => Ok(None),
+    }
+}
+
 fn parse_env_provider(key: &str) -> Result<Option<LlmProvider>> {
     match env::var(key) {
         Ok(value) => match value.to_ascii_lowercase().as_str() {
@@ -132,6 +148,19 @@ fn parse_env_placement_mode(key: &str) -> Result<Option<PlacementMode>> {
             "allow-new" => Ok(Some(PlacementMode::AllowNew)),
             _ => Err(AppError::Config(format!(
                 "{key} must be one of: existing-only, allow-new"
+            ))),
+        },
+        Err(_) => Ok(None),
+    }
+}
+
+fn parse_env_placement_assistance(key: &str) -> Result<Option<PlacementAssistance>> {
+    match env::var(key) {
+        Ok(value) => match value.to_ascii_lowercase().as_str() {
+            "llm-only" => Ok(Some(PlacementAssistance::LlmOnly)),
+            "embedding-primary" => Ok(Some(PlacementAssistance::EmbeddingPrimary)),
+            _ => Err(AppError::Config(format!(
+                "{key} must be one of: llm-only, embedding-primary"
             ))),
         },
         Err(_) => Ok(None),

@@ -1,4 +1,5 @@
 pub mod discovery;
+pub(crate) mod embedding_support;
 pub mod extract;
 pub mod fs_ops;
 pub mod placement;

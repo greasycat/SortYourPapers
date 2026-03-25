@@ -14,8 +14,8 @@ use crate::{
     papers::fs_ops::{execute::execute_plan, planner::build_move_plan},
     papers::placement::PlacementDecision,
     papers::placement::{
-        OutputSnapshot, PlacementBatchProgress, PlacementOptions,
-        generate_placements_with_progress, inspect_output,
+        OutputSnapshot, PlacementAssistance, PlacementBatchProgress, PlacementEmbeddingOptions,
+        PlacementOptions, generate_placements_with_progress, inspect_output,
     },
     papers::taxonomy::{CategoryTree, merge_category_batches},
     papers::{KeywordSet, PreliminaryCategoryPair, SynthesizeCategoriesState},
@@ -27,6 +27,7 @@ use crate::{
 use super::runtime::{StagePlan, log_resume, log_stage, log_timing};
 
 const PLACEMENT_BATCH_PROGRESS_FILE: &str = "09-generate-placements-partial-batches.json";
+const PLACEMENT_EVIDENCE_FILE: &str = "09-placement-evidence.json";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct InspectReviewState {
@@ -200,9 +201,10 @@ pub(super) async fn generate_placements_stage(
         verbosity,
         "generate-placements",
         format!(
-            "placing {} paper(s) with mode {:?}",
+            "placing {} paper(s) with mode {:?} and assistance {:?}",
             extract_state.papers.len(),
-            config.placement_mode
+            config.placement_mode,
+            config.placement_assistance
         ),
     );
     let live_snapshot = inspect_output(Path::new(&config.output))?;
@@ -214,7 +216,24 @@ pub(super) async fn generate_placements_stage(
         report.llm_usage.placements = saved_progress.usage.clone();
         workspace.save_report(report)?;
     }
-    let (placements, usage) = generate_placements_with_progress(
+    let placement_embedding =
+        if config.placement_assistance == PlacementAssistance::EmbeddingPrimary {
+            Some(PlacementEmbeddingOptions {
+                reference_manifest_path: config.reference_manifest_path.clone(),
+                reference_top_k: config.placement_reference_top_k,
+                candidate_top_k: config.placement_candidate_top_k,
+                min_similarity: config.placement_min_similarity,
+                min_margin: config.placement_min_margin,
+                min_reference_support: config.placement_min_reference_support,
+                provider: config.embedding_provider,
+                model: config.embedding_model.clone(),
+                base_url: config.embedding_base_url.clone(),
+                api_key: config.resolved_embedding_api_key()?,
+            })
+        } else {
+            None
+        };
+    let result = generate_placements_with_progress(
         Arc::clone(require_llm_client(llm_client)?),
         &extract_state.papers,
         keyword_sets,
@@ -224,8 +243,10 @@ pub(super) async fn generate_placements_stage(
         PlacementOptions {
             batch_size: config.placement_batch_size,
             batch_start_delay_ms: config.batch_start_delay_ms,
+            assistance: config.placement_assistance,
             placement_mode: config.placement_mode,
             category_depth: config.category_depth,
+            embedding: placement_embedding,
             verbosity,
         },
         saved_progress,
@@ -236,17 +257,21 @@ pub(super) async fn generate_placements_stage(
         },
     )
     .await?;
-    report.llm_usage.placements = usage;
-    workspace.save_stage(RunStage::GeneratePlacements, &placements)?;
+    report.llm_usage.placements = result.usage.clone();
+    workspace.save_stage(RunStage::GeneratePlacements, &result.placements)?;
+    workspace.save_artifact(PLACEMENT_EVIDENCE_FILE, &result.evidence)?;
     workspace.remove_artifact(PLACEMENT_BATCH_PROGRESS_FILE)?;
     workspace.save_report(report)?;
     log_stage(
         verbosity,
         "generate-placements",
-        format!("generated {} placement decision(s)", placements.len()),
+        format!(
+            "generated {} placement decision(s)",
+            result.placements.len()
+        ),
     );
     log_timing(verbosity, "generate-placements", stage_started.elapsed());
-    Ok(placements)
+    Ok(result.placements)
 }
 
 pub(super) fn build_plan_stage(
@@ -382,7 +407,7 @@ mod tests {
         error::AppError,
         llm::{LlmProvider, LlmUsageSummary},
         papers::SynthesizeCategoriesState,
-        papers::placement::PlacementMode,
+        papers::placement::{PlacementAssistance, PlacementMode},
         papers::taxonomy::{CategoryTree, TaxonomyAssistance, TaxonomyMode},
         report::RunReport,
         session::{RunStage, RunWorkspace, runtime::StagePlan},
@@ -576,7 +601,13 @@ mod tests {
             reference_top_k: 5,
             use_current_folder_tree: false,
             placement_batch_size: 10,
+            placement_assistance: PlacementAssistance::LlmOnly,
             placement_mode: PlacementMode::ExistingOnly,
+            placement_reference_top_k: 5,
+            placement_candidate_top_k: 3,
+            placement_min_similarity: 0.20,
+            placement_min_margin: 0.05,
+            placement_min_reference_support: 2,
             rebuild: false,
             dry_run: true,
             llm_provider: LlmProvider::Gemini,
@@ -584,7 +615,7 @@ mod tests {
             llm_base_url: None,
             api_key: None,
             embedding_provider: LlmProvider::Gemini,
-            embedding_model: "text-embedding-004".to_string(),
+            embedding_model: "gemini-embedding-2-preview".to_string(),
             embedding_base_url: None,
             embedding_api_key: None,
             keyword_batch_size: 20,

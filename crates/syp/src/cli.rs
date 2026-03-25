@@ -6,7 +6,7 @@ use syp_core::{
     inputs::{ExtractTextRequest, RunOverrides},
     llm::LlmProvider,
     papers::extract::ExtractorMode,
-    papers::placement::PlacementMode,
+    papers::placement::{PlacementAssistance, PlacementMode},
     papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
     session::RunStage,
 };
@@ -178,8 +178,26 @@ pub struct CliArgs {
     #[arg(long)]
     pub placement_batch_size: Option<usize>,
 
+    #[arg(long)]
+    pub placement_assistance: Option<PlacementAssistance>,
+
     #[arg(short = 'M', long)]
     pub placement_mode: Option<PlacementMode>,
+
+    #[arg(long)]
+    pub placement_reference_top_k: Option<usize>,
+
+    #[arg(long)]
+    pub placement_candidate_top_k: Option<usize>,
+
+    #[arg(long)]
+    pub placement_min_similarity: Option<f32>,
+
+    #[arg(long)]
+    pub placement_min_margin: Option<f32>,
+
+    #[arg(long)]
+    pub placement_min_reference_support: Option<usize>,
 
     #[arg(short = 'R', long, num_args = 0..=1, default_missing_value = "true")]
     pub rebuild: Option<bool>,
@@ -253,7 +271,13 @@ impl CliArgs {
             reference_top_k: self.reference_top_k,
             use_current_folder_tree: self.use_current_folder_tree,
             placement_batch_size: self.placement_batch_size,
+            placement_assistance: self.placement_assistance,
             placement_mode: self.placement_mode,
+            placement_reference_top_k: self.placement_reference_top_k,
+            placement_candidate_top_k: self.placement_candidate_top_k,
+            placement_min_similarity: self.placement_min_similarity,
+            placement_min_margin: self.placement_min_margin,
+            placement_min_reference_support: self.placement_min_reference_support,
             rebuild: self.rebuild,
             apply: self.apply,
             llm_provider: self.llm_provider,

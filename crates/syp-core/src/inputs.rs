@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::{
     llm::LlmProvider,
     papers::extract::ExtractorMode,
-    papers::placement::PlacementMode,
+    papers::placement::{PlacementAssistance, PlacementMode},
     papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
 };
 
@@ -23,7 +23,13 @@ pub struct RunOverrides {
     pub reference_top_k: Option<usize>,
     pub use_current_folder_tree: Option<bool>,
     pub placement_batch_size: Option<usize>,
+    pub placement_assistance: Option<PlacementAssistance>,
     pub placement_mode: Option<PlacementMode>,
+    pub placement_reference_top_k: Option<usize>,
+    pub placement_candidate_top_k: Option<usize>,
+    pub placement_min_similarity: Option<f32>,
+    pub placement_min_margin: Option<f32>,
+    pub placement_min_reference_support: Option<usize>,
     pub rebuild: Option<bool>,
     pub apply: bool,
     pub llm_provider: Option<LlmProvider>,

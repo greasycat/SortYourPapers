@@ -6,10 +6,13 @@ use crate::{
         DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH, DEFAULT_GEMINI_EMBEDDING_MODEL,
         DEFAULT_INPUT, DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER,
         DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OPENAI_EMBEDDING_MODEL, DEFAULT_OUTPUT,
-        DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS, DEFAULT_PLACEMENT_BATCH_SIZE,
-        DEFAULT_REBUILD, DEFAULT_RECURSIVE, DEFAULT_REFERENCE_MANIFEST_PATH,
-        DEFAULT_REFERENCE_TOP_K, DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER,
-        DEFAULT_TAXONOMY_ASSISTANCE, DEFAULT_TAXONOMY_BATCH_SIZE, DEFAULT_USE_CURRENT_FOLDER_TREE,
+        DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS, DEFAULT_PLACEMENT_ASSISTANCE,
+        DEFAULT_PLACEMENT_BATCH_SIZE, DEFAULT_PLACEMENT_CANDIDATE_TOP_K,
+        DEFAULT_PLACEMENT_MIN_MARGIN, DEFAULT_PLACEMENT_MIN_REFERENCE_SUPPORT,
+        DEFAULT_PLACEMENT_MIN_SIMILARITY, DEFAULT_PLACEMENT_REFERENCE_TOP_K, DEFAULT_REBUILD,
+        DEFAULT_RECURSIVE, DEFAULT_REFERENCE_MANIFEST_PATH, DEFAULT_REFERENCE_TOP_K,
+        DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER, DEFAULT_TAXONOMY_ASSISTANCE,
+        DEFAULT_TAXONOMY_BATCH_SIZE, DEFAULT_USE_CURRENT_FOLDER_TREE,
     },
     error::{AppError, Result},
     inputs::RunOverrides,
@@ -108,11 +111,47 @@ pub(super) fn resolve_from_sources(
         .or(file_cfg.placement_batch_size)
         .unwrap_or(DEFAULT_PLACEMENT_BATCH_SIZE);
 
+    let placement_assistance = cli
+        .placement_assistance
+        .or(env_cfg.placement_assistance)
+        .or(file_cfg.placement_assistance)
+        .unwrap_or(DEFAULT_PLACEMENT_ASSISTANCE);
+
     let placement_mode = cli
         .placement_mode
         .or(env_cfg.placement_mode)
         .or(file_cfg.placement_mode)
         .unwrap_or_default();
+
+    let placement_reference_top_k = cli
+        .placement_reference_top_k
+        .or(env_cfg.placement_reference_top_k)
+        .or(file_cfg.placement_reference_top_k)
+        .unwrap_or(DEFAULT_PLACEMENT_REFERENCE_TOP_K);
+
+    let placement_candidate_top_k = cli
+        .placement_candidate_top_k
+        .or(env_cfg.placement_candidate_top_k)
+        .or(file_cfg.placement_candidate_top_k)
+        .unwrap_or(DEFAULT_PLACEMENT_CANDIDATE_TOP_K);
+
+    let placement_min_similarity = cli
+        .placement_min_similarity
+        .or(env_cfg.placement_min_similarity)
+        .or(file_cfg.placement_min_similarity)
+        .unwrap_or(DEFAULT_PLACEMENT_MIN_SIMILARITY);
+
+    let placement_min_margin = cli
+        .placement_min_margin
+        .or(env_cfg.placement_min_margin)
+        .or(file_cfg.placement_min_margin)
+        .unwrap_or(DEFAULT_PLACEMENT_MIN_MARGIN);
+
+    let placement_min_reference_support = cli
+        .placement_min_reference_support
+        .or(env_cfg.placement_min_reference_support)
+        .or(file_cfg.placement_min_reference_support)
+        .unwrap_or(DEFAULT_PLACEMENT_MIN_REFERENCE_SUPPORT);
 
     let rebuild = cli
         .rebuild
@@ -191,11 +230,19 @@ pub(super) fn resolve_from_sources(
     validate_non_zero("taxonomy_batch_size", &taxonomy_batch_size)?;
     validate_non_zero("reference_top_k", &reference_top_k)?;
     validate_non_zero("placement_batch_size", &placement_batch_size)?;
+    validate_non_zero("placement_reference_top_k", &placement_reference_top_k)?;
+    validate_non_zero("placement_candidate_top_k", &placement_candidate_top_k)?;
+    validate_non_zero(
+        "placement_min_reference_support",
+        &placement_min_reference_support,
+    )?;
     validate_non_zero("keyword_batch_size", &keyword_batch_size)?;
     validate_non_zero(
         "subcategories_suggestion_number",
         &subcategories_suggestion_number,
     )?;
+    validate_non_negative_f32("placement_min_similarity", placement_min_similarity)?;
+    validate_non_negative_f32("placement_min_margin", placement_min_margin)?;
 
     Ok(AppConfig {
         input,
@@ -212,7 +259,13 @@ pub(super) fn resolve_from_sources(
         reference_top_k,
         use_current_folder_tree,
         placement_batch_size,
+        placement_assistance,
         placement_mode,
+        placement_reference_top_k,
+        placement_candidate_top_k,
+        placement_min_similarity,
+        placement_min_margin,
+        placement_min_reference_support,
         rebuild,
         dry_run,
         llm_provider,
@@ -239,6 +292,15 @@ where
     if *value == T::from(0) {
         return Err(AppError::Validation(format!(
             "{name} must be greater than 0"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_non_negative_f32(name: &str, value: f32) -> Result<()> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(AppError::Validation(format!(
+            "{name} must be a finite number greater than or equal to 0"
         )));
     }
     Ok(())

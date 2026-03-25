@@ -176,6 +176,7 @@ pub struct ReferenceMatchRecord {
     pub category: String,
     pub subcategory: String,
     pub abstract_excerpt: String,
+    pub embedding: Vec<f32>,
     pub similarity: f32,
 }
 
@@ -649,6 +650,7 @@ impl PaperDb {
                 category: row.get(3)?,
                 subcategory: row.get(4)?,
                 abstract_excerpt: row.get(5)?,
+                embedding,
                 similarity,
             });
         }

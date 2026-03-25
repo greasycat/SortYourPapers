@@ -13,7 +13,7 @@ use super::{
 use crate::{
     inputs::RunOverrides,
     llm::LlmProvider,
-    papers::placement::PlacementMode,
+    papers::placement::{PlacementAssistance, PlacementMode},
     papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
 };
 
@@ -34,7 +34,13 @@ fn overrides_beat_env_and_file_sources() {
         reference_top_k: Some(7),
         use_current_folder_tree: Some(true),
         placement_batch_size: Some(14),
+        placement_assistance: Some(PlacementAssistance::EmbeddingPrimary),
         placement_mode: Some(PlacementMode::AllowNew),
+        placement_reference_top_k: Some(11),
+        placement_candidate_top_k: Some(4),
+        placement_min_similarity: Some(0.31),
+        placement_min_margin: Some(0.09),
+        placement_min_reference_support: Some(3),
         rebuild: Some(true),
         apply: true,
         llm_provider: Some(LlmProvider::Openai),
@@ -70,7 +76,13 @@ fn overrides_beat_env_and_file_sources() {
         reference_top_k: Some(6),
         use_current_folder_tree: Some(false),
         placement_batch_size: Some(18),
+        placement_assistance: Some(PlacementAssistance::LlmOnly),
         placement_mode: Some(PlacementMode::ExistingOnly),
+        placement_reference_top_k: Some(8),
+        placement_candidate_top_k: Some(5),
+        placement_min_similarity: Some(0.28),
+        placement_min_margin: Some(0.07),
+        placement_min_reference_support: Some(4),
         rebuild: Some(false),
         llm_provider: Some(LlmProvider::Ollama),
         llm_model: Some("env-model".to_string()),
@@ -100,7 +112,13 @@ fn overrides_beat_env_and_file_sources() {
         reference_top_k: Some(5),
         use_current_folder_tree: Some(false),
         placement_batch_size: Some(16),
+        placement_assistance: Some(PlacementAssistance::LlmOnly),
         placement_mode: Some(PlacementMode::ExistingOnly),
+        placement_reference_top_k: Some(7),
+        placement_candidate_top_k: Some(3),
+        placement_min_similarity: Some(0.25),
+        placement_min_margin: Some(0.06),
+        placement_min_reference_support: Some(2),
         rebuild: Some(false),
         llm_provider: Some(LlmProvider::Ollama),
         llm_model: Some("file-model".to_string()),
@@ -133,7 +151,16 @@ fn overrides_beat_env_and_file_sources() {
     assert_eq!(cfg.reference_top_k, 7);
     assert!(cfg.use_current_folder_tree);
     assert_eq!(cfg.placement_batch_size, 14);
+    assert_eq!(
+        cfg.placement_assistance,
+        PlacementAssistance::EmbeddingPrimary
+    );
     assert_eq!(cfg.placement_mode, PlacementMode::AllowNew);
+    assert_eq!(cfg.placement_reference_top_k, 11);
+    assert_eq!(cfg.placement_candidate_top_k, 4);
+    assert_eq!(cfg.placement_min_similarity, 0.31);
+    assert_eq!(cfg.placement_min_margin, 0.09);
+    assert_eq!(cfg.placement_min_reference_support, 3);
     assert!(cfg.rebuild);
     assert!(!cfg.dry_run);
     assert_eq!(cfg.llm_provider, LlmProvider::Openai);
@@ -179,6 +206,12 @@ fn defaults_to_gemini_when_no_sources_provide_values() {
     assert_eq!(cfg.taxonomy_batch_size, 4);
     assert!(!cfg.use_current_folder_tree);
     assert_eq!(cfg.placement_batch_size, 10);
+    assert_eq!(cfg.placement_assistance, PlacementAssistance::LlmOnly);
+    assert_eq!(cfg.placement_reference_top_k, 5);
+    assert_eq!(cfg.placement_candidate_top_k, 3);
+    assert_eq!(cfg.placement_min_similarity, 0.20);
+    assert_eq!(cfg.placement_min_margin, 0.05);
+    assert_eq!(cfg.placement_min_reference_support, 2);
     assert_eq!(cfg.keyword_batch_size, 20);
     assert_eq!(cfg.embedding_provider, LlmProvider::Gemini);
     assert_eq!(cfg.embedding_model, "gemini-embedding-2-preview");
@@ -222,7 +255,13 @@ fn save_writes_current_config_values() {
         reference_top_k: 8,
         use_current_folder_tree: true,
         placement_batch_size: 11,
+        placement_assistance: PlacementAssistance::EmbeddingPrimary,
         placement_mode: PlacementMode::AllowNew,
+        placement_reference_top_k: 9,
+        placement_candidate_top_k: 4,
+        placement_min_similarity: 0.22,
+        placement_min_margin: 0.04,
+        placement_min_reference_support: 3,
         rebuild: true,
         dry_run: false,
         llm_provider: LlmProvider::Openai,
@@ -246,6 +285,7 @@ fn save_writes_current_config_values() {
     let raw = fs::read_to_string(path).expect("read config");
     assert!(raw.contains("SortYourPapers saved configuration"));
     assert!(raw.contains("placement_mode = \"allow-new\""));
+    assert!(raw.contains("placement_assistance = \"embedding-primary\""));
     assert!(raw.contains("llm_provider = \"openai\""));
     assert!(raw.contains("taxonomy_assistance = \"embedding-guided\""));
     assert!(raw.contains("embedding_model = \"text-embedding-3-small\""));
@@ -323,7 +363,13 @@ fn sample_config(api_key: Option<ApiKeySource>) -> AppConfig {
         reference_top_k: 5,
         use_current_folder_tree: false,
         placement_batch_size: 10,
+        placement_assistance: PlacementAssistance::LlmOnly,
         placement_mode: PlacementMode::ExistingOnly,
+        placement_reference_top_k: 5,
+        placement_candidate_top_k: 3,
+        placement_min_similarity: 0.20,
+        placement_min_margin: 0.05,
+        placement_min_reference_support: 2,
         rebuild: false,
         dry_run: true,
         llm_provider: LlmProvider::Gemini,

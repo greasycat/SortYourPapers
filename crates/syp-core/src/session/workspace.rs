@@ -786,7 +786,7 @@ mod tests {
     };
     use crate::config::{ApiKeySource, AppConfig};
     use crate::llm::LlmProvider;
-    use crate::papers::placement::PlacementMode;
+    use crate::papers::placement::{PlacementAssistance, PlacementMode};
     use crate::papers::taxonomy::{
         CategoryTree, KeywordBatchProgress, TaxonomyAssistance, TaxonomyMode,
     };
@@ -809,7 +809,13 @@ mod tests {
             reference_top_k: 5,
             use_current_folder_tree: false,
             placement_batch_size: 25,
+            placement_assistance: PlacementAssistance::LlmOnly,
             placement_mode: PlacementMode::ExistingOnly,
+            placement_reference_top_k: 5,
+            placement_candidate_top_k: 3,
+            placement_min_similarity: 0.20,
+            placement_min_margin: 0.05,
+            placement_min_reference_support: 2,
             rebuild: false,
             dry_run: true,
             llm_provider: LlmProvider::Gemini,
@@ -817,7 +823,7 @@ mod tests {
             llm_base_url: None,
             api_key: Some(ApiKeySource::Text("secret".to_string())),
             embedding_provider: LlmProvider::Gemini,
-            embedding_model: "text-embedding-004".to_string(),
+            embedding_model: "gemini-embedding-2-preview".to_string(),
             embedding_base_url: None,
             embedding_api_key: None,
             keyword_batch_size: 50,

@@ -49,8 +49,14 @@ pub(super) fn build_placement_prompt(
     file_context: &[Value],
     allowed_targets: &[String],
 ) -> Result<String> {
+    let embedding_guidance_rule = if file_context.iter().any(file_has_embedding_guidance) {
+        "\n- if a file includes embedding_ranked_targets, use that shortlist as the primary candidate set for that file\n- prefer the highest-similarity embedding_ranked_targets entry unless the file metadata clearly supports another candidate in the same shortlist"
+    } else {
+        ""
+    };
+
     Ok(format!(
-        "Return JSON with schema:\n{{\"placements\":[{{\"file_id\":\"...\",\"target_rel_path\":\"...\"}}]}}\nRules:\n- exactly one placement per file\n- choose the best final subcategory using each file's keywords and preliminary_categories_k_depth text\n- target_rel_path must be one of allowed_targets\n- target_rel_path must be a relative directory path (no file name)\n- no markdown\n\nallowed_targets:\n{}\n\nfiles:\n{}",
+        "Return JSON with schema:\n{{\"placements\":[{{\"file_id\":\"...\",\"target_rel_path\":\"...\"}}]}}\nRules:\n- exactly one placement per file\n- choose the best final subcategory using each file's keywords and preliminary_categories_k_depth text\n- target_rel_path must be one of allowed_targets\n- target_rel_path must be a relative directory path (no file name)\n- no markdown{embedding_guidance_rule}\n\nallowed_targets:\n{}\n\nfiles:\n{}",
         serde_json::to_string(allowed_targets).map_err(AppError::from)?,
         serde_json::to_string(file_context).map_err(AppError::from)?,
     ))
@@ -113,4 +119,9 @@ fn collect_category_paths(
     for child in &category.children {
         collect_category_paths(child, &path, current_depth + 1, max_depth, allowed);
     }
+}
+
+fn file_has_embedding_guidance(file: &Value) -> bool {
+    file.get("embedding_ranked_targets")
+        .is_some_and(|value| value.is_array())
 }
