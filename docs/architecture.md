@@ -5,7 +5,7 @@ This document is a repo-structure reference for the current codebase. It reflect
 ## Repository Layout
 - `assets/papers/`: sample PDFs used for local runs and manual testing.
 - `assets/testsets/`: committed test-set manifests for fetched paper corpora.
-- `crates/paperdb/`: DuckDB-backed paper and embedding storage crate.
+- `crates/paper-db/`: DuckDB-backed paper and embedding storage crate.
 - `python/`: `uv`-managed maintainer tooling for SciJudgeBench sampling and arXiv PDF materialization.
 - `crates/syp-core/`: shared library crate.
 - `crates/syp/`: batch CLI crate for the `syp` binary.
@@ -22,7 +22,7 @@ This document is a repo-structure reference for the current codebase. It reflect
 ## Top-Level Source Modules
 - `crates/syp/src/cli.rs`: clap argument types for the batch CLI, including run arguments, session commands, and `extract-text`.
 - `crates/syp/src/entrypoints.rs`: CLI dispatch and top-level error hint printing.
-- `crates/paperdb/src/lib.rs`: DuckDB schema bootstrap, paper upserts, and embedding-sync APIs.
+- `crates/paper-db/src/lib.rs`: DuckDB schema bootstrap, paper upserts, and embedding-sync APIs.
 - `python/src/syp_paperfetch/`: SciJudgeBench catalog loading through Hugging Face Hub, deterministic sampling, manifest I/O, and arXiv PDF materialization.
 - `crates/syp-core/src/error.rs`: application error types and shared result aliases.
 - `crates/syp-core/src/report.rs`: final run report structures and file action summaries.

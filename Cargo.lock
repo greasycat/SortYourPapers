@@ -1881,7 +1881,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
-name = "paperdb"
+name = "paper-db"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -2873,7 +2873,7 @@ dependencies = [
  "clap",
  "directories",
  "indicatif",
- "paperdb",
+ "paper-db",
  "pdf_oxide",
  "reqwest",
  "serde",

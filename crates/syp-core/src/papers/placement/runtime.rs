@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use paperdb::{PaperDb, ReferenceMatchRecord, ReferencePaperInput, ReferenceSetInput};
+use paper_db::{PaperDb, ReferenceMatchRecord, ReferencePaperInput, ReferenceSetInput};
 use serde::Deserialize;
 use serde_json::{Value, json};
 

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/syp-core", "crates/syp", "crates/syptui", "crates/paperdb"]
+members = ["crates/syp-core", "crates/syp", "crates/syptui", "crates/paper-db"]
 default-members = ["crates/syp", "crates/syptui"]
 resolver = "3"
 
