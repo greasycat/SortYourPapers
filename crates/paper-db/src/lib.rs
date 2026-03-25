@@ -13,23 +13,23 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, PaperDbError>;
 
-const DEFAULT_DB_FILE: &str = "paperdb.duckdb";
+const DEFAULT_DB_FILE: &str = "paper-db.duckdb";
 
 #[derive(Debug, Error)]
 pub enum PaperDbError {
-    #[error("paperdb configuration error: {0}")]
+    #[error("paper-db configuration error: {0}")]
     Config(String),
 
-    #[error("paperdb validation error: {0}")]
+    #[error("paper-db validation error: {0}")]
     Validation(String),
 
-    #[error("paperdb storage error: {0}")]
+    #[error("paper-db storage error: {0}")]
     Storage(#[from] duckdb::Error),
 
-    #[error("paperdb io error: {0}")]
+    #[error("paper-db io error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("paperdb json error: {0}")]
+    #[error("paper-db json error: {0}")]
     Json(#[from] serde_json::Error),
 }
 
@@ -853,7 +853,7 @@ mod tests {
     #[test]
     fn upsert_paper_persists_round_trip_record() {
         let dir = tempdir().expect("tempdir");
-        let db = PaperDb::open(dir.path().join("paperdb.duckdb")).expect("open db");
+        let db = PaperDb::open(dir.path().join("paper-db.duckdb")).expect("open db");
         let paper = sample_paper("embedding ready");
 
         let stored = db.upsert_paper(&paper).expect("upsert paper");
@@ -871,7 +871,7 @@ mod tests {
     #[tokio::test]
     async fn sync_embeddings_is_idempotent_for_unchanged_text() {
         let dir = tempdir().expect("tempdir");
-        let db = PaperDb::open(dir.path().join("paperdb.duckdb")).expect("open db");
+        let db = PaperDb::open(dir.path().join("paper-db.duckdb")).expect("open db");
         let paper = sample_paper("embedding ready");
         let client = StubEmbeddingClient::default();
         let model_id = sample_model_id();
@@ -900,7 +900,7 @@ mod tests {
     #[tokio::test]
     async fn sync_embeddings_rewrites_stale_rows_when_text_changes() {
         let dir = tempdir().expect("tempdir");
-        let db = PaperDb::open(dir.path().join("paperdb.duckdb")).expect("open db");
+        let db = PaperDb::open(dir.path().join("paper-db.duckdb")).expect("open db");
         let client = StubEmbeddingClient::default();
         let model_id = sample_model_id();
         let original = sample_paper("first text");
@@ -924,7 +924,7 @@ mod tests {
     #[tokio::test]
     async fn sync_reference_set_skips_unchanged_manifest() {
         let dir = tempdir().expect("tempdir");
-        let db = PaperDb::open(dir.path().join("paperdb.duckdb")).expect("open db");
+        let db = PaperDb::open(dir.path().join("paper-db.duckdb")).expect("open db");
         let client = StubEmbeddingClient::default();
         let model_id = sample_model_id();
         let reference_set = ReferenceSetInput {
@@ -958,7 +958,7 @@ mod tests {
     #[tokio::test]
     async fn nearest_reference_matches_returns_top_cosine_hits() {
         let dir = tempdir().expect("tempdir");
-        let db = PaperDb::open(dir.path().join("paperdb.duckdb")).expect("open db");
+        let db = PaperDb::open(dir.path().join("paper-db.duckdb")).expect("open db");
         let client = StubEmbeddingClient::default();
         let model_id = sample_model_id();
         let reference_set = ReferenceSetInput {

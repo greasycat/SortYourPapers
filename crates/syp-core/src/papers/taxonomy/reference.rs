@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use paperdb::{PaperDb, ReferencePaperInput, ReferenceSetInput};
+use paper_db::{PaperDb, ReferencePaperInput, ReferenceSetInput};
 
 use crate::{
     config::AppConfig,

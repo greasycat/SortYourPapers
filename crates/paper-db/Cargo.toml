@@ -1,5 +1,5 @@
 [package]
-name = "paperdb"
+name = "paper-db"
 version.workspace = true
 edition.workspace = true
 

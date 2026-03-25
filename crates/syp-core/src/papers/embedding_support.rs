@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use paperdb::{
+use paper_db::{
     EmbeddingCallMetrics as DbEmbeddingCallMetrics, EmbeddingClient as DbEmbeddingClient,
     EmbeddingModelId, EmbeddingRequest as DbEmbeddingRequest,
     EmbeddingResponse as DbEmbeddingResponse, EmbeddingVector as DbEmbeddingVector, PaperDbError,
@@ -18,7 +18,7 @@ pub(crate) struct PaperDbEmbeddingAdapter<'a> {
 
 #[async_trait]
 impl DbEmbeddingClient for PaperDbEmbeddingAdapter<'_> {
-    async fn embed(&self, request: &DbEmbeddingRequest) -> paperdb::Result<DbEmbeddingResponse> {
+    async fn embed(&self, request: &DbEmbeddingRequest) -> paper_db::Result<DbEmbeddingResponse> {
         let response = self
             .inner
             .embed(&crate::llm::EmbeddingRequest::from_texts(
@@ -109,7 +109,7 @@ pub(crate) fn usage_from_db_metrics(metrics: Option<&DbEmbeddingCallMetrics>) ->
 }
 
 pub(crate) fn map_paperdb_error(err: PaperDbError) -> AppError {
-    AppError::Execution(format!("paperdb error: {err}"))
+    AppError::Execution(format!("paper-db error: {err}"))
 }
 
 fn provider_name(provider: LlmProvider) -> &'static str {
