@@ -6,3 +6,4 @@
 - Add `docs/embedding_comparison.md` capturing the curated-set embedding-guided vs llm-only taxonomy diff and per-paper category changes with arXiv metadata.
 - Add embedding-primary placement assistance that builds DuckDB-backed category centroids from reference embeddings, uses LLM tie-breaks only for ambiguous files, and saves per-run placement evidence.
 - Rename the DuckDB storage crate from `paperdb` to `paper-db`, update workspace/dependency references, and switch the default database filename to `paper-db.duckdb`.
+- Add `Tomorrow.md` with a maintainers' refactor plan for decoupling `syp-core`, shrinking oversized modules, and evolving the app toward a scalable library-centered LLM and embedding platform.
