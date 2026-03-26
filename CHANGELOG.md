@@ -1,3 +1,4 @@
+- Split `syp-core::app`, `syp-core::session::commands`, and `syptui::tui::forms::run_form` into focused submodules so the largest remaining control-flow and TUI configuration files stop accumulating unrelated responsibilities ahead of the broader Tomorrow.md architecture extraction.
 - Remove volatile local run IDs and reference DB path details from `docs/embedding_comparison.md` so the comparison stays useful across machines and reruns without baking in host-specific values.
 - Split `syp-core` session workspace internals into `types`, `paths`, `store`, `queries`, and `cleanup` modules so run persistence, inspection, and deletion logic can evolve independently without changing current CLI or TUI behavior.
 - Add an embedding-guided taxonomy path backed by DuckDB reference indexing, nearest-label retrieval, dedicated embedding config, and the new `syp reference index` command.
