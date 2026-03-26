@@ -4,21 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-async-trait.workspace = true
-chrono.workspace = true
-clap.workspace = true
-directories.workspace = true
-indicatif.workspace = true
-paper-db = { path = "../paper-db" }
-pdf_oxide.workspace = true
-reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-tokio.workspace = true
-toml.workspace = true
-walkdir.workspace = true
+syp-ai = { path = "../syp-ai" }
+syp-library = { path = "../syp-library" }
+syp-workflow = { path = "../syp-workflow" }
 
 [dev-dependencies]
-tempfile.workspace = true

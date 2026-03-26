@@ -1,0 +1,23 @@
+[package]
+name = "syp-library"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+clap.workspace = true
+directories.workspace = true
+indicatif.workspace = true
+paper-db = { path = "../paper-db" }
+pdf_oxide.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+syp-ai = { path = "../syp-ai" }
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
