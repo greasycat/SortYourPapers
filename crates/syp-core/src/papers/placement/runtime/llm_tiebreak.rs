@@ -19,7 +19,10 @@ pub(super) async fn generate_tiebreak_placement(
         )));
     }
 
-    let file_context = vec![add_embedding_candidates_to_context(base_context, top_candidates)];
+    let file_context = vec![add_embedding_candidates_to_context(
+        base_context,
+        top_candidates,
+    )];
     let base_user = build_placement_prompt(&file_context, &allowed_targets)?;
     let mut user = base_user.clone();
     let mut last_issue = String::new();
@@ -40,17 +43,23 @@ pub(super) async fn generate_tiebreak_placement(
         let schema = placement_response_schema();
         let mut response: crate::llm::ParsedLlmResponse<PlacementResponse> =
             call_json_with_retry(client, system, &user, &schema, MAX_JSON_ATTEMPTS).await?;
-        if let Some(issue) = validate_tiebreak_response(&response.value.placements, paper, &allowed_targets)
+        if let Some(issue) =
+            validate_tiebreak_response(&response.value.placements, paper, &allowed_targets)
         {
             last_issue = issue;
         } else {
             usage.record_call(&response.metrics);
-            let placement = response.value.placements.into_iter().next().ok_or_else(|| {
-                AppError::Validation(format!(
-                    "missing placement decision for {}",
-                    paper.file_id
-                ))
-            })?;
+            let placement = response
+                .value
+                .placements
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    AppError::Validation(format!(
+                        "missing placement decision for {}",
+                        paper.file_id
+                    ))
+                })?;
             return Ok((placement, usage));
         }
 

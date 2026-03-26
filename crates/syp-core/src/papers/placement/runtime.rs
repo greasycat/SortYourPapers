@@ -251,26 +251,30 @@ where
                 batch.batch_index, runtime.total_batches, batch_span
             ),
         );
-        let (placements, batch_usage, evidence) =
-            match engine::generate_placement_batch(client.as_ref(), batch, &runtime, embedding_runtime.as_ref())
-                .await
-            {
-                Ok(result) => result,
-                Err(err) => {
-                    runtime.options.verbosity.error_line(
-                        "PLACEMENTS",
-                        format!(
-                            "batch {}/{} failed after {} {}: {}",
-                            batch.batch_index,
-                            runtime.total_batches,
-                            format_duration(started_at.elapsed()),
-                            batch_span,
-                            err
-                        ),
-                    );
-                    return Err(err);
-                }
-            };
+        let (placements, batch_usage, evidence) = match engine::generate_placement_batch(
+            client.as_ref(),
+            batch,
+            &runtime,
+            embedding_runtime.as_ref(),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(err) => {
+                runtime.options.verbosity.error_line(
+                    "PLACEMENTS",
+                    format!(
+                        "batch {}/{} failed after {} {}: {}",
+                        batch.batch_index,
+                        runtime.total_batches,
+                        format_duration(started_at.elapsed()),
+                        batch_span,
+                        err
+                    ),
+                );
+                return Err(err);
+            }
+        };
         let elapsed = started_at.elapsed();
         runtime.options.verbosity.success_line(
             "PLACEMENTS",

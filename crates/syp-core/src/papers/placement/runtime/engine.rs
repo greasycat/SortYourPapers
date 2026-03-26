@@ -149,9 +149,14 @@ async fn generate_embedding_primary_batch(
             continue;
         }
 
-        let (placement, tie_break_usage) =
-            llm_tiebreak::generate_tiebreak_placement(client, paper, base_context, &top_candidates, runtime)
-                .await?;
+        let (placement, tie_break_usage) = llm_tiebreak::generate_tiebreak_placement(
+            client,
+            paper,
+            base_context,
+            &top_candidates,
+            runtime,
+        )
+        .await?;
         usage.merge(&tie_break_usage);
         placements.push(placement.clone());
         evidence.push(PaperPlacementEvidence {
