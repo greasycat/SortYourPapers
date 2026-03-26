@@ -1,3 +1,4 @@
+- Remove volatile local run IDs and reference DB path details from `docs/embedding_comparison.md` so the comparison stays useful across machines and reruns without baking in host-specific values.
 - Split `syp-core` session workspace internals into `types`, `paths`, `store`, `queries`, and `cleanup` modules so run persistence, inspection, and deletion logic can evolve independently without changing current CLI or TUI behavior.
 - Add an embedding-guided taxonomy path backed by DuckDB reference indexing, nearest-label retrieval, dedicated embedding config, and the new `syp reference index` command.
 - Add a shared `dev.toml` test-set cache root so Python materialization and Rust manifest/state readers use the same repo-relative PDF and metadata cache.

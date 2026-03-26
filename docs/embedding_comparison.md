@@ -2,9 +2,6 @@
 
 This document compares two dry-run taxonomy/placement passes over the curated `scijudgebench-diverse` test set.
 
-- Embedding-guided run: `run-1262478-1774397271681`
-- LLM-only run: `run-1263307-1774397508098`
-- Reference DB: `~/.local/share/sortyourpapers/paperdb.duckdb`
 - Reference evidence present in embedding-guided run: `yes`
 - Reference evidence present in llm-only run: `no`
 - Final taxonomy path count: embedding-guided `21`, llm-only `36`
