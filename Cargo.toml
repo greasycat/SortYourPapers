@@ -1,5 +1,13 @@
 [workspace]
-members = ["crates/syp-core", "crates/syp", "crates/syptui", "crates/paper-db"]
+members = [
+    "crates/syp-ai",
+    "crates/syp-library",
+    "crates/syp-workflow",
+    "crates/syp-core",
+    "crates/syp",
+    "crates/syptui",
+    "crates/paper-db",
+]
 default-members = ["crates/syp", "crates/syptui"]
 resolver = "3"
 

@@ -1,10 +1,9 @@
 use std::sync::mpsc::{self, Sender};
 
 use crate::{
-    error::{AppError, Result},
     papers::taxonomy::CategoryTree,
     report::RunReport,
-    terminal::{AlertSeverity, InspectReviewPrompt, TerminalBackend, Verbosity},
+    terminal::{AlertSeverity, AppError, InspectReviewPrompt, Result, TerminalBackend, Verbosity},
 };
 
 #[derive(Debug)]

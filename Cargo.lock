@@ -2864,20 +2864,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "syp-ai"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "syp-core"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "syp-ai",
+ "syp-library",
+ "syp-workflow",
+]
+
+[[package]]
+name = "syp-library"
+version = "0.1.0"
+dependencies = [
  "async-trait",
- "chrono",
  "clap",
  "directories",
  "indicatif",
  "paper-db",
  "pdf_oxide",
+ "serde",
+ "serde_json",
+ "syp-ai",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "walkdir",
+]
+
+[[package]]
+name = "syp-workflow"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "directories",
  "reqwest",
  "serde",
  "serde_json",
+ "syp-ai",
+ "syp-library",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
