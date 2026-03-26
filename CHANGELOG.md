@@ -1,3 +1,4 @@
+- Move the oversized `syptui::tui::mod` test suite into `syptui::tui::tests` so the main TUI module now stays focused on bootstrap and event-loop runtime logic as planned in `Tomorrow.md`.
 - Extract reusable AI, library-domain, and workflow logic into new `syp-ai`, `syp-library`, and `syp-workflow` crates, and reduce `syp-core` to a compatibility facade that keeps the existing CLI and TUI import surface stable while the architecture shifts under it.
 - Reflow the split placement runtime call sites and validation branches so the post-extraction `syp-core` placement modules stay consistently formatted before larger crate-boundary moves build on them.
 - Split `syptui::tui::render` into `header`, `home`, `extract`, `operation`, `overlay`, `review`, and shared `layout` modules so screen-specific drawing logic stops sharing one 1,200-line file while preserving the current TUI flow and test surface.
