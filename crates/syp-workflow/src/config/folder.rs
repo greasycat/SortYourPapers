@@ -18,6 +18,44 @@ use crate::{
     llm::LlmProvider,
 };
 
+/// The settings `syp watch init` writes into a watch folder.
+///
+/// Deliberately the short list a folder actually needs; everything else keeps
+/// coming from the XDG config and the built-in defaults.
+#[derive(Debug, Clone)]
+pub struct WatchSettings {
+    pub output: PathBuf,
+    pub recursive: bool,
+    pub llm_provider: LlmProvider,
+    pub llm_model: String,
+    /// Environment variable holding the API key, or `None` to leave the key to
+    /// the environment and the XDG config.
+    pub api_key_env: Option<String>,
+}
+
+impl WatchSettings {
+    #[must_use]
+    pub fn defaults_for(folder: &Path) -> Self {
+        Self {
+            output: default_watch_output(folder),
+            recursive: DEFAULT_RECURSIVE,
+            llm_provider: DEFAULT_LLM_PROVIDER,
+            llm_model: DEFAULT_LLM_MODEL.to_string(),
+            api_key_env: None,
+        }
+    }
+}
+
+/// Conventional environment variable holding each provider's API key.
+#[must_use]
+pub fn default_api_key_env(provider: LlmProvider) -> Option<&'static str> {
+    match provider {
+        LlmProvider::Openai => Some("OPENAI_API_KEY"),
+        LlmProvider::Gemini => Some("GEMINI_API_KEY"),
+        LlmProvider::Ollama => None,
+    }
+}
+
 /// Name of the per-folder config file, written by `syp watch init`.
 pub const WATCH_CONFIG_FILE: &str = "syp.toml";
 
@@ -61,7 +99,11 @@ pub(super) fn load_watch_layer(folder: &Path) -> Result<Table> {
 /// # Errors
 /// Returns an error when the folder is missing, the file already exists and
 /// `force` is not set, or the file cannot be written.
-pub(super) fn write_watch_config(folder: &Path, output: &Path, force: bool) -> Result<PathBuf> {
+pub(super) fn write_watch_config(
+    folder: &Path,
+    settings: &WatchSettings,
+    force: bool,
+) -> Result<PathBuf> {
     if !folder.is_dir() {
         return Err(AppError::Validation(format!(
             "watch folder does not exist: {}",
@@ -77,7 +119,7 @@ pub(super) fn write_watch_config(folder: &Path, output: &Path, force: bool) -> R
         )));
     }
 
-    fs::write(&path, watch_config_toml(folder, output))?;
+    fs::write(&path, watch_config_toml(folder, settings))?;
     Ok(path)
 }
 
@@ -87,7 +129,12 @@ pub fn default_watch_output(folder: &Path) -> PathBuf {
     folder.join(DEFAULT_LIBRARY_DIR)
 }
 
-fn watch_config_toml(folder: &Path, output: &Path) -> String {
+fn watch_config_toml(folder: &Path, settings: &WatchSettings) -> String {
+    let api_key = match settings.api_key_env.as_deref() {
+        Some(variable) => format!("api_key = {{ source = \"env\", value = \"{variable}\" }}\n"),
+        None => "# api_key = { source = \"env\", value = \"GEMINI_API_KEY\" }\n".to_string(),
+    };
+
     format!(
         concat!(
             "# SortYourPapers watch config for {folder}\n",
@@ -100,17 +147,20 @@ fn watch_config_toml(folder: &Path, output: &Path) -> String {
             "\n",
             "llm_provider = \"{provider}\"\n",
             "llm_model = \"{model}\"\n",
-            "# api_key = {{ source = \"env\", value = \"GEMINI_API_KEY\" }}\n",
+            "{api_key}",
         ),
         folder = folder.display(),
-        output = output.display(),
-        recursive = DEFAULT_RECURSIVE,
-        provider = provider_key(DEFAULT_LLM_PROVIDER),
-        model = DEFAULT_LLM_MODEL,
+        output = settings.output.display(),
+        recursive = settings.recursive,
+        provider = provider_key(settings.llm_provider),
+        model = settings.llm_model,
+        api_key = api_key,
     )
 }
 
-fn provider_key(provider: LlmProvider) -> &'static str {
+/// Stable config-file spelling of a provider.
+#[must_use]
+pub fn provider_key(provider: LlmProvider) -> &'static str {
     match provider {
         LlmProvider::Openai => "openai",
         LlmProvider::Ollama => "ollama",
@@ -136,15 +186,15 @@ mod tests {
     #[test]
     fn written_config_round_trips_into_a_layer() {
         let temp = tempdir().expect("tempdir");
-        let output = default_watch_output(temp.path());
+        let settings = WatchSettings::defaults_for(temp.path());
 
-        let path = write_watch_config(temp.path(), &output, false).expect("write config");
+        let path = write_watch_config(temp.path(), &settings, false).expect("write config");
         let layer = load_watch_layer(temp.path()).expect("layer");
 
         assert_eq!(path, temp.path().join(WATCH_CONFIG_FILE));
         assert_eq!(
             layer.get("output").and_then(toml::Value::as_str),
-            Some(output.display().to_string().as_str())
+            Some(settings.output.display().to_string().as_str())
         );
         assert!(!layer.contains_key("input"));
     }
@@ -152,14 +202,49 @@ mod tests {
     #[test]
     fn write_watch_config_refuses_to_overwrite_without_force() {
         let temp = tempdir().expect("tempdir");
-        let output = default_watch_output(temp.path());
-        write_watch_config(temp.path(), &output, false).expect("first write");
+        let settings = WatchSettings::defaults_for(temp.path());
+        write_watch_config(temp.path(), &settings, false).expect("first write");
 
-        let err = write_watch_config(temp.path(), &output, false)
+        let err = write_watch_config(temp.path(), &settings, false)
             .expect_err("second write should be refused");
         assert!(err.to_string().contains("--force"));
 
-        write_watch_config(temp.path(), &output, true).expect("forced overwrite");
+        write_watch_config(temp.path(), &settings, true).expect("forced overwrite");
+    }
+
+    #[test]
+    fn chosen_settings_reach_the_written_config() {
+        let temp = tempdir().expect("tempdir");
+        let settings = WatchSettings {
+            output: PathBuf::from("/library"),
+            recursive: true,
+            llm_provider: LlmProvider::Openai,
+            llm_model: "gpt-test".to_string(),
+            api_key_env: Some("OPENAI_API_KEY".to_string()),
+        };
+
+        write_watch_config(temp.path(), &settings, false).expect("write config");
+        let layer = load_watch_layer(temp.path()).expect("layer");
+
+        assert_eq!(
+            layer.get("output").and_then(toml::Value::as_str),
+            Some("/library")
+        );
+        assert_eq!(
+            layer.get("recursive").and_then(toml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            layer.get("llm_provider").and_then(toml::Value::as_str),
+            Some("openai")
+        );
+        assert_eq!(
+            layer.get("api_key").and_then(toml::Value::as_table),
+            Some(&toml::Table::from_iter([
+                ("source".to_string(), toml::Value::from("env")),
+                ("value".to_string(), toml::Value::from("OPENAI_API_KEY")),
+            ]))
+        );
     }
 
     #[test]

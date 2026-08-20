@@ -16,7 +16,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, error::TryRecvError};
 
 use crate::{
     config,
-    config::AppConfig,
+    config::{AppConfig, WatchSettings},
     error::{AppError, Result},
     inputs::RunOverrides,
     papers::discovery::discover_pdf_candidates,
@@ -52,24 +52,25 @@ pub async fn watch_with_args(overrides: RunOverrides) -> Result<()> {
     watch(resolve_watch_config(overrides)?).await
 }
 
-/// Writes a starter config into `input`, defaulting to the current directory,
-/// and returns its path.
+/// The folder `syp watch init` sets up: the one named on the command line, or
+/// the current directory.
 ///
-/// Unlike watching, this ignores the configured input folder: the folder being
-/// set up is the one named on the command line, or the one the user is
-/// standing in.
+/// Deliberately ignores the configured input folder, so setup always means the
+/// folder in front of the user.
+///
+/// # Errors
+/// Returns an error when the current directory cannot be read.
+pub fn watch_init_folder(input: Option<PathBuf>) -> Result<PathBuf> {
+    absolutize(input.as_deref().unwrap_or(Path::new(".")))
+}
+
+/// Writes a starter config into `folder` and returns its path.
 ///
 /// # Errors
 /// Returns an error when the folder is missing, or a config already exists
 /// there and `force` is not set.
-pub fn init_watch_config(
-    input: Option<PathBuf>,
-    output: Option<PathBuf>,
-    force: bool,
-) -> Result<PathBuf> {
-    let folder = absolutize(input.as_deref().unwrap_or(Path::new(".")))?;
-    let output = output.map(|output| absolutize(&output)).transpose()?;
-    config::init_watch_config(&folder, output.as_deref(), force)
+pub fn init_watch_config(folder: &Path, settings: &WatchSettings, force: bool) -> Result<PathBuf> {
+    config::init_watch_config(folder, settings, force)
 }
 
 /// Resolves the config for watching, layering the watched folder's own

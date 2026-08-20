@@ -83,9 +83,14 @@ XDG config in precedence: CLI flags and `SYP_*` variables still win over it,
 and it wins over `~/.config`. `input` cannot be set there, since the folder
 holding the file is the folder being watched. Paths are written absolute, so
 starting the watcher from any directory means the same thing. Edit the file by
-hand; `--force` rewrites it from defaults. `watch init` sets up the current
-directory unless `--input` names another folder, ignoring the configured input
-folder so it always means the folder in front of you.
+hand, or rerun `watch init` and confirm the overwrite. `watch init` sets up the
+current directory unless `--input` names another folder, ignoring the
+configured input folder so it always means the folder in front of you.
+
+In a terminal, `watch init` asks for the library folder, scan depth, model
+backend, model, and the environment variable holding the API key. Piped or in
+CI it skips the questions and writes the defaults, so scripted setup never
+blocks.
 
 `watch` runs until interrupted. It waits for the input folder to stop changing
 (so half-copied PDFs are left alone), then runs the normal pipeline on whatever

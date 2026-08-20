@@ -16,7 +16,7 @@ pub(crate) fn absolutize_config(mut config: AppConfig) -> Result<AppConfig> {
 ///
 /// # Errors
 /// Returns an error when the current directory cannot be read.
-pub(crate) fn absolutize(path: &Path) -> Result<PathBuf> {
+pub fn absolutize(path: &Path) -> Result<PathBuf> {
     Ok(absolutize_path(&env::current_dir()?, path))
 }
 

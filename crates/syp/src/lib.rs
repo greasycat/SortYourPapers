@@ -1,5 +1,6 @@
 pub mod cli;
 mod entrypoints;
+mod watch_init;
 
 pub use cli::{
     Cli, CliArgs, Commands, ExtractTextArgs, InitArgs, ReferenceArgs, ReferenceCommands,

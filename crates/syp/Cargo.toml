@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 clap.workspace = true
+cliclack.workspace = true
 syp-core = { path = "../syp-core" }
 tokio.workspace = true
 

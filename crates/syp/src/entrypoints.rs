@@ -47,10 +47,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                 SessionCommands::Clear => session::clear_sessions()?,
             },
             Commands::Watch(args) => match args.command {
-                Some(WatchCommands::Init(init)) => {
-                    let path = app::init_watch_config(init.input, init.output, init.force)?;
-                    println!("Wrote watch config to {}", path.display());
-                }
+                Some(WatchCommands::Init(init)) => crate::watch_init::run_watch_init(init)?,
                 None => app::watch_with_args(args.run.into_run_overrides()).await?,
             },
         }

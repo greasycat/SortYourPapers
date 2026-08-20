@@ -1,4 +1,5 @@
 mod folder;
+
 mod resolve;
 mod sources;
 mod xdg;
@@ -20,6 +21,8 @@ use crate::{
     papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
 };
 use serde::{Deserialize, Serialize};
+
+pub use folder::{WatchSettings, default_api_key_env, default_watch_output, provider_key};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -175,15 +178,13 @@ pub fn watch_config_path(folder: &Path) -> PathBuf {
     folder::watch_config_path(folder)
 }
 
-/// Writes a starter watch config into `folder`, defaulting the library to
-/// [`default_watch_output`] when `output` is not given.
+/// Writes a starter watch config into `folder`.
 ///
 /// # Errors
 /// Returns an error when the folder is missing, the file exists and `force` is
 /// not set, or the file cannot be written.
-pub fn init_watch_config(folder: &Path, output: Option<&Path>, force: bool) -> Result<PathBuf> {
-    let default_output = folder::default_watch_output(folder);
-    folder::write_watch_config(folder, output.unwrap_or(&default_output), force)
+pub fn init_watch_config(folder: &Path, settings: &WatchSettings, force: bool) -> Result<PathBuf> {
+    folder::write_watch_config(folder, settings, force)
 }
 
 #[must_use]
