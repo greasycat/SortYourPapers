@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 use tempfile::tempdir;
 
 use super::{
-    ApiKeySource, AppConfig, ConfigLayer,
+    ApiKeySource, AppConfig, ConfigLayer, layer_from_table,
     resolve::resolve_from_sources,
     xdg::{
         default_testset_cache_dir, shared_testset_cache_dir_from, write_default_config_at,
@@ -387,4 +387,39 @@ fn sample_config(api_key: Option<ApiKeySource>) -> AppConfig {
         debug: false,
         quiet: false,
     }
+}
+
+#[test]
+fn watch_folder_settings_beat_the_xdg_config_but_not_the_cli() {
+    let xdg = r#"
+output = "/xdg/sorted"
+category_depth = 2
+llm_model = "xdg-model"
+"#
+    .parse::<toml::Table>()
+    .expect("xdg table");
+    let watch_folder = r#"
+output = "/folder/sorted"
+llm_model = "folder-model"
+"#
+    .parse::<toml::Table>()
+    .expect("watch folder table");
+
+    let mut merged = xdg;
+    merged.extend(watch_folder);
+    let file_cfg = layer_from_table(merged).expect("merged layer");
+
+    let config = resolve_from_sources(
+        RunOverrides {
+            llm_model: Some("cli-model".to_string()),
+            ..RunOverrides::default()
+        },
+        ConfigLayer::default(),
+        file_cfg,
+    )
+    .expect("config should resolve");
+
+    assert_eq!(config.output, PathBuf::from("/folder/sorted"));
+    assert_eq!(config.llm_model, "cli-model");
+    assert_eq!(config.category_depth, 2);
 }

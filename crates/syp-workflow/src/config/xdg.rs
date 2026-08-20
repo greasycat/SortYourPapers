@@ -7,7 +7,7 @@ use directories::BaseDirs;
 use serde::Serialize;
 
 use crate::{
-    config::{ApiKeySource, AppConfig, ConfigLayer},
+    config::{ApiKeySource, AppConfig},
     defaults::{
         DEFAULT_BATCH_START_DELAY_MS, DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT,
         DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL, DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OUTPUT,
@@ -159,22 +159,22 @@ pub(super) fn default_config_toml() -> String {
     )
 }
 
-pub(super) fn load_xdg_config() -> Result<ConfigLayer> {
+/// Reads the XDG config as a raw table, so folder-scoped overrides can be
+/// merged into it before it becomes a [`ConfigLayer`].
+pub(super) fn load_xdg_table() -> Result<toml::Table> {
     let Some(path) = xdg_config_path() else {
-        return Ok(ConfigLayer::default());
+        return Ok(toml::Table::new());
     };
 
     if !path.exists() {
-        return Ok(ConfigLayer::default());
+        return Ok(toml::Table::new());
     }
 
-    load_config_from_path(&path)
+    load_table_from_path(&path)
 }
 
-fn load_config_from_path(path: &Path) -> Result<ConfigLayer> {
-    let raw = fs::read_to_string(path)?;
-    let cfg: ConfigLayer = toml::from_str(&raw)?;
-    Ok(cfg)
+fn load_table_from_path(path: &Path) -> Result<toml::Table> {
+    Ok(fs::read_to_string(path)?.parse::<toml::Table>()?)
 }
 
 fn load_dev_config_from_path(path: &Path) -> Result<DevConfig> {

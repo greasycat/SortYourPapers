@@ -4,6 +4,6 @@ mod entrypoints;
 pub use cli::{
     Cli, CliArgs, Commands, ExtractTextArgs, InitArgs, ReferenceArgs, ReferenceCommands,
     ReferenceIndexArgs, RerunArgs, ResumeArgs, SessionArgs, SessionCommands, SessionRemoveArgs,
-    SessionReviewArgs, WatchArgs,
+    SessionReviewArgs, WatchArgs, WatchCommands, WatchInitArgs,
 };
 pub use entrypoints::{print_error_with_hints, run_cli};

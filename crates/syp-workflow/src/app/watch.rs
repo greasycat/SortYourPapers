@@ -23,7 +23,10 @@ use crate::{
     terminal::{self, Verbosity},
 };
 
-use super::{path_resolution::absolutize_config, run::run};
+use super::{
+    path_resolution::{absolutize, absolutize_config},
+    run::run,
+};
 
 /// How long the input folder must stay unchanged before a run starts, so that
 /// PDFs still being copied in are not organized half-written.
@@ -46,8 +49,37 @@ type InputSnapshot = BTreeMap<PathBuf, u64>;
 /// Returns an error when config resolution fails or the watcher cannot be
 /// installed on the input folder.
 pub async fn watch_with_args(overrides: RunOverrides) -> Result<()> {
-    let config = config::resolve_config(overrides)?;
-    watch(config).await
+    watch(resolve_watch_config(overrides)?).await
+}
+
+/// Writes a starter config into the folder that `overrides` selects for
+/// watching, and returns its path.
+///
+/// # Errors
+/// Returns an error when config resolution fails, the folder is missing, or a
+/// config already exists there and `force` is not set.
+pub fn init_watch_config(
+    overrides: RunOverrides,
+    output: Option<PathBuf>,
+    force: bool,
+) -> Result<PathBuf> {
+    let folder = watch_folder(&config::resolve_config(overrides)?)?;
+    let output = output.map(|output| absolutize(&output)).transpose()?;
+    config::init_watch_config(&folder, output.as_deref(), force)
+}
+
+/// Resolves the config for watching, layering the watched folder's own
+/// `syp.toml` over the XDG config.
+///
+/// The folder is settled first from the other sources, because the folder
+/// config lives inside the folder it configures.
+fn resolve_watch_config(overrides: RunOverrides) -> Result<AppConfig> {
+    let folder = watch_folder(&config::resolve_config(overrides.clone())?)?;
+    config::resolve_config_for_folder(overrides, &folder)
+}
+
+fn watch_folder(config: &AppConfig) -> Result<PathBuf> {
+    absolutize(&config.input)
 }
 
 /// Organizes the input folder whenever new PDFs settle in it.
@@ -72,6 +104,17 @@ pub async fn watch(config: AppConfig) -> Result<()> {
     // Runs happen without anyone at the keyboard, so taxonomy review prompts
     // must resolve to their defaults instead of blocking the loop.
     let _backend = terminal::install_unattended_backend();
+
+    let folder_config = config::watch_config_path(&config.input);
+    if folder_config.is_file() {
+        watch_line(
+            verbosity,
+            format!(
+                "using {}",
+                verbosity.accent(folder_config.display().to_string())
+            ),
+        );
+    }
 
     let (_watcher, mut events) = watch_input(&config)?;
     watch_line(

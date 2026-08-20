@@ -13,7 +13,7 @@ pub(crate) use debug_seed::{
 pub use extract_text::run_extract_text;
 pub use reference_index::index_reference_manifest;
 pub use run::{run, run_with_args};
-pub use watch::{watch, watch_with_args};
+pub use watch::{init_watch_config, watch, watch_with_args};
 
 #[cfg(test)]
 mod tests;

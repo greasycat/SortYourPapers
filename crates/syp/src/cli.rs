@@ -36,8 +36,31 @@ pub enum Commands {
 
 #[derive(Debug, Args)]
 pub struct WatchArgs {
+    #[command(subcommand)]
+    pub command: Option<WatchCommands>,
+
     #[command(flatten)]
     pub run: CliArgs,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum WatchCommands {
+    /// Write a starter config into the folder to watch.
+    Init(WatchInitArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct WatchInitArgs {
+    /// Folder to watch. Defaults to the configured input folder.
+    #[arg(short = 'i', long)]
+    pub input: Option<PathBuf>,
+
+    /// Library folder to file papers into. Defaults to `sorted` inside the watched folder.
+    #[arg(short = 'o', long)]
+    pub output: Option<PathBuf>,
+
+    #[arg(short = 'f', long, action = ArgAction::SetTrue)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -329,7 +352,7 @@ mod tests {
 
     use clap::Parser;
 
-    use super::{Cli, Commands, ReferenceCommands, SessionCommands};
+    use super::{Cli, Commands, ReferenceCommands, SessionCommands, WatchCommands};
     use syp_core::{papers::extract::ExtractorMode, session::RunStage};
 
     #[test]
@@ -419,10 +442,28 @@ mod tests {
 
         match cli.command {
             Some(Commands::Watch(args)) => {
+                assert!(args.command.is_none());
                 assert_eq!(args.run.input.as_deref(), Some(Path::new("./inbox")));
                 assert_eq!(args.run.output.as_deref(), Some(Path::new("./sorted")));
                 assert!(args.run.apply);
             }
+            other => panic!("expected watch command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_watch_init_subcommand() {
+        let cli = Cli::parse_from(["syp", "watch", "init", "--input", "./inbox", "--force"]);
+
+        match cli.command {
+            Some(Commands::Watch(args)) => match args.command {
+                Some(WatchCommands::Init(init)) => {
+                    assert_eq!(init.input.as_deref(), Some(Path::new("./inbox")));
+                    assert_eq!(init.output, None);
+                    assert!(init.force);
+                }
+                other => panic!("expected watch init command, got {other:?}"),
+            },
             other => panic!("expected watch command, got {other:?}"),
         }
     }

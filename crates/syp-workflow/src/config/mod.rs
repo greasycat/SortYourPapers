@@ -1,3 +1,4 @@
+mod folder;
 mod resolve;
 mod sources;
 mod xdg;
@@ -5,7 +6,11 @@ mod xdg;
 #[cfg(test)]
 mod tests;
 
-use std::{env, path::PathBuf, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use crate::{
     error::Result,
@@ -139,9 +144,46 @@ struct ConfigLayer {
 /// Returns an error when config sources cannot be loaded or the resolved
 /// configuration contains invalid values.
 pub fn resolve_config(overrides: RunOverrides) -> Result<AppConfig> {
-    let file_cfg = xdg::load_xdg_config()?;
+    resolve_layered(overrides, xdg::load_xdg_table()?)
+}
+
+/// Resolves the runtime configuration for one watched folder, layering that
+/// folder's `syp.toml` over the XDG config.
+///
+/// # Errors
+/// Returns an error when config sources cannot be loaded or the resolved
+/// configuration contains invalid values.
+pub fn resolve_config_for_folder(overrides: RunOverrides, folder: &Path) -> Result<AppConfig> {
+    let mut table = xdg::load_xdg_table()?;
+    table.extend(folder::load_watch_layer(folder)?);
+    resolve_layered(overrides, table)
+}
+
+fn resolve_layered(overrides: RunOverrides, file_table: toml::Table) -> Result<AppConfig> {
+    let file_cfg = layer_from_table(file_table)?;
     let env_cfg = sources::env_config_from_process()?;
     resolve::resolve_from_sources(overrides, env_cfg, file_cfg)
+}
+
+fn layer_from_table(table: toml::Table) -> Result<ConfigLayer> {
+    Ok(toml::Value::Table(table).try_into()?)
+}
+
+/// Path of the per-folder watch config, whether or not it exists.
+#[must_use]
+pub fn watch_config_path(folder: &Path) -> PathBuf {
+    folder::watch_config_path(folder)
+}
+
+/// Writes a starter watch config into `folder`, defaulting the library to
+/// [`default_watch_output`] when `output` is not given.
+///
+/// # Errors
+/// Returns an error when the folder is missing, the file exists and `force` is
+/// not set, or the file cannot be written.
+pub fn init_watch_config(folder: &Path, output: Option<&Path>, force: bool) -> Result<PathBuf> {
+    let default_output = folder::default_watch_output(folder);
+    folder::write_watch_config(folder, output.unwrap_or(&default_output), force)
 }
 
 #[must_use]

@@ -70,10 +70,20 @@ tuning fields (extraction limits, batch sizes, base URL, rebuild, verbosity);
 hidden fields keep their configured values and are still used by the run and by
 `s` (save config).
 
-Watch a folder and organize papers as they arrive:
+Set up a folder to watch, then organize papers as they arrive:
 ```bash
-cargo run -p syp -- watch --input ./inbox --output ./sorted --apply
+cargo run -p syp -- watch init --input ./inbox
+cargo run -p syp -- watch --input ./inbox --apply
 ```
+
+`watch init` writes `syp.toml` into the watched folder with the settings that
+folder needs — library location, scan depth, provider, model. It applies only
+while that folder is being watched, sitting between the environment and the
+XDG config in precedence: CLI flags and `SYP_*` variables still win over it,
+and it wins over `~/.config`. `input` cannot be set there, since the folder
+holding the file is the folder being watched. Paths are written absolute, so
+starting the watcher from any directory means the same thing. Edit the file by
+hand; `--force` rewrites it from defaults.
 
 `watch` runs until interrupted. It waits for the input folder to stop changing
 (so half-copied PDFs are left alone), then runs the normal pipeline on whatever
