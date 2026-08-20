@@ -46,6 +46,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                 SessionCommands::Remove(args) => session::remove_sessions(args.run_ids)?,
                 SessionCommands::Clear => session::clear_sessions()?,
             },
+            Commands::Watch(args) => app::watch_with_args(args.run.into_run_overrides()).await?,
         }
         return Ok(());
     }

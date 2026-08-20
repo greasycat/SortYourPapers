@@ -9,7 +9,7 @@ use std::{
 pub use crate::error::{AppError, Result};
 pub use backend::{
     AlertSeverity, BackendGuard, InspectReviewPrompt, InspectReviewRequest, TerminalBackend,
-    current_backend, install_backend,
+    current_backend, install_backend, install_unattended_backend,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

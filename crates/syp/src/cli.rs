@@ -21,12 +21,23 @@ pub struct Cli {
     pub run: CliArgs,
 }
 
+// `Watch` carries the whole run flag set, which dwarfs the other variants. One
+// command is parsed per process, so the enum size costs nothing here.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     Init(InitArgs),
     ExtractText(ExtractTextArgs),
     Reference(ReferenceArgs),
     Session(SessionArgs),
+    /// Organize the input folder whenever new PDFs land in it.
+    Watch(WatchArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct WatchArgs {
+    #[command(flatten)]
+    pub run: CliArgs,
 }
 
 #[derive(Debug, Args)]
@@ -314,6 +325,8 @@ impl ExtractTextArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use clap::Parser;
 
     use super::{Cli, Commands, ReferenceCommands, SessionCommands};
@@ -395,6 +408,22 @@ mod tests {
                 _ => panic!("expected session rerun command"),
             },
             _ => panic!("expected session command"),
+        }
+    }
+
+    #[test]
+    fn parses_watch_subcommand_with_run_flags() {
+        let cli = Cli::parse_from([
+            "syp", "watch", "--input", "./inbox", "--output", "./sorted", "--apply",
+        ]);
+
+        match cli.command {
+            Some(Commands::Watch(args)) => {
+                assert_eq!(args.run.input.as_deref(), Some(Path::new("./inbox")));
+                assert_eq!(args.run.output.as_deref(), Some(Path::new("./sorted")));
+                assert!(args.run.apply);
+            }
+            other => panic!("expected watch command, got {other:?}"),
         }
     }
 

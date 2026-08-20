@@ -1,3 +1,5 @@
+- Add `syp watch`, a long-running watcher that organizes the input folder whenever new PDFs settle in it: filesystem events wake a rescan, the folder must stop changing before a run starts, PDFs already inside the output library are ignored, and an unchanged input is never re-run after a failure.
+- Add `terminal::install_unattended_backend` so unattended runs answer taxonomy review prompts with their defaults instead of blocking on stdin even when stdin is a terminal.
 - Split the TUI run form into essential and advanced tiers: the default form now shows 11 fields (paths, scope, depth, placement policy, LLM/API, apply, run) and `a` reveals the 13 tuning fields, which still feed the run config and `s` save whether shown or not.
 - Replace the run form's magic field indices with a typed `RunField` table that owns each field's label, help text, edit kind, tier, and layout position, so navigation, rendering, and validation no longer keep parallel index lists.
 - Merge the identical `EnvConfig` and `FileConfig` structs into a single `ConfigLayer`, so the env and XDG override layers share one 34-field definition instead of two.

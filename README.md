@@ -70,6 +70,21 @@ tuning fields (extraction limits, batch sizes, base URL, rebuild, verbosity);
 hidden fields keep their configured values and are still used by the run and by
 `s` (save config).
 
+Watch a folder and organize papers as they arrive:
+```bash
+cargo run -p syp -- watch --input ./inbox --output ./sorted --apply
+```
+
+`watch` runs until interrupted. It waits for the input folder to stop changing
+(so half-copied PDFs are left alone), then runs the normal pipeline on whatever
+is waiting. Without `--apply` it previews instead of moving, like `syp` itself.
+A failed run is logged and the watcher keeps going, but the same unchanged
+files are not retried until they change or a new PDF arrives. Taxonomy review
+prompts resolve to their defaults, since nobody is at the keyboard. Each
+triggered run is a normal session, so `syp session list` and `syp session
+review` work as usual. Run it under `tmux`, `launchd`, or `systemd --user` to
+keep it alive in the background.
+
 If a run is interrupted after some stages completed, list saved runs and choose one to resume:
 ```bash
 cargo run -p syp -- session resume

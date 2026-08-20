@@ -3,6 +3,7 @@ mod extract_text;
 mod path_resolution;
 mod reference_index;
 mod run;
+mod watch;
 
 pub use debug_seed::run_debug_tui;
 #[cfg(test)]
@@ -12,6 +13,7 @@ pub(crate) use debug_seed::{
 pub use extract_text::run_extract_text;
 pub use reference_index::index_reference_manifest;
 pub use run::{run, run_with_args};
+pub use watch::{watch, watch_with_args};
 
 #[cfg(test)]
 mod tests;

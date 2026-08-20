@@ -138,6 +138,17 @@ pub fn install_backend(backend: Arc<dyn TerminalBackend>) -> BackendGuard {
     }
 }
 
+/// Installs the plain backend in unattended mode, where prompts resolve to
+/// their non-interactive defaults instead of blocking on stdin.
+///
+/// Restores the previous backend when the returned guard is dropped.
+pub fn install_unattended_backend() -> BackendGuard {
+    install_backend(Arc::new(PlainTerminalBackend {
+        unattended: true,
+        ..Default::default()
+    }))
+}
+
 pub fn current_backend() -> Arc<dyn TerminalBackend> {
     Arc::clone(
         &backend_cell()
@@ -157,6 +168,9 @@ fn backend_cell() -> &'static Mutex<Arc<dyn TerminalBackend>> {
 #[derive(Default)]
 struct PlainTerminalBackend {
     progress: Mutex<HashMap<u64, ProgressBar>>,
+    /// Answers every prompt with its default instead of reading stdin, even
+    /// when stdin is a terminal.
+    unattended: bool,
 }
 
 impl TerminalBackend for PlainTerminalBackend {
@@ -169,7 +183,7 @@ impl TerminalBackend for PlainTerminalBackend {
     }
 
     fn is_interactive(&self) -> bool {
-        io::stdin().is_terminal()
+        !self.unattended && io::stdin().is_terminal()
     }
 
     fn supports_progress(&self) -> bool {
