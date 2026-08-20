@@ -95,6 +95,7 @@ impl App {
                 ("←/→ or h/l", "column"),
                 ("Enter", "edit/run"),
                 ("Space", "toggle/run"),
+                ("a", "advanced"),
                 ("r", "run"),
                 ("s", "save"),
                 ("t", "theme"),

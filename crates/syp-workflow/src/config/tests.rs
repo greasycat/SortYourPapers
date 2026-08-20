@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 use tempfile::tempdir;
 
 use super::{
-    ApiKeySource, AppConfig, EnvConfig, FileConfig,
+    ApiKeySource, AppConfig, ConfigLayer,
     resolve::resolve_from_sources,
     xdg::{
         default_testset_cache_dir, shared_testset_cache_dir_from, write_default_config_at,
@@ -61,7 +61,7 @@ fn overrides_beat_env_and_file_sources() {
         quiet: false,
     };
 
-    let env_cfg = EnvConfig {
+    let env_cfg = ConfigLayer {
         input: Some(PathBuf::from("/env/input")),
         output: Some(PathBuf::from("/env/output")),
         recursive: Some(false),
@@ -97,7 +97,7 @@ fn overrides_beat_env_and_file_sources() {
         subcategories_suggestion_number: Some(9),
     };
 
-    let file_cfg = FileConfig {
+    let file_cfg = ConfigLayer {
         input: Some(PathBuf::from("/file/input")),
         output: Some(PathBuf::from("/file/output")),
         recursive: Some(false),
@@ -188,8 +188,8 @@ fn overrides_beat_env_and_file_sources() {
 fn defaults_to_gemini_when_no_sources_provide_values() {
     let cfg = resolve_from_sources(
         RunOverrides::default(),
-        EnvConfig::default(),
-        FileConfig::default(),
+        ConfigLayer::default(),
+        ConfigLayer::default(),
     )
     .expect("config");
 

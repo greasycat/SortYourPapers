@@ -13,7 +13,7 @@ use crate::{
 use super::{
     app::App,
     extract::{collect_extract_preview, render_extract_result_lines},
-    forms::{extract_field_label, list_relative_directories, run_field_label},
+    forms::{extract_field_label, list_relative_directories},
     model::{
         ConfirmAction, HomeAction, OperationDetail, OperationOutcome, OperationState, OperationTab,
         Overlay, Screen,
@@ -268,6 +268,7 @@ impl App {
             }
             KeyCode::Left | KeyCode::Char('h') => self.run_form.move_column_left(),
             KeyCode::Right | KeyCode::Char('l') => self.run_form.move_column_right(),
+            KeyCode::Char('a') => self.run_form.toggle_advanced(),
             KeyCode::Char(' ') => {
                 if self.run_form.run_button_selected() {
                     self.launch_run_from_form();
@@ -314,12 +315,12 @@ impl App {
             KeyCode::Enter => {
                 if self.run_form.run_button_selected() {
                     self.launch_run_from_form();
-                } else if self.run_form.editable(self.run_form.selected) {
-                    if self.run_form.selected <= 1 {
+                } else if self.run_form.selected.editable() {
+                    if self.run_form.selected.is_path() {
                         self.open_run_path_overlay()?;
                     } else {
                         self.overlay = Some(Overlay::EditField {
-                            label: run_field_label(self.run_form.selected).to_string(),
+                            label: self.run_form.selected.label().to_string(),
                             buffer: self.run_form.value(self.run_form.selected),
                         });
                     }
@@ -769,7 +770,7 @@ impl App {
         let buffer = self.run_form.value(self.run_form.selected);
         let directories = Self::path_overlay_directories(&buffer)?;
         self.overlay = Some(Overlay::SelectPath {
-            label: run_field_label(self.run_form.selected).to_string(),
+            label: self.run_form.selected.label().to_string(),
             buffer,
             selected: 0,
             directories,

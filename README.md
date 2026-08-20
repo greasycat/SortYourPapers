@@ -65,6 +65,11 @@ Launch the TUI:
 cargo run -p syptui --
 ```
 
+The run form shows the fields most runs need. Press `a` to reveal the advanced
+tuning fields (extraction limits, batch sizes, base URL, rebuild, verbosity);
+hidden fields keep their configured values and are still used by the run and by
+`s` (save config).
+
 If a run is interrupted after some stages completed, list saved runs and choose one to resume:
 ```bash
 cargo run -p syp -- session resume

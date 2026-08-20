@@ -91,45 +91,12 @@ impl AppConfig {
     }
 }
 
+/// One layer of configuration overrides.
+///
+/// The same field set is supplied by the XDG config file and by `SYP_*`
+/// environment variables, so both layers share this type.
 #[derive(Debug, Default, Deserialize, Clone)]
-struct FileConfig {
-    input: Option<PathBuf>,
-    output: Option<PathBuf>,
-    recursive: Option<bool>,
-    max_file_size_mb: Option<u64>,
-    page_cutoff: Option<u8>,
-    pdf_extract_workers: Option<usize>,
-    category_depth: Option<u8>,
-    taxonomy_mode: Option<TaxonomyMode>,
-    taxonomy_assistance: Option<TaxonomyAssistance>,
-    taxonomy_batch_size: Option<usize>,
-    reference_manifest_path: Option<PathBuf>,
-    reference_top_k: Option<usize>,
-    use_current_folder_tree: Option<bool>,
-    placement_batch_size: Option<usize>,
-    placement_assistance: Option<PlacementAssistance>,
-    placement_mode: Option<PlacementMode>,
-    placement_reference_top_k: Option<usize>,
-    placement_candidate_top_k: Option<usize>,
-    placement_min_similarity: Option<f32>,
-    placement_min_margin: Option<f32>,
-    placement_min_reference_support: Option<usize>,
-    rebuild: Option<bool>,
-    llm_provider: Option<LlmProvider>,
-    llm_model: Option<String>,
-    llm_base_url: Option<String>,
-    api_key: Option<ApiKeySource>,
-    embedding_provider: Option<LlmProvider>,
-    embedding_model: Option<String>,
-    embedding_base_url: Option<String>,
-    embedding_api_key: Option<ApiKeySource>,
-    keyword_batch_size: Option<usize>,
-    batch_start_delay_ms: Option<u64>,
-    subcategories_suggestion_number: Option<usize>,
-}
-
-#[derive(Debug, Default)]
-struct EnvConfig {
+struct ConfigLayer {
     input: Option<PathBuf>,
     output: Option<PathBuf>,
     recursive: Option<bool>,

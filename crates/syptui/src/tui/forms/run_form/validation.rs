@@ -2,12 +2,12 @@ use std::{env, fs, path::Path};
 
 use crate::tui::forms::{
     ApiKeySourceMode, UiVerbosity, masked_value, parse_u8, parse_u64, parse_usize, provider_label,
-    run_field_key, run_field_label,
 };
 use crate::{error::Result, llm::LlmProvider};
 
 use super::{
     RunForm,
+    fields::RunField,
     state::{RunFormAnalysis, ValidationIssue, ValidationSeverity},
 };
 
@@ -18,7 +18,7 @@ impl RunFormAnalysis {
             .any(|issue| issue.severity == ValidationSeverity::Error)
     }
 
-    pub(crate) fn field_issue(&self, field: usize) -> Option<&ValidationIssue> {
+    pub(crate) fn field_issue(&self, field: RunField) -> Option<&ValidationIssue> {
         self.issues
             .iter()
             .filter(|issue| issue.field == Some(field))
@@ -39,7 +39,7 @@ impl RunFormAnalysis {
         let mut lines = vec!["Fix these issues before starting a run:".to_string()];
         for issue in errors.into_iter().take(4) {
             if let Some(field) = issue.field {
-                lines.push(format!("- {}: {}", run_field_label(field), issue.message));
+                lines.push(format!("- {}: {}", field.label(), issue.message));
             } else {
                 lines.push(format!("- {}", issue.message));
             }
@@ -97,26 +97,61 @@ impl RunForm {
     pub(crate) fn analysis(&self) -> RunFormAnalysis {
         let mut issues = Vec::new();
 
-        self.validate_required_directory(0, &self.input, true, &mut issues);
-        self.validate_required_directory(1, &self.output, false, &mut issues);
+        self.validate_required_directory(RunField::Input, &self.input, true, &mut issues);
+        self.validate_required_directory(RunField::Output, &self.output, false, &mut issues);
 
         if self.llm_model.trim().is_empty() {
             issues.push(ValidationIssue {
-                field: Some(14),
+                field: Some(RunField::LlmModel),
                 severity: ValidationSeverity::Error,
                 message: "Model is required.".to_string(),
             });
         }
 
-        self.validate_numeric_field(3, &self.max_file_size_mb, parse_u64, &mut issues);
-        self.validate_numeric_field(4, &self.page_cutoff, parse_u8, &mut issues);
-        self.validate_numeric_field(5, &self.pdf_extract_workers, parse_usize, &mut issues);
-        self.validate_numeric_field(6, &self.category_depth, parse_u8, &mut issues);
-        self.validate_numeric_field(8, &self.taxonomy_batch_size, parse_usize, &mut issues);
-        self.validate_numeric_field(9, &self.placement_batch_size, parse_usize, &mut issues);
-        self.validate_numeric_field(18, &self.keyword_batch_size, parse_usize, &mut issues);
         self.validate_numeric_field(
-            19,
+            RunField::MaxFileSizeMb,
+            &self.max_file_size_mb,
+            parse_u64,
+            &mut issues,
+        );
+        self.validate_numeric_field(
+            RunField::PageCutoff,
+            &self.page_cutoff,
+            parse_u8,
+            &mut issues,
+        );
+        self.validate_numeric_field(
+            RunField::PdfExtractWorkers,
+            &self.pdf_extract_workers,
+            parse_usize,
+            &mut issues,
+        );
+        self.validate_numeric_field(
+            RunField::CategoryDepth,
+            &self.category_depth,
+            parse_u8,
+            &mut issues,
+        );
+        self.validate_numeric_field(
+            RunField::TaxonomyBatchSize,
+            &self.taxonomy_batch_size,
+            parse_usize,
+            &mut issues,
+        );
+        self.validate_numeric_field(
+            RunField::PlacementBatchSize,
+            &self.placement_batch_size,
+            parse_usize,
+            &mut issues,
+        );
+        self.validate_numeric_field(
+            RunField::KeywordBatchSize,
+            &self.keyword_batch_size,
+            parse_usize,
+            &mut issues,
+        );
+        self.validate_numeric_field(
+            RunField::SubcategoriesSuggestionNumber,
             &self.subcategories_suggestion_number,
             parse_usize,
             &mut issues,
@@ -126,7 +161,7 @@ impl RunForm {
             && self.api_key_value.trim().is_empty()
         {
             issues.push(ValidationIssue {
-                field: Some(17),
+                field: Some(RunField::ApiKeyValue),
                 severity: ValidationSeverity::Warning,
                 message: format!(
                     "{} usually requires an API key unless credentials are supplied elsewhere.",
@@ -138,7 +173,7 @@ impl RunForm {
         if matches!(self.llm_provider, LlmProvider::Ollama) && !self.api_key_value.trim().is_empty()
         {
             issues.push(ValidationIssue {
-                field: Some(17),
+                field: Some(RunField::ApiKeyValue),
                 severity: ValidationSeverity::Info,
                 message: "Ollama does not use the API key fields.".to_string(),
             });
@@ -151,7 +186,7 @@ impl RunForm {
             )
         {
             issues.push(ValidationIssue {
-                field: Some(17),
+                field: Some(RunField::ApiKeyValue),
                 severity: ValidationSeverity::Warning,
                 message: match self.api_key_source {
                     ApiKeySourceMode::Command => {
@@ -169,7 +204,7 @@ impl RunForm {
             match env::var(self.api_key_value.trim()) {
                 Ok(value) if !value.trim().is_empty() => {}
                 Ok(_) => issues.push(ValidationIssue {
-                    field: Some(17),
+                    field: Some(RunField::ApiKeyValue),
                     severity: ValidationSeverity::Warning,
                     message: format!(
                         "Environment variable {} is set but empty.",
@@ -177,7 +212,7 @@ impl RunForm {
                     ),
                 }),
                 Err(_) => issues.push(ValidationIssue {
-                    field: Some(17),
+                    field: Some(RunField::ApiKeyValue),
                     severity: ValidationSeverity::Warning,
                     message: format!(
                         "Environment variable {} is not set.",
@@ -189,7 +224,7 @@ impl RunForm {
 
         if self.quiet && !matches!(self.verbosity, UiVerbosity::Normal) {
             issues.push(ValidationIssue {
-                field: Some(21),
+                field: Some(RunField::Quiet),
                 severity: ValidationSeverity::Warning,
                 message: "Quiet mode will suppress most of the extra output from verbose/debug."
                     .to_string(),
@@ -198,7 +233,7 @@ impl RunForm {
 
         if self.apply && self.rebuild {
             issues.push(ValidationIssue {
-                field: Some(11),
+                field: Some(RunField::Rebuild),
                 severity: ValidationSeverity::Warning,
                 message: "Rebuild + apply will reclassify against a rebuilt taxonomy and then move files."
                     .to_string(),
@@ -207,7 +242,7 @@ impl RunForm {
 
         if self.use_current_folder_tree && self.rebuild {
             issues.push(ValidationIssue {
-                field: Some(22),
+                field: Some(RunField::UseCurrentFolderTree),
                 severity: ValidationSeverity::Info,
                 message: "Rebuild ignores the current output tree, so this taxonomy hint will be inactive."
                     .to_string(),
@@ -238,7 +273,7 @@ impl RunForm {
 
     fn validate_required_directory(
         &self,
-        field: usize,
+        field: RunField,
         value: &str,
         must_exist: bool,
         issues: &mut Vec<ValidationIssue>,
@@ -284,12 +319,12 @@ impl RunForm {
 
     fn validate_numeric_field<T>(
         &self,
-        field: usize,
+        field: RunField,
         value: &str,
         parse: impl Fn(&str, &str) -> Result<T>,
         issues: &mut Vec<ValidationIssue>,
     ) {
-        if let Err(err) = parse(run_field_key(field), value) {
+        if let Err(err) = parse(field.key(), value) {
             issues.push(ValidationIssue {
                 field: Some(field),
                 severity: ValidationSeverity::Error,
@@ -301,7 +336,7 @@ impl RunForm {
 
 pub(super) fn summarize_issue(issue: &ValidationIssue, _analysis: &RunFormAnalysis) -> String {
     if let Some(field) = issue.field {
-        format!("{}: {}", run_field_label(field), issue.message)
+        format!("{}: {}", field.label(), issue.message)
     } else {
         issue.message.clone()
     }

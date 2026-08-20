@@ -18,13 +18,13 @@ use crate::{
     inputs::RunOverrides,
 };
 
-use super::{EnvConfig, FileConfig};
+use super::ConfigLayer;
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn resolve_from_sources(
     cli: RunOverrides,
-    env_cfg: EnvConfig,
-    file_cfg: FileConfig,
+    env_cfg: ConfigLayer,
+    file_cfg: ConfigLayer,
 ) -> Result<AppConfig> {
     let verbosity = normalize_verbosity(cli.verbosity);
     let input = cli

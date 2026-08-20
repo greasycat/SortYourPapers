@@ -8,10 +8,10 @@ use crate::{
     papers::taxonomy::{TaxonomyAssistance, TaxonomyMode},
 };
 
-use super::EnvConfig;
+use super::ConfigLayer;
 
-pub(super) fn env_config_from_process() -> Result<EnvConfig> {
-    Ok(EnvConfig {
+pub(super) fn env_config_from_process() -> Result<ConfigLayer> {
+    Ok(ConfigLayer {
         input: env::var("SYP_INPUT").ok().map(PathBuf::from),
         output: env::var("SYP_OUTPUT").ok().map(PathBuf::from),
         recursive: parse_env_bool("SYP_RECURSIVE")?,

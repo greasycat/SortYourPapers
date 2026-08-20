@@ -17,6 +17,8 @@ use crate::tui::forms::{
     cycle_taxonomy_mode, placement_mode_label, provider_label, taxonomy_mode_label,
 };
 
+use super::fields::{COLUMNS, RunField, visible_column_fields, visible_fields};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValidationSeverity {
     Info,
@@ -60,7 +62,7 @@ impl ValidationSeverity {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ValidationIssue {
-    pub(crate) field: Option<usize>,
+    pub(crate) field: Option<RunField>,
     pub(crate) severity: ValidationSeverity,
     pub(crate) message: String,
 }
@@ -71,7 +73,9 @@ pub(crate) struct RunFormAnalysis {
 }
 
 pub(crate) struct RunForm {
-    pub(crate) selected: usize,
+    pub(crate) selected: RunField,
+    /// Shows tuning fields that are hidden from the default form.
+    pub(crate) advanced: bool,
     pub(crate) input: String,
     pub(crate) output: String,
     pub(crate) recursive: bool,
@@ -100,7 +104,8 @@ pub(crate) struct RunForm {
 impl Default for RunForm {
     fn default() -> Self {
         Self {
-            selected: 0,
+            selected: RunField::Input,
+            advanced: false,
             input: DEFAULT_INPUT.to_string(),
             output: DEFAULT_OUTPUT.to_string(),
             recursive: false,
@@ -129,44 +134,10 @@ impl Default for RunForm {
 }
 
 impl RunForm {
-    pub(crate) const RUN_BUTTON_INDEX: usize = 23;
-
-    pub(crate) const COLUMN_FIELDS: [&'static [usize]; 3] = [
-        &[0, 1, 2, 3, 4, 5],
-        &[6, 7, 8, 22, 18, 19, 9, 10],
-        &[13, 14, 15, 16, 17, 11, 12, 20, 21, Self::RUN_BUTTON_INDEX],
-    ];
-
-    pub(crate) const VISIBLE_FIELDS: [usize; 24] = [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        22,
-        18,
-        19,
-        9,
-        10,
-        13,
-        14,
-        15,
-        16,
-        17,
-        11,
-        12,
-        20,
-        21,
-        Self::RUN_BUTTON_INDEX,
-    ];
-
     pub(crate) fn from_config(config: &AppConfig) -> Self {
         Self {
-            selected: 0,
+            selected: RunField::Input,
+            advanced: false,
             input: config.input.display().to_string(),
             output: config.output.display().to_string(),
             recursive: config.recursive,
@@ -208,26 +179,21 @@ impl RunForm {
         }
     }
 
-    pub(crate) fn select_next(&mut self) {
-        if let Some(index) = Self::VISIBLE_FIELDS
-            .iter()
-            .position(|field| *field == self.selected)
-        {
-            self.selected = Self::VISIBLE_FIELDS[(index + 1).min(Self::VISIBLE_FIELDS.len() - 1)];
-        } else {
-            self.selected = Self::VISIBLE_FIELDS[0];
+    /// Shows or hides the advanced fields, keeping the selection on a field
+    /// that is still visible.
+    pub(crate) fn toggle_advanced(&mut self) {
+        self.advanced = !self.advanced;
+        if !self.selected.visible(self.advanced) {
+            self.selected = RunField::Input;
         }
     }
 
+    pub(crate) fn select_next(&mut self) {
+        self.select_by_offset(1);
+    }
+
     pub(crate) fn select_previous(&mut self) {
-        if let Some(index) = Self::VISIBLE_FIELDS
-            .iter()
-            .position(|field| *field == self.selected)
-        {
-            self.selected = Self::VISIBLE_FIELDS[index.saturating_sub(1)];
-        } else {
-            self.selected = Self::VISIBLE_FIELDS[0];
-        }
+        self.select_by_offset(-1);
     }
 
     pub(crate) fn move_column_left(&mut self) {
@@ -238,42 +204,43 @@ impl RunForm {
         self.move_column(1);
     }
 
-    pub(crate) fn editable(&self, index: usize) -> bool {
-        !matches!(
-            index,
-            2 | 7 | 10 | 11 | 12 | 13 | 16 | 20 | 21 | 22 | Self::RUN_BUTTON_INDEX
-        )
-    }
-
     pub(crate) fn toggle_selected(&mut self) {
         match self.selected {
-            2 => self.recursive = !self.recursive,
-            11 => self.rebuild = !self.rebuild,
-            12 => self.apply = !self.apply,
-            21 => self.quiet = !self.quiet,
-            22 => self.use_current_folder_tree = !self.use_current_folder_tree,
+            RunField::Recursive => self.recursive = !self.recursive,
+            RunField::Rebuild => self.rebuild = !self.rebuild,
+            RunField::Apply => self.apply = !self.apply,
+            RunField::Quiet => self.quiet = !self.quiet,
+            RunField::UseCurrentFolderTree => {
+                self.use_current_folder_tree = !self.use_current_folder_tree;
+            }
             _ => self.cycle_selected(1),
         }
     }
 
     pub(crate) fn cycle_selected(&mut self, direction: i8) {
         match self.selected {
-            7 => self.taxonomy_mode = cycle_taxonomy_mode(self.taxonomy_mode, direction),
-            10 => self.placement_mode = cycle_placement_mode(self.placement_mode, direction),
-            13 => self.llm_provider = cycle_provider(self.llm_provider, direction),
-            16 => {
+            RunField::TaxonomyMode => {
+                self.taxonomy_mode = cycle_taxonomy_mode(self.taxonomy_mode, direction);
+            }
+            RunField::PlacementMode => {
+                self.placement_mode = cycle_placement_mode(self.placement_mode, direction);
+            }
+            RunField::LlmProvider => {
+                self.llm_provider = cycle_provider(self.llm_provider, direction);
+            }
+            RunField::ApiKeySource => {
                 self.api_key_source = if direction >= 0 {
                     self.api_key_source.next()
                 } else {
                     self.api_key_source.previous()
-                }
+                };
             }
-            20 => {
+            RunField::Verbosity => {
                 self.verbosity = if direction >= 0 {
                     self.verbosity.next()
                 } else {
                     self.verbosity.previous()
-                }
+                };
             }
             _ => {}
         }
@@ -281,89 +248,104 @@ impl RunForm {
 
     pub(crate) fn apply_edit(&mut self, value: String) -> Result<()> {
         match self.selected {
-            0 => self.input = value,
-            1 => self.output = value,
-            3 => self.max_file_size_mb = value,
-            4 => self.page_cutoff = value,
-            5 => self.pdf_extract_workers = value,
-            6 => self.category_depth = value,
-            8 => self.taxonomy_batch_size = value,
-            9 => self.placement_batch_size = value,
-            14 => self.llm_model = value,
-            15 => self.llm_base_url = value,
-            17 => self.api_key_value = value,
-            18 => self.keyword_batch_size = value,
-            19 => self.subcategories_suggestion_number = value,
+            RunField::Input => self.input = value,
+            RunField::Output => self.output = value,
+            RunField::MaxFileSizeMb => self.max_file_size_mb = value,
+            RunField::PageCutoff => self.page_cutoff = value,
+            RunField::PdfExtractWorkers => self.pdf_extract_workers = value,
+            RunField::CategoryDepth => self.category_depth = value,
+            RunField::TaxonomyBatchSize => self.taxonomy_batch_size = value,
+            RunField::PlacementBatchSize => self.placement_batch_size = value,
+            RunField::LlmModel => self.llm_model = value,
+            RunField::LlmBaseUrl => self.llm_base_url = value,
+            RunField::ApiKeyValue => self.api_key_value = value,
+            RunField::KeywordBatchSize => self.keyword_batch_size = value,
+            RunField::SubcategoriesSuggestionNumber => {
+                self.subcategories_suggestion_number = value;
+            }
             _ => {}
         }
         Ok(())
     }
 
-    pub(crate) fn value(&self, index: usize) -> String {
-        match index {
-            0 => self.input.clone(),
-            1 => self.output.clone(),
-            2 => bool_label(self.recursive).to_string(),
-            3 => self.max_file_size_mb.clone(),
-            4 => self.page_cutoff.clone(),
-            5 => self.pdf_extract_workers.clone(),
-            6 => self.category_depth.clone(),
-            7 => taxonomy_mode_label(self.taxonomy_mode).to_string(),
-            8 => self.taxonomy_batch_size.clone(),
-            9 => self.placement_batch_size.clone(),
-            10 => placement_mode_label(self.placement_mode).to_string(),
-            11 => bool_label(self.rebuild).to_string(),
-            12 => bool_label(self.apply).to_string(),
-            13 => provider_label(self.llm_provider).to_string(),
-            14 => self.llm_model.clone(),
-            15 => self.llm_base_url.clone(),
-            16 => self.api_key_source.label().to_string(),
-            17 => {
+    pub(crate) fn value(&self, field: RunField) -> String {
+        match field {
+            RunField::Input => self.input.clone(),
+            RunField::Output => self.output.clone(),
+            RunField::Recursive => bool_label(self.recursive).to_string(),
+            RunField::MaxFileSizeMb => self.max_file_size_mb.clone(),
+            RunField::PageCutoff => self.page_cutoff.clone(),
+            RunField::PdfExtractWorkers => self.pdf_extract_workers.clone(),
+            RunField::CategoryDepth => self.category_depth.clone(),
+            RunField::TaxonomyMode => taxonomy_mode_label(self.taxonomy_mode).to_string(),
+            RunField::TaxonomyBatchSize => self.taxonomy_batch_size.clone(),
+            RunField::UseCurrentFolderTree => bool_label(self.use_current_folder_tree).to_string(),
+            RunField::KeywordBatchSize => self.keyword_batch_size.clone(),
+            RunField::SubcategoriesSuggestionNumber => self.subcategories_suggestion_number.clone(),
+            RunField::PlacementMode => placement_mode_label(self.placement_mode).to_string(),
+            RunField::PlacementBatchSize => self.placement_batch_size.clone(),
+            RunField::LlmProvider => provider_label(self.llm_provider).to_string(),
+            RunField::LlmModel => self.llm_model.clone(),
+            RunField::LlmBaseUrl => self.llm_base_url.clone(),
+            RunField::ApiKeySource => self.api_key_source.label().to_string(),
+            RunField::ApiKeyValue => {
                 super::validation::api_key_value_display(self.api_key_source, &self.api_key_value)
             }
-            18 => self.keyword_batch_size.clone(),
-            19 => self.subcategories_suggestion_number.clone(),
-            20 => self.verbosity.label().to_string(),
-            21 => bool_label(self.quiet).to_string(),
-            22 => bool_label(self.use_current_folder_tree).to_string(),
-            Self::RUN_BUTTON_INDEX => "Press `Enter`, `Space`, or `r` to launch.".to_string(),
-            _ => String::new(),
+            RunField::Apply => bool_label(self.apply).to_string(),
+            RunField::Rebuild => bool_label(self.rebuild).to_string(),
+            RunField::Verbosity => self.verbosity.label().to_string(),
+            RunField::Quiet => bool_label(self.quiet).to_string(),
+            RunField::RunButton => "Press `Enter`, `Space`, or `r` to launch.".to_string(),
         }
     }
 
     pub(crate) fn run_button_selected(&self) -> bool {
-        self.selected == Self::RUN_BUTTON_INDEX
+        self.selected == RunField::RunButton
+    }
+
+    fn select_by_offset(&mut self, direction: i8) {
+        let fields = visible_fields(self.advanced);
+        let Some(index) = fields.iter().position(|field| *field == self.selected) else {
+            self.selected = fields[0];
+            return;
+        };
+
+        self.selected = if direction < 0 {
+            fields[index.saturating_sub(1)]
+        } else {
+            fields[(index + 1).min(fields.len() - 1)]
+        };
     }
 
     fn move_column(&mut self, direction: i8) {
-        let Some((column_index, row_index)) = Self::column_position(self.selected) else {
-            self.selected = Self::VISIBLE_FIELDS[0];
+        let Some((column_index, row_index)) = self.column_position(self.selected) else {
+            self.selected = visible_fields(self.advanced)[0];
             return;
         };
 
         let target_column = if direction < 0 {
             column_index.saturating_sub(1)
         } else {
-            (column_index + 1).min(Self::COLUMN_FIELDS.len() - 1)
+            (column_index + 1).min(COLUMNS.len() - 1)
         };
 
         if target_column == column_index {
             return;
         }
 
-        let target_fields = Self::COLUMN_FIELDS[target_column];
+        let target_fields = visible_column_fields(target_column, self.advanced);
+        if target_fields.is_empty() {
+            return;
+        }
         self.selected = target_fields[row_index.min(target_fields.len() - 1)];
     }
 
-    fn column_position(field: usize) -> Option<(usize, usize)> {
-        Self::COLUMN_FIELDS
-            .iter()
-            .enumerate()
-            .find_map(|(column_index, fields)| {
-                fields
-                    .iter()
-                    .position(|candidate| *candidate == field)
-                    .map(|row_index| (column_index, row_index))
-            })
+    fn column_position(&self, field: RunField) -> Option<(usize, usize)> {
+        (0..COLUMNS.len()).find_map(|column_index| {
+            visible_column_fields(column_index, self.advanced)
+                .iter()
+                .position(|candidate| *candidate == field)
+                .map(|row_index| (column_index, row_index))
+        })
     }
 }

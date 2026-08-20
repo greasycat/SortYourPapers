@@ -11,137 +11,8 @@ use crate::{
 
 pub(super) use self::extract_form::ExtractForm;
 #[cfg(test)]
-pub(super) use self::run_form::ValidationSeverity;
+pub(super) use self::run_form::{RunField, ValidationSeverity};
 pub(super) use self::run_form::{RunForm, list_relative_directories};
-
-struct RunFieldDescriptor {
-    key: &'static str,
-    label: &'static str,
-    help: &'static str,
-}
-
-const RUN_FIELDS: [RunFieldDescriptor; 24] = [
-    RunFieldDescriptor {
-        key: "input",
-        label: "Input Folder",
-        help: "Source folder scanned for candidate PDFs. Must exist before launch.",
-    },
-    RunFieldDescriptor {
-        key: "output",
-        label: "Output Folder",
-        help: "Destination root for sorted papers. Created during apply if missing.",
-    },
-    RunFieldDescriptor {
-        key: "recursive",
-        label: "Recursive Scan",
-        help: "Scan nested folders inside the input path. Off means the top level only.",
-    },
-    RunFieldDescriptor {
-        key: "max_file_size_mb",
-        label: "Max File Size (MB)",
-        help: "Upper PDF size limit before extraction. Larger files are skipped.",
-    },
-    RunFieldDescriptor {
-        key: "page_cutoff",
-        label: "Pages Per PDF",
-        help: "Maximum pages extracted from each PDF. Keeps runs faster and cheaper.",
-    },
-    RunFieldDescriptor {
-        key: "pdf_extract_workers",
-        label: "Extract Workers",
-        help: "Parallel PDF extraction workers. Higher values trade more CPU for throughput.",
-    },
-    RunFieldDescriptor {
-        key: "category_depth",
-        label: "Category Depth",
-        help: "Maximum taxonomy folder depth the run tries to build and place into.",
-    },
-    RunFieldDescriptor {
-        key: "taxonomy_mode",
-        label: "Taxonomy Strategy",
-        help: "How the taxonomy is synthesized from paper batches. Batch merge is the default.",
-    },
-    RunFieldDescriptor {
-        key: "taxonomy_batch_size",
-        label: "Taxonomy Batch Size",
-        help: "Preliminary category groups sent in each taxonomy synthesis request.",
-    },
-    RunFieldDescriptor {
-        key: "placement_batch_size",
-        label: "Placement Batch Size",
-        help: "Papers classified together in each placement request.",
-    },
-    RunFieldDescriptor {
-        key: "placement_mode",
-        label: "Placement Policy",
-        help: "Whether placement must reuse existing folders or can introduce new ones.",
-    },
-    RunFieldDescriptor {
-        key: "rebuild",
-        label: "Rebuild Output",
-        help: "Ignore the current output tree and rebuild taxonomy before classifying.",
-    },
-    RunFieldDescriptor {
-        key: "apply",
-        label: "Apply Moves",
-        help: "Execute file moves. Leave this off to keep the run in preview mode.",
-    },
-    RunFieldDescriptor {
-        key: "llm_provider",
-        label: "LLM Provider",
-        help: "Model backend used for keywords, taxonomy synthesis, and placement.",
-    },
-    RunFieldDescriptor {
-        key: "llm_model",
-        label: "Model",
-        help: "Model name sent to the selected provider. Required.",
-    },
-    RunFieldDescriptor {
-        key: "llm_base_url",
-        label: "Base URL",
-        help: "Custom provider endpoint. Leave blank to use the provider default.",
-    },
-    RunFieldDescriptor {
-        key: "api_key_source",
-        label: "API Key Source",
-        help: "How the API key is loaded: literal text, shell command output, or an environment variable.",
-    },
-    RunFieldDescriptor {
-        key: "api_key_value",
-        label: "API Key Value",
-        help: "Used as the literal key, the shell command, or the environment variable name based on API Key Source.",
-    },
-    RunFieldDescriptor {
-        key: "keyword_batch_size",
-        label: "Keyword Batch Size",
-        help: "Papers grouped into each keyword extraction request.",
-    },
-    RunFieldDescriptor {
-        key: "subcategories_suggestion_number",
-        label: "Target Subcategories",
-        help: "Soft target for how many child categories a node should usually stay under.",
-    },
-    RunFieldDescriptor {
-        key: "verbosity",
-        label: "Verbosity",
-        help: "Backend log detail level: normal, verbose, or debug.",
-    },
-    RunFieldDescriptor {
-        key: "quiet",
-        label: "Quiet Mode",
-        help: "Reduce runtime output to warnings, errors, and essential summaries.",
-    },
-    RunFieldDescriptor {
-        key: "use_current_folder_tree",
-        label: "Use Current Folder Tree",
-        help: "Feed the existing output folder tree into taxonomy merge as optional naming guidance.",
-    },
-    RunFieldDescriptor {
-        key: "run_button",
-        label: "Run Button",
-        help: "Launch the current run configuration. Equivalent to pressing r on the run form.",
-    },
-];
 
 pub(super) const EXTRACT_FIELD_LABELS: [&str; 5] = [
     "PDF Files",
@@ -150,18 +21,6 @@ pub(super) const EXTRACT_FIELD_LABELS: [&str; 5] = [
     "Extract Workers",
     "Verbosity",
 ];
-
-pub(super) fn run_field_key(index: usize) -> &'static str {
-    RUN_FIELDS[index].key
-}
-
-pub(super) fn run_field_label(index: usize) -> &'static str {
-    RUN_FIELDS[index].label
-}
-
-pub(super) fn run_field_help(index: usize) -> &'static str {
-    RUN_FIELDS[index].help
-}
 
 pub(super) fn extract_field_label(index: usize) -> &'static str {
     EXTRACT_FIELD_LABELS[index]

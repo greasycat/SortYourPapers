@@ -1,3 +1,6 @@
+- Split the TUI run form into essential and advanced tiers: the default form now shows 11 fields (paths, scope, depth, placement policy, LLM/API, apply, run) and `a` reveals the 13 tuning fields, which still feed the run config and `s` save whether shown or not.
+- Replace the run form's magic field indices with a typed `RunField` table that owns each field's label, help text, edit kind, tier, and layout position, so navigation, rendering, and validation no longer keep parallel index lists.
+- Merge the identical `EnvConfig` and `FileConfig` structs into a single `ConfigLayer`, so the env and XDG override layers share one 34-field definition instead of two.
 - Move the oversized `syptui::tui::mod` test suite into `syptui::tui::tests` so the main TUI module now stays focused on bootstrap and event-loop runtime logic as planned in `Tomorrow.md`.
 - Extract reusable AI, library-domain, and workflow logic into new `syp-ai`, `syp-library`, and `syp-workflow` crates, and reduce `syp-core` to a compatibility facade that keeps the existing CLI and TUI import surface stable while the architecture shifts under it.
 - Reflow the split placement runtime call sites and validation branches so the post-extraction `syp-core` placement modules stay consistently formatted before larger crate-boundary moves build on them.

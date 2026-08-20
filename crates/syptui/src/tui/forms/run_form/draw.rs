@@ -6,16 +6,14 @@ use ratatui::{
 
 use crate::cli::{DEFAULT_INPUT, DEFAULT_OUTPUT};
 use crate::tui::{
-    forms::{
-        bool_label, placement_mode_label, provider_label, run_field_help, run_field_label,
-        taxonomy_mode_label,
-    },
+    forms::{bool_label, placement_mode_label, provider_label, taxonomy_mode_label},
     theme::ThemePalette,
     ui_widgets::{render_selectable_list, stylized_body_line},
 };
 
 use super::{
     RunForm,
+    fields::{COLUMNS, RunField, SectionSpec},
     state::RunFormAnalysis,
     validation::{api_key_summary, display_path_line, summarize_issue},
 };
@@ -85,19 +83,7 @@ impl RunForm {
                 .split(inner)
         };
 
-        const COLUMN_SECTIONS: [[(&str, &[usize]); 2]; 3] = [
-            [("Paths & Scope", &[0, 1, 2]), ("Extraction", &[3, 4, 5])],
-            [
-                ("Taxonomy", &[6, 7, 8, 22, 18, 19]),
-                ("Placement", &[9, 10]),
-            ],
-            [
-                ("LLM & API", &[13, 14, 15, 16, 17]),
-                ("Run", &[11, 12, 20, 21, RunForm::RUN_BUTTON_INDEX]),
-            ],
-        ];
-
-        for (column, sections) in chunks.iter().zip(COLUMN_SECTIONS.iter()) {
+        for (column, sections) in chunks.iter().zip(COLUMNS.iter()) {
             self.draw_column(frame, *column, sections, analysis, theme);
         }
     }
@@ -137,6 +123,15 @@ impl RunForm {
             ]),
             Line::from(vec![
                 badge_span(if self.apply { "APPLY" } else { "PREVIEW" }, mode_color),
+                Span::raw(" "),
+                badge_span(
+                    if self.advanced {
+                        "ADVANCED"
+                    } else {
+                        "ESSENTIAL"
+                    },
+                    theme.accent,
+                ),
                 Span::raw(" "),
                 badge_span(&format!("{errors} ERR"), theme.error),
                 Span::raw(" "),
@@ -299,7 +294,7 @@ impl RunForm {
         analysis: &RunFormAnalysis,
         theme: ThemePalette,
     ) {
-        let selected_label = run_field_label(self.selected);
+        let selected_label = self.selected.label();
         let selected_value = self.value(self.selected);
         let mut lines = vec![
             Line::from(Span::styled(
@@ -311,7 +306,7 @@ impl RunForm {
             )),
             Line::from(""),
             section_header_line("Description", theme.info),
-            stylized_body_line(run_field_help(self.selected), theme),
+            stylized_body_line(self.selected.help(), theme),
             Line::from(""),
             section_header_line("Current", theme.success),
             stylized_body_line(&selected_value, theme),
@@ -341,27 +336,37 @@ impl RunForm {
         &self,
         frame: &mut Frame,
         area: Rect,
-        sections: &[(&str, &[usize])],
+        sections: &[SectionSpec],
         analysis: &RunFormAnalysis,
         theme: ThemePalette,
     ) {
         let mut items = Vec::new();
         let mut selected_item = None;
-        for (section_index, (title, fields)) in sections.iter().enumerate() {
-            if section_index > 0 {
+        for section in sections {
+            let fields = section
+                .fields
+                .iter()
+                .copied()
+                .filter(|field| field.visible(self.advanced))
+                .collect::<Vec<_>>();
+            if fields.is_empty() {
+                continue;
+            }
+
+            if !items.is_empty() {
                 items.push(ListItem::new(""));
             }
             items.push(ListItem::new(Line::from(Span::styled(
-                (*title).to_string(),
+                section.title.to_string(),
                 Style::default()
                     .fg(theme.info)
                     .bg(theme.panel_bg)
                     .add_modifier(Modifier::BOLD),
             ))));
 
-            for field_index in *fields {
-                if *field_index == Self::RUN_BUTTON_INDEX {
-                    if *field_index == self.selected {
+            for field in fields {
+                if field == RunField::RunButton {
+                    if field == self.selected {
                         selected_item = Some(items.len());
                     }
                     items.push(ListItem::new(Line::styled(
@@ -375,20 +380,15 @@ impl RunForm {
                 }
 
                 let marker = analysis
-                    .field_issue(*field_index)
+                    .field_issue(field)
                     .map_or(' ', |issue| issue.severity.marker());
-                let content = format!(
-                    "{} {}: {}",
-                    marker,
-                    run_field_label(*field_index),
-                    self.value(*field_index)
-                );
+                let content = format!("{} {}: {}", marker, field.label(), self.value(field));
 
-                if *field_index == self.selected {
+                if field == self.selected {
                     selected_item = Some(items.len());
                 }
 
-                if let Some(issue) = analysis.field_issue(*field_index) {
+                if let Some(issue) = analysis.field_issue(field) {
                     items.push(ListItem::new(Line::styled(
                         content,
                         Style::default().fg(issue.severity.color()),
@@ -425,7 +425,7 @@ fn labeled_value_line(
 ) -> Line<'static> {
     Line::from(vec![
         Span::styled(
-            format!("{label:<8}"),
+            format!("{label:<9}"),
             Style::default()
                 .fg(label_color)
                 .add_modifier(Modifier::BOLD),

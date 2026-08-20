@@ -21,7 +21,7 @@ use crate::{
 use super::{
     app::App,
     backend::BackendEvent,
-    forms::{ExtractForm, RunForm, UiVerbosity, ValidationSeverity},
+    forms::{ExtractForm, RunField, RunForm, UiVerbosity, ValidationSeverity},
     model::{
         OperationDetail, OperationState, OperationTab, OperationView, Overlay, ProgressEntry,
         Screen, StageTiming,
@@ -328,20 +328,30 @@ fn sample_rearrangeable_taxonomy_categories() -> Vec<CategoryTree> {
 
 #[test]
 fn run_form_non_editable_fields_match_toggle_and_enum_fields() {
-    let form = RunForm::default();
+    for field in [
+        RunField::Recursive,
+        RunField::TaxonomyMode,
+        RunField::PlacementMode,
+        RunField::Rebuild,
+        RunField::Apply,
+        RunField::LlmProvider,
+        RunField::ApiKeySource,
+        RunField::Verbosity,
+        RunField::Quiet,
+        RunField::UseCurrentFolderTree,
+        RunField::RunButton,
+    ] {
+        assert!(!field.editable(), "{field:?} should not open the editor");
+    }
 
-    assert!(!form.editable(2));
-    assert!(!form.editable(7));
-    assert!(!form.editable(10));
-    assert!(!form.editable(11));
-    assert!(!form.editable(12));
-    assert!(!form.editable(13));
-    assert!(!form.editable(16));
-    assert!(!form.editable(20));
-    assert!(!form.editable(21));
-    assert!(!form.editable(22));
-    assert!(form.editable(14));
-    assert!(form.editable(18));
+    for field in [
+        RunField::LlmModel,
+        RunField::KeywordBatchSize,
+        RunField::Input,
+        RunField::Output,
+    ] {
+        assert!(field.editable(), "{field:?} should open the editor");
+    }
 }
 
 #[test]
@@ -391,13 +401,13 @@ fn run_form_can_be_hydrated_from_saved_config() {
     assert_eq!(form.input, "/tmp/papers");
     assert_eq!(form.output, "/tmp/sorted");
     assert!(form.recursive);
-    assert_eq!(form.value(14), "gpt-test");
-    assert_eq!(form.value(15), "http://localhost:1234/v1");
-    assert_eq!(form.value(16), "env");
-    assert_eq!(form.value(17), "OPENAI_API_KEY");
-    assert_eq!(form.value(20), "verbose");
-    assert_eq!(form.value(21), "yes");
-    assert_eq!(form.value(22), "yes");
+    assert_eq!(form.value(RunField::LlmModel), "gpt-test");
+    assert_eq!(form.value(RunField::LlmBaseUrl), "http://localhost:1234/v1");
+    assert_eq!(form.value(RunField::ApiKeySource), "env");
+    assert_eq!(form.value(RunField::ApiKeyValue), "OPENAI_API_KEY");
+    assert_eq!(form.value(RunField::Verbosity), "verbose");
+    assert_eq!(form.value(RunField::Quiet), "yes");
+    assert_eq!(form.value(RunField::UseCurrentFolderTree), "yes");
     assert!(form.apply);
     assert!(form.rebuild);
 }
@@ -406,78 +416,105 @@ fn run_form_can_be_hydrated_from_saved_config() {
 fn run_form_toggle_and_cycle_target_the_expected_fields() {
     let mut form = RunForm::default();
 
-    form.selected = 7;
+    form.selected = RunField::TaxonomyMode;
     form.toggle_selected();
     assert_eq!(form.taxonomy_mode, TaxonomyMode::Global);
 
-    form.selected = 10;
+    form.selected = RunField::PlacementMode;
     form.toggle_selected();
     assert_eq!(form.placement_mode, PlacementMode::AllowNew);
 
-    form.selected = 16;
+    form.selected = RunField::ApiKeySource;
     form.toggle_selected();
-    assert_eq!(form.value(16), "command");
+    assert_eq!(form.value(RunField::ApiKeySource), "command");
 
-    form.selected = 20;
+    form.selected = RunField::Verbosity;
     form.toggle_selected();
     assert!(matches!(form.verbosity, UiVerbosity::Verbose));
 
-    form.selected = 11;
+    form.selected = RunField::Rebuild;
     form.toggle_selected();
     assert!(form.rebuild);
 
-    form.selected = 21;
+    form.selected = RunField::Quiet;
     form.toggle_selected();
     assert!(form.quiet);
 
-    form.selected = 22;
+    form.selected = RunField::UseCurrentFolderTree;
     form.toggle_selected();
     assert!(form.use_current_folder_tree);
 }
 
 #[test]
-fn run_form_navigation_skips_hidden_output_fields() {
+fn run_form_navigation_walks_visible_fields_in_layout_order() {
     let mut form = RunForm::default();
 
-    form.selected = 17;
+    form.selected = RunField::ApiKeyValue;
     form.select_next();
-    assert_eq!(form.selected, 11);
+    assert_eq!(form.selected, RunField::Apply);
 
     form.select_next();
-    assert_eq!(form.selected, 12);
+    assert_eq!(form.selected, RunField::RunButton);
 
     form.select_previous();
-    assert_eq!(form.selected, 11);
+    assert_eq!(form.selected, RunField::Apply);
+}
+
+#[test]
+fn run_form_navigation_skips_advanced_fields_until_enabled() {
+    let mut form = RunForm::default();
+
+    form.selected = RunField::Recursive;
+    form.select_next();
+    assert_eq!(form.selected, RunField::CategoryDepth);
+
+    form.toggle_advanced();
+    form.selected = RunField::Recursive;
+    form.select_next();
+    assert_eq!(form.selected, RunField::MaxFileSizeMb);
+}
+
+#[test]
+fn run_form_leaving_advanced_mode_restores_a_visible_selection() {
+    let mut form = RunForm::default();
+
+    form.toggle_advanced();
+    form.selected = RunField::Quiet;
+    form.toggle_advanced();
+
+    assert!(!form.advanced);
+    assert_eq!(form.selected, RunField::Input);
 }
 
 #[test]
 fn run_form_column_navigation_moves_across_matching_rows() {
     let mut form = RunForm::default();
+    form.toggle_advanced();
 
-    form.selected = 4;
+    form.selected = RunField::PageCutoff;
     form.move_column_right();
-    assert_eq!(form.selected, 18);
+    assert_eq!(form.selected, RunField::KeywordBatchSize);
 
     form.move_column_right();
-    assert_eq!(form.selected, 17);
+    assert_eq!(form.selected, RunField::ApiKeyValue);
 
     form.move_column_left();
-    assert_eq!(form.selected, 18);
+    assert_eq!(form.selected, RunField::KeywordBatchSize);
 
     form.move_column_left();
-    assert_eq!(form.selected, 4);
+    assert_eq!(form.selected, RunField::PageCutoff);
 }
 
 #[test]
 fn run_form_column_navigation_clamps_to_shorter_columns() {
     let mut form = RunForm::default();
 
-    form.selected = 21;
+    form.selected = RunField::RunButton;
     form.move_column_left();
-    assert_eq!(form.selected, 10);
+    assert_eq!(form.selected, RunField::PlacementMode);
 
     form.move_column_right();
-    assert_eq!(form.selected, 20);
+    assert_eq!(form.selected, RunField::LlmModel);
 }
 
 #[test]
@@ -488,7 +525,6 @@ fn run_form_renders_workspace_with_preview_and_selected_field_panels() {
     let lines = render_lines(&app, 140, 40);
 
     assert!(lines.iter().any(|line| line.contains("Paths & Scope")));
-    assert!(lines.iter().any(|line| line.contains("Extraction")));
     assert!(lines.iter().any(|line| line.contains("Taxonomy")));
     assert!(lines.iter().any(|line| line.contains("Placement")));
     assert!(lines.iter().any(|line| line.contains("LLM & API")));
@@ -504,10 +540,47 @@ fn run_form_renders_workspace_with_preview_and_selected_field_panels() {
 }
 
 #[test]
+fn run_form_hides_advanced_fields_until_advanced_mode_is_enabled() {
+    let mut app = test_app();
+    app.screen = Screen::RunForm;
+
+    let lines = render_lines(&app, 140, 40);
+    assert!(!lines.iter().any(|line| line.contains("Extraction")));
+    assert!(!lines.iter().any(|line| line.contains("Max File Size")));
+    assert!(lines.iter().any(|line| line.contains("ESSENTIAL")));
+
+    app.run_form.toggle_advanced();
+
+    let lines = render_lines(&app, 140, 40);
+    assert!(lines.iter().any(|line| line.contains("Extraction")));
+    assert!(lines.iter().any(|line| line.contains("Max File Size")));
+    assert!(lines.iter().any(|line| line.contains("ADVANCED")));
+}
+
+#[test]
+fn pressing_a_toggles_advanced_run_form_fields() {
+    let mut app = test_app();
+    app.screen = Screen::RunForm;
+
+    let runtime = test_runtime();
+    runtime
+        .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
+        .expect("a should toggle advanced fields");
+
+    assert!(app.run_form.advanced);
+
+    runtime
+        .block_on(app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)))
+        .expect("a should toggle advanced fields back");
+
+    assert!(!app.run_form.advanced);
+}
+
+#[test]
 fn run_form_selected_run_button_shows_launch_copy() {
     let mut app = test_app();
     app.screen = Screen::RunForm;
-    app.run_form.selected = RunForm::RUN_BUTTON_INDEX;
+    app.run_form.selected = RunField::RunButton;
 
     let lines = render_lines(&app, 140, 40);
 
@@ -523,7 +596,8 @@ fn run_form_selected_run_button_shows_launch_copy() {
 fn run_form_scrolls_to_keep_selected_field_visible() {
     let mut app = test_app();
     app.screen = Screen::RunForm;
-    app.run_form.selected = 21;
+    app.run_form.advanced = true;
+    app.run_form.selected = RunField::Quiet;
 
     let lines = render_lines(&app, 140, 24);
 
@@ -574,7 +648,7 @@ fn home_screen_stacks_panels_on_narrow_width() {
 fn run_form_selected_field_uses_structured_description_layout() {
     let mut app = test_app();
     app.screen = Screen::RunForm;
-    app.run_form.selected = 0;
+    app.run_form.selected = RunField::Input;
 
     let lines = render_lines(&app, 140, 36);
 
@@ -727,7 +801,7 @@ fn operation_screen_renders_progress_gauges_with_labels_and_counts() {
 fn edit_overlay_enter_commits_value_without_reopening_editor() {
     let mut app = test_app();
     app.screen = Screen::RunForm;
-    app.run_form.selected = 0;
+    app.run_form.selected = RunField::Input;
     app.overlay = Some(Overlay::EditField {
         label: "Input".to_string(),
         buffer: "papers".to_string(),
@@ -746,7 +820,7 @@ fn edit_overlay_enter_commits_value_without_reopening_editor() {
 fn edit_overlay_escape_closes_editor_without_leaving_form() {
     let mut app = test_app();
     app.screen = Screen::RunForm;
-    app.run_form.selected = 0;
+    app.run_form.selected = RunField::Input;
     let original_input = app.run_form.input.clone();
     app.overlay = Some(Overlay::EditField {
         label: "Input".to_string(),
@@ -795,7 +869,7 @@ fn edit_overlay_renders_input_box_and_places_cursor_at_buffer_end() {
 fn run_form_enter_opens_path_picker_for_folder_fields() {
     let mut app = test_app();
     app.screen = Screen::RunForm;
-    app.run_form.selected = 0;
+    app.run_form.selected = RunField::Input;
 
     let runtime = test_runtime();
     runtime
@@ -816,7 +890,7 @@ fn run_form_enter_opens_path_picker_for_folder_fields() {
 fn path_overlay_enter_commits_value_without_reopening_editor() {
     let mut app = test_app();
     app.screen = Screen::RunForm;
-    app.run_form.selected = 0;
+    app.run_form.selected = RunField::Input;
     app.overlay = Some(Overlay::SelectPath {
         label: "Input Folder".to_string(),
         buffer: "papers".to_string(),
@@ -837,7 +911,7 @@ fn path_overlay_enter_commits_value_without_reopening_editor() {
 fn path_overlay_treats_plain_characters_as_text_input() {
     let mut app = test_app();
     app.screen = Screen::RunForm;
-    app.run_form.selected = 0;
+    app.run_form.selected = RunField::Input;
     app.overlay = Some(Overlay::SelectPath {
         label: "Input Folder".to_string(),
         buffer: "pap".to_string(),
@@ -1170,7 +1244,7 @@ fn run_form_analysis_blocks_missing_input_directory() {
 
     assert!(analysis.has_errors());
     let issue = analysis
-        .field_issue(0)
+        .field_issue(RunField::Input)
         .expect("missing input should create a field issue");
     assert_eq!(issue.severity, ValidationSeverity::Error);
 }
@@ -1186,7 +1260,7 @@ fn run_form_analysis_allows_missing_output_directory_as_info() {
 
     assert!(!analysis.has_errors());
     let issue = analysis
-        .field_issue(1)
+        .field_issue(RunField::Output)
         .expect("missing output should surface as a note");
     assert_eq!(issue.severity, ValidationSeverity::Info);
     assert!(analysis.config.is_some());
@@ -1199,17 +1273,17 @@ fn run_form_analysis_warns_when_api_key_env_is_missing() {
     form.input = temp.path().display().to_string();
     form.output = temp.path().join("sorted").display().to_string();
 
-    form.selected = 16;
+    form.selected = RunField::ApiKeySource;
     form.toggle_selected();
     form.toggle_selected();
-    form.selected = 17;
+    form.selected = RunField::ApiKeyValue;
     form.apply_edit("SYP_MISSING_API_KEY_FOR_TEST".to_string())
         .expect("api key env name should apply");
 
     let analysis = form.analysis();
 
     let issue = analysis
-        .field_issue(17)
+        .field_issue(RunField::ApiKeyValue)
         .expect("missing env should create a field issue");
     assert_eq!(issue.severity, ValidationSeverity::Warning);
     assert!(issue.message.contains("Environment variable"));
@@ -1222,10 +1296,10 @@ fn run_form_analysis_accepts_present_api_key_env() {
     form.input = temp.path().display().to_string();
     form.output = temp.path().join("sorted").display().to_string();
 
-    form.selected = 16;
+    form.selected = RunField::ApiKeySource;
     form.toggle_selected();
     form.toggle_selected();
-    form.selected = 17;
+    form.selected = RunField::ApiKeyValue;
     form.apply_edit("PATH".to_string())
         .expect("api key env name should apply");
 
@@ -1233,7 +1307,7 @@ fn run_form_analysis_accepts_present_api_key_env() {
 
     assert!(
         analysis
-            .field_issue(17)
+            .field_issue(RunField::ApiKeyValue)
             .is_none_or(|issue| !issue.message.contains("Environment variable"))
     );
 }
@@ -1262,7 +1336,7 @@ fn run_button_enter_with_errors_opens_notice_instead_of_starting() {
     app.screen = Screen::RunForm;
     app.run_form.input = temp.path().join("missing-input").display().to_string();
     app.run_form.output = temp.path().join("sorted").display().to_string();
-    app.run_form.selected = RunForm::RUN_BUTTON_INDEX;
+    app.run_form.selected = RunField::RunButton;
 
     let runtime = test_runtime();
     runtime
