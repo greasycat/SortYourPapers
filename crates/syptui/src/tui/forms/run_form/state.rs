@@ -1,9 +1,9 @@
 use crate::{
     cli::{
-        DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT, DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_MODEL,
-        DEFAULT_LLM_PROVIDER, DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OUTPUT, DEFAULT_PAGE_CUTOFF,
-        DEFAULT_PDF_EXTRACT_WORKERS, DEFAULT_PLACEMENT_BATCH_SIZE,
-        DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER, DEFAULT_TAXONOMY_BATCH_SIZE,
+        DEFAULT_CATEGORY_DEPTH, DEFAULT_INPUT, DEFAULT_KEYWORD_BATCH_SIZE, DEFAULT_LLM_PROVIDER,
+        DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_OUTPUT, DEFAULT_PAGE_CUTOFF, DEFAULT_PDF_EXTRACT_WORKERS,
+        DEFAULT_PLACEMENT_BATCH_SIZE, DEFAULT_SUBCATEGORIES_SUGGESTION_NUMBER,
+        DEFAULT_TAXONOMY_BATCH_SIZE, default_llm_model,
     },
     config::AppConfig,
     error::Result,
@@ -121,7 +121,7 @@ impl Default for RunForm {
             rebuild: false,
             apply: false,
             llm_provider: DEFAULT_LLM_PROVIDER,
-            llm_model: DEFAULT_LLM_MODEL.to_string(),
+            llm_model: default_llm_model(DEFAULT_LLM_PROVIDER).to_string(),
             llm_base_url: String::new(),
             api_key_source: ApiKeySourceMode::Text,
             api_key_value: String::new(),
@@ -226,7 +226,13 @@ impl RunForm {
                 self.placement_mode = cycle_placement_mode(self.placement_mode, direction);
             }
             RunField::LlmProvider => {
-                self.llm_provider = cycle_provider(self.llm_provider, direction);
+                let previous = self.llm_provider;
+                self.llm_provider = cycle_provider(previous, direction);
+                // Model names are provider-specific. Carry the new provider's
+                // default across, unless the field holds something typed.
+                if self.llm_model == default_llm_model(previous) {
+                    self.llm_model = default_llm_model(self.llm_provider).to_string();
+                }
             }
             RunField::ApiKeySource => {
                 self.api_key_source = if direction >= 0 {

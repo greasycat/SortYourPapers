@@ -13,7 +13,7 @@ use std::{
 use toml::Table;
 
 use crate::{
-    defaults::{DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, DEFAULT_RECURSIVE},
+    defaults::{DEFAULT_LLM_PROVIDER, DEFAULT_RECURSIVE, default_llm_model},
     error::{AppError, Result},
     llm::LlmProvider,
 };
@@ -40,7 +40,7 @@ impl WatchSettings {
             output: default_watch_output(folder),
             recursive: DEFAULT_RECURSIVE,
             llm_provider: DEFAULT_LLM_PROVIDER,
-            llm_model: DEFAULT_LLM_MODEL.to_string(),
+            llm_model: default_llm_model(DEFAULT_LLM_PROVIDER).to_string(),
             api_key_env: None,
         }
     }

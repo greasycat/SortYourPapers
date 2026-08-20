@@ -423,3 +423,40 @@ llm_model = "folder-model"
     assert_eq!(config.llm_model, "cli-model");
     assert_eq!(config.category_depth, 2);
 }
+
+#[test]
+fn model_default_follows_the_resolved_provider() {
+    for (provider, expected) in [
+        (LlmProvider::Gemini, "gemini-3-flash-preview"),
+        (LlmProvider::Openai, "gpt-5-mini"),
+        (LlmProvider::Ollama, "llama3.1"),
+    ] {
+        let config = resolve_from_sources(
+            RunOverrides {
+                llm_provider: Some(provider),
+                ..RunOverrides::default()
+            },
+            ConfigLayer::default(),
+            ConfigLayer::default(),
+        )
+        .expect("config should resolve");
+
+        assert_eq!(config.llm_model, expected, "default model for {provider:?}");
+    }
+}
+
+#[test]
+fn an_explicit_model_still_wins_over_the_provider_default() {
+    let config = resolve_from_sources(
+        RunOverrides {
+            llm_provider: Some(LlmProvider::Ollama),
+            llm_model: Some("qwen3".to_string()),
+            ..RunOverrides::default()
+        },
+        ConfigLayer::default(),
+        ConfigLayer::default(),
+    )
+    .expect("config should resolve");
+
+    assert_eq!(config.llm_model, "qwen3");
+}

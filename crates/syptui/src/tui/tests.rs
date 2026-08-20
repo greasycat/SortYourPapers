@@ -10,6 +10,7 @@ use ratatui::{Terminal, backend::TestBackend, layout::Position, style::Color};
 use tempfile::tempdir;
 
 use crate::{
+    cli::default_llm_model,
     config::{ApiKeySource, AppConfig},
     papers::placement::{PlacementAssistance, PlacementMode},
     papers::taxonomy::{CategoryTree, TaxonomyMode},
@@ -443,6 +444,26 @@ fn run_form_toggle_and_cycle_target_the_expected_fields() {
     form.selected = RunField::UseCurrentFolderTree;
     form.toggle_selected();
     assert!(form.use_current_folder_tree);
+}
+
+#[test]
+fn cycling_provider_carries_the_default_model_but_keeps_a_typed_one() {
+    let mut form = RunForm::default();
+    form.selected = RunField::LlmProvider;
+
+    form.toggle_selected();
+    assert_eq!(
+        form.value(RunField::LlmModel),
+        default_llm_model(form.llm_provider)
+    );
+
+    form.selected = RunField::LlmModel;
+    form.apply_edit("my-tuned-model".to_string())
+        .expect("model should apply");
+    form.selected = RunField::LlmProvider;
+    form.toggle_selected();
+
+    assert_eq!(form.value(RunField::LlmModel), "my-tuned-model");
 }
 
 #[test]

@@ -10,6 +10,7 @@ use std::{io, path::Path};
 use syp_core::{
     app,
     config::{WatchSettings, default_api_key_env, watch_config_path},
+    defaults::default_llm_model,
     error::Result,
     llm::LlmProvider,
     terminal::current_backend,
@@ -105,7 +106,7 @@ fn prompt_settings(
         .interact()?;
 
     settings.llm_model = cliclack::input("Which model?")
-        .default_input(&settings.llm_model)
+        .default_input(default_llm_model(settings.llm_provider))
         .required(true)
         .interact()?;
 

@@ -56,8 +56,7 @@ cargo run -p syp -- \
   --input ./papers \
   --output ./sorted \
   --recursive \
-  --llm-provider ollama \
-  --llm-model llama3.1
+  --llm-provider ollama
 ```
 
 Launch the TUI:

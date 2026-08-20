@@ -24,7 +24,22 @@ pub const DEFAULT_RECURSIVE: bool = false;
 pub const DEFAULT_REBUILD: bool = false;
 pub const DEFAULT_USE_CURRENT_FOLDER_TREE: bool = false;
 pub const DEFAULT_LLM_PROVIDER: LlmProvider = LlmProvider::Gemini;
-pub const DEFAULT_LLM_MODEL: &str = "gemini-3-flash-preview";
+pub const DEFAULT_GEMINI_MODEL: &str = "gemini-3-flash-preview";
+pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5-mini";
+pub const DEFAULT_OLLAMA_MODEL: &str = "llama3.1";
+
+/// Chat model used when a provider is selected without naming a model.
+///
+/// Model names are provider-specific, so there is no single default: handing
+/// one provider's model to another is a request that fails at the API.
+#[must_use]
+pub fn default_llm_model(provider: LlmProvider) -> &'static str {
+    match provider {
+        LlmProvider::Gemini => DEFAULT_GEMINI_MODEL,
+        LlmProvider::Openai => DEFAULT_OPENAI_MODEL,
+        LlmProvider::Ollama => DEFAULT_OLLAMA_MODEL,
+    }
+}
 pub const DEFAULT_TAXONOMY_ASSISTANCE: TaxonomyAssistance = TaxonomyAssistance::LlmOnly;
 pub const DEFAULT_PLACEMENT_ASSISTANCE: PlacementAssistance = PlacementAssistance::LlmOnly;
 pub const DEFAULT_REFERENCE_MANIFEST_PATH: &str = "assets/testsets/scijudgebench-diverse.toml";
