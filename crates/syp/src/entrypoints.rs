@@ -4,7 +4,7 @@ use syp_core::{
     session,
 };
 
-use crate::{Cli, CliArgs, Commands, ReferenceCommands, SessionCommands, WatchCommands};
+use crate::{Cli, Commands, ReferenceCommands, SessionCommands, WatchCommands};
 
 /// Dispatches the existing clap-based CLI surface.
 ///
@@ -48,12 +48,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
             },
             Commands::Watch(args) => match args.command {
                 Some(WatchCommands::Init(init)) => {
-                    let overrides = CliArgs {
-                        input: init.input,
-                        ..args.run
-                    }
-                    .into_run_overrides();
-                    let path = app::init_watch_config(overrides, init.output, init.force)?;
+                    let path = app::init_watch_config(init.input, init.output, init.force)?;
                     println!("Wrote watch config to {}", path.display());
                 }
                 None => app::watch_with_args(args.run.into_run_overrides()).await?,

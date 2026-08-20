@@ -52,18 +52,22 @@ pub async fn watch_with_args(overrides: RunOverrides) -> Result<()> {
     watch(resolve_watch_config(overrides)?).await
 }
 
-/// Writes a starter config into the folder that `overrides` selects for
-/// watching, and returns its path.
+/// Writes a starter config into `input`, defaulting to the current directory,
+/// and returns its path.
+///
+/// Unlike watching, this ignores the configured input folder: the folder being
+/// set up is the one named on the command line, or the one the user is
+/// standing in.
 ///
 /// # Errors
-/// Returns an error when config resolution fails, the folder is missing, or a
-/// config already exists there and `force` is not set.
+/// Returns an error when the folder is missing, or a config already exists
+/// there and `force` is not set.
 pub fn init_watch_config(
-    overrides: RunOverrides,
+    input: Option<PathBuf>,
     output: Option<PathBuf>,
     force: bool,
 ) -> Result<PathBuf> {
-    let folder = watch_folder(&config::resolve_config(overrides)?)?;
+    let folder = absolutize(input.as_deref().unwrap_or(Path::new(".")))?;
     let output = output.map(|output| absolutize(&output)).transpose()?;
     config::init_watch_config(&folder, output.as_deref(), force)
 }

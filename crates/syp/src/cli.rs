@@ -51,7 +51,7 @@ pub enum WatchCommands {
 
 #[derive(Debug, Args)]
 pub struct WatchInitArgs {
-    /// Folder to watch. Defaults to the configured input folder.
+    /// Folder to watch. Defaults to the current directory.
     #[arg(short = 'i', long)]
     pub input: Option<PathBuf>,
 
