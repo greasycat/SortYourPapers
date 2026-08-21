@@ -1,4 +1,5 @@
 pub mod error;
+pub mod eval;
 pub mod papers;
 pub mod report;
 pub mod terminal;

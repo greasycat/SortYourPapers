@@ -46,6 +46,17 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                 SessionCommands::Remove(args) => session::remove_sessions(args.run_ids)?,
                 SessionCommands::Clear => session::clear_sessions()?,
             },
+            Commands::Eval(args) => {
+                let verbosity = syp_core::terminal::Verbosity::new(
+                    args.verbosity >= 1,
+                    args.verbosity >= 2,
+                    false,
+                );
+                let evaluation = app::evaluate_run(args.run_id, args.manifest, verbosity)?;
+                for line in evaluation.summary_lines() {
+                    println!("{line}");
+                }
+            }
             Commands::Watch(args) => match args.command {
                 Some(WatchCommands::Init(init)) => crate::watch_init::run_watch_init(init)?,
                 None => app::watch_with_args(args.run.into_run_overrides()).await?,

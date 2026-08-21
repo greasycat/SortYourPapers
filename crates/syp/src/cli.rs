@@ -32,6 +32,22 @@ pub enum Commands {
     Session(SessionArgs),
     /// Organize the input folder whenever new PDFs land in it.
     Watch(WatchArgs),
+    /// Score a finished run against a curated test set's labels.
+    Eval(EvalArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct EvalArgs {
+    /// Run to score. Defaults to the latest run in this workspace.
+    #[arg(value_name = "RUN_ID")]
+    pub run_id: Option<String>,
+
+    /// Curated test set manifest holding the reference labels.
+    #[arg(short = 'm', long)]
+    pub manifest: Option<PathBuf>,
+
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
+    pub verbosity: u8,
 }
 
 #[derive(Debug, Args)]
@@ -448,6 +464,28 @@ mod tests {
                 assert!(args.run.apply);
             }
             other => panic!("expected watch command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_eval_subcommand_with_a_manifest() {
+        let cli = Cli::parse_from([
+            "syp",
+            "eval",
+            "run-123",
+            "--manifest",
+            "assets/testsets/clustering-eval.toml",
+        ]);
+
+        match cli.command {
+            Some(Commands::Eval(args)) => {
+                assert_eq!(args.run_id.as_deref(), Some("run-123"));
+                assert_eq!(
+                    args.manifest.as_deref(),
+                    Some(Path::new("assets/testsets/clustering-eval.toml"))
+                );
+            }
+            other => panic!("expected eval command, got {other:?}"),
         }
     }
 

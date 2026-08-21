@@ -3,7 +3,7 @@ mod entrypoints;
 mod watch_init;
 
 pub use cli::{
-    Cli, CliArgs, Commands, ExtractTextArgs, InitArgs, ReferenceArgs, ReferenceCommands,
+    Cli, CliArgs, Commands, EvalArgs, ExtractTextArgs, InitArgs, ReferenceArgs, ReferenceCommands,
     ReferenceIndexArgs, RerunArgs, ResumeArgs, SessionArgs, SessionCommands, SessionRemoveArgs,
     SessionReviewArgs, WatchArgs, WatchCommands, WatchInitArgs,
 };

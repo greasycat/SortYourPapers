@@ -1,4 +1,5 @@
 mod debug_seed;
+mod evaluate;
 mod extract_text;
 mod path_resolution;
 
@@ -11,6 +12,7 @@ pub use debug_seed::run_debug_tui;
 pub(crate) use debug_seed::{
     apply_debug_taxonomy_suggestion, seed_debug_stages, simulate_debug_taxonomy_review,
 };
+pub use evaluate::{LabelField, RunEvaluation, evaluate_run};
 pub use extract_text::run_extract_text;
 pub use path_resolution::absolutize as absolute_path;
 pub use reference_index::index_reference_manifest;
