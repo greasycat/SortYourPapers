@@ -12,9 +12,9 @@ use crate::{
 };
 
 use super::{
-    KeywordBatchProgress, KeywordBatchResult, KeywordPair, MAX_CONCURRENT_KEYWORD_BATCH_REQUESTS,
-    MAX_JSON_ATTEMPTS, MAX_SEMANTIC_ATTEMPTS,
-    batching::{batch_dispatch_spacing, wait_for_dispatch_slot},
+    KeywordBatchProgress, KeywordBatchResult, KeywordPair, MAX_JSON_ATTEMPTS,
+    MAX_SEMANTIC_ATTEMPTS,
+    batching::{MAX_CONCURRENT_BATCH_REQUESTS, batch_dispatch_spacing, wait_for_dispatch_slot},
     prompts::{build_batch_keyword_prompt, format_batch_span, format_llm_request_debug_message},
     validation::validate_keyword_batch_response,
 };
@@ -238,7 +238,7 @@ async fn run_keyword_batches_concurrently(
     } else {
         verbosity
     };
-    let max_in_flight = MAX_CONCURRENT_KEYWORD_BATCH_REQUESTS.max(1);
+    let max_in_flight = MAX_CONCURRENT_BATCH_REQUESTS.max(1);
     let dispatch_spacing = batch_dispatch_spacing(batch_start_delay_ms);
     let completed_indexes = progress_state
         .completed_batches

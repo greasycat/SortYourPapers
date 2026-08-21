@@ -39,7 +39,10 @@ use super::{
     PlacementCandidateScore, PlacementDecision, PlacementDecisionSource, PlacementEmbeddingOptions,
     PlacementEvidence, PlacementOptions, PlacementReferenceSupport, PlacementTargetProfile,
     PlacementTargetProfileSource,
-    batching::{batch_dispatch_spacing, wait_for_dispatch_slot},
+    batching::{
+        MAX_CONCURRENT_BATCH_REQUESTS, RequestBatchOptions,
+        run_delayed_concurrent_requests_streaming,
+    },
     prompts::{
         build_allowed_targets, build_file_context, build_placement_prompt, format_paper_batch_span,
         format_placement_request_debug_message,
@@ -243,8 +246,6 @@ where
         progress_state.usage = usage.clone();
         on_progress(&progress_state)?;
     }
-    let mut next_dispatch_at = None;
-    let dispatch_spacing = batch_dispatch_spacing(runtime.options.batch_start_delay_ms);
     let mut progress_tracker = ProgressTracker::new(
         runtime.options.verbosity,
         total_batches,
@@ -253,74 +254,106 @@ where
     );
     progress_tracker.inc(progress_state.completed_batches.len());
 
-    for batch in prepared_batches
+    // Shared by every in-flight batch, so the tasks clone handles rather than
+    // the taxonomy, the snapshot, and the embedding tables themselves.
+    let runtime = Arc::new(runtime);
+    let embedding_runtime = embedding_runtime.map(Arc::new);
+    let pending_batches = prepared_batches
         .iter()
         .filter(|batch| !completed_indexes.contains(&batch.batch_index))
-    {
-        wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
-        let started_at = Instant::now();
-        let batch_span = format_paper_batch_span(&batch.papers);
-        runtime.options.verbosity.stage_line(
-            "placements",
-            format!(
-                "batch {}/{} {}",
-                batch.batch_index, runtime.total_batches, batch_span
-            ),
-        );
-        let (placements, batch_usage, evidence) = match engine::generate_placement_batch(
-            client.as_ref(),
-            batch,
-            &runtime,
-            embedding_runtime.as_ref(),
-        )
-        .await
+        .cloned()
+        .collect::<Vec<_>>();
+
+    run_delayed_concurrent_requests_streaming(
+        pending_batches,
+        RequestBatchOptions::new(MAX_CONCURRENT_BATCH_REQUESTS)
+            .with_dispatch_delay(runtime.options.batch_start_delay_ms),
         {
-            Ok(result) => result,
-            Err(err) => {
-                runtime.options.verbosity.error_line(
-                    "PLACEMENTS",
-                    format!(
-                        "batch {}/{} failed after {} {}: {}",
-                        batch.batch_index,
-                        runtime.total_batches,
-                        format_duration(started_at.elapsed()),
-                        batch_span,
-                        err
-                    ),
-                );
-                return Err(err);
+            let client = Arc::clone(&client);
+            let runtime = Arc::clone(&runtime);
+            let embedding_runtime = embedding_runtime.clone();
+            move |batch: PreparedPlacementBatch| {
+                let client = Arc::clone(&client);
+                let runtime = Arc::clone(&runtime);
+                let embedding_runtime = embedding_runtime.clone();
+                async move {
+                    let started_at = Instant::now();
+                    let batch_span = format_paper_batch_span(&batch.papers);
+                    runtime.options.verbosity.stage_line(
+                        "placements",
+                        format!(
+                            "batch {}/{} {}",
+                            batch.batch_index, runtime.total_batches, batch_span
+                        ),
+                    );
+                    let (placements, batch_usage, evidence) =
+                        match engine::generate_placement_batch(
+                            client.as_ref(),
+                            &batch,
+                            runtime.as_ref(),
+                            embedding_runtime.as_deref(),
+                        )
+                        .await
+                        {
+                            Ok(result) => result,
+                            Err(err) => {
+                                runtime.options.verbosity.error_line(
+                                    "PLACEMENTS",
+                                    format!(
+                                        "batch {}/{} failed after {} {}: {}",
+                                        batch.batch_index,
+                                        runtime.total_batches,
+                                        format_duration(started_at.elapsed()),
+                                        batch_span,
+                                        err
+                                    ),
+                                );
+                                return Err(err);
+                            }
+                        };
+                    let elapsed = started_at.elapsed();
+                    runtime.options.verbosity.success_line(
+                        "PLACEMENTS",
+                        format!(
+                            "batch {}/{} completed in {} {}",
+                            batch.batch_index,
+                            runtime.total_batches,
+                            format_duration(elapsed),
+                            batch_span
+                        ),
+                    );
+                    Ok((
+                        PlacementBatchResult {
+                            batch_index: batch.batch_index,
+                            file_ids: batch
+                                .papers
+                                .iter()
+                                .map(|paper| paper.file_id.clone())
+                                .collect(),
+                            placements,
+                            evidence,
+                            elapsed_ms: elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+                        },
+                        batch_usage,
+                    ))
+                }
             }
-        };
-        let elapsed = started_at.elapsed();
-        runtime.options.verbosity.success_line(
-            "PLACEMENTS",
-            format!(
-                "batch {}/{} completed in {} {}",
-                batch.batch_index,
-                runtime.total_batches,
-                format_duration(elapsed),
-                batch_span
-            ),
-        );
-        usage.merge(&batch_usage);
-        progress_state.completed_batches.push(PlacementBatchResult {
-            batch_index: batch.batch_index,
-            file_ids: batch
-                .papers
-                .iter()
-                .map(|paper| paper.file_id.clone())
-                .collect(),
-            placements,
-            evidence,
-            elapsed_ms: elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
-        });
-        progress_state
-            .completed_batches
-            .sort_by_key(|saved_batch| saved_batch.batch_index);
-        progress_state.usage = usage.clone();
-        on_progress(&progress_state)?;
-        progress_tracker.inc(1);
-    }
+        },
+        |(batch_result, batch_usage)| {
+            usage.merge(&batch_usage);
+            progress_state.completed_batches.push(batch_result);
+            // Batches finish out of order; the saved artifact stays ordered so a
+            // resumed run rebuilds placements in stable batch order.
+            progress_state
+                .completed_batches
+                .sort_by_key(|saved_batch| saved_batch.batch_index);
+            progress_state.usage = usage.clone();
+            on_progress(&progress_state)?;
+            progress_tracker.inc(1);
+            Ok(())
+        },
+    )
+    .await?;
     progress_tracker.finish();
 
     let mut all_placements = Vec::with_capacity(papers.len());

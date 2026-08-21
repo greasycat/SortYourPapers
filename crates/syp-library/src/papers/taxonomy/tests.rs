@@ -47,6 +47,49 @@ struct CapturedSchemaCall {
     user_prompt: String,
 }
 
+struct ConcurrentTaxonomyProbeClient {
+    active_calls: AtomicUsize,
+    max_active_calls: AtomicUsize,
+    delay: Duration,
+}
+
+#[async_trait]
+impl LlmClient for ConcurrentTaxonomyProbeClient {
+    async fn chat(&self, _system_prompt: &str, _user_prompt: &str) -> AiResult<LlmResponse> {
+        Err(AiError::Execution(
+            "taxonomy probe client requires chat_json()".to_string(),
+        ))
+    }
+
+    async fn chat_json(
+        &self,
+        _system_prompt: &str,
+        _user_prompt: &str,
+        _schema: &JsonResponseSchema,
+    ) -> AiResult<LlmResponse> {
+        let active = self.active_calls.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut observed = self.max_active_calls.load(Ordering::SeqCst);
+        while active > observed {
+            match self.max_active_calls.compare_exchange(
+                observed,
+                active,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(actual) => observed = actual,
+            }
+        }
+
+        sleep(self.delay).await;
+        self.active_calls.fetch_sub(1, Ordering::SeqCst);
+
+        Ok(llm_response(
+            &serde_json::json!({ "categories": [["AI"], ["AI", "Transformers"]] }).to_string(),
+        ))
+    }
+}
+
 #[derive(Default)]
 struct JsonOnlySchemaProbeClient {
     captured_calls: Mutex<Vec<CapturedSchemaCall>>,
@@ -457,7 +500,7 @@ async fn taxonomy_synthesis_uses_aggregated_preliminary_categories() {
     ];
 
     let (categories, usage) = synthesize_categories(
-        client.as_ref(),
+        Arc::clone(&client),
         &preliminary_pairs,
         2,
         10,
@@ -845,7 +888,7 @@ async fn taxonomy_synthesis_batches_preliminary_categories_before_merge() {
     ];
 
     let (categories, usage) = synthesize_categories(
-        client.as_ref(),
+        Arc::clone(&client),
         &preliminary_pairs,
         2,
         2,
@@ -919,7 +962,7 @@ async fn taxonomy_resume_skips_saved_batches() {
     };
 
     let (categories, usage) = synthesize_categories_with_progress(
-        client.as_ref(),
+        Arc::clone(&client),
         &preliminary_pairs,
         2,
         2,
@@ -980,7 +1023,7 @@ async fn taxonomy_resume_rejects_saved_batch_with_stale_inputs() {
     };
 
     let err = synthesize_categories_with_progress(
-        client.as_ref(),
+        Arc::clone(&client),
         &preliminary_pairs,
         2,
         2,
@@ -1034,6 +1077,64 @@ async fn keyword_batches_run_concurrently() {
     let started_at = client.started_at.lock().expect("started_at");
     assert_eq!(started_at.len(), 3);
     assert!(started_at[1].duration_since(started_at[0]) >= Duration::from_millis(80));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn taxonomy_batches_run_concurrently() {
+    let raw_client = Arc::new(ConcurrentTaxonomyProbeClient {
+        active_calls: AtomicUsize::new(0),
+        max_active_calls: AtomicUsize::new(0),
+        delay: Duration::from_millis(150),
+    });
+    let client: Arc<dyn LlmClient> = raw_client.clone();
+    // One label per batch, so three distinct subjects give three batches.
+    let preliminary_pairs = vec![
+        PreliminaryCategoryPair {
+            file_id: "a".to_string(),
+            preliminary_categories_k_depth: "AI/Transformers".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "b".to_string(),
+            preliminary_categories_k_depth: "Biology/Genomics".to_string(),
+        },
+        PreliminaryCategoryPair {
+            file_id: "c".to_string(),
+            preliminary_categories_k_depth: "Systems/Databases".to_string(),
+        },
+    ];
+
+    let started_at = Instant::now();
+    let progress = super::synthesize_category_batches_with_progress(
+        Arc::clone(&client),
+        &preliminary_pairs,
+        2,
+        1,
+        0,
+        TaxonomyBatchProgress::default(),
+        |_| Ok(()),
+        Verbosity::new(false, false, true),
+    )
+    .await
+    .expect("concurrent taxonomy synthesis should succeed");
+    let elapsed = started_at.elapsed();
+
+    assert_eq!(progress.completed_batches.len(), 3);
+    assert!(
+        raw_client.max_active_calls.load(Ordering::SeqCst) > 1,
+        "taxonomy batches should overlap rather than run one at a time"
+    );
+    assert!(
+        elapsed < Duration::from_millis(450),
+        "three 150ms batches run concurrently should finish well under the \
+         450ms a sequential run would take, took {elapsed:?}"
+    );
+    // Saved progress stays in batch order even though batches finish out of order.
+    let indexes = progress
+        .completed_batches
+        .iter()
+        .map(|batch| batch.batch_index)
+        .collect::<Vec<_>>();
+    assert_eq!(indexes, vec![1, 2, 3]);
 }
 
 #[tokio::test]

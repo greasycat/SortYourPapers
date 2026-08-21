@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -21,7 +22,10 @@ use super::labels::batch_related_labels;
 use super::{
     GLOBAL_TAXONOMY_LABEL, MAX_JSON_ATTEMPTS, MAX_SEMANTIC_ATTEMPTS, TaxonomyBatchProgress,
     TaxonomyBatchResult,
-    batching::{batch_dispatch_spacing, wait_for_dispatch_slot},
+    batching::{
+        MAX_CONCURRENT_BATCH_REQUESTS, RequestBatchOptions,
+        run_delayed_concurrent_requests_streaming,
+    },
     prompts::{
         build_category_prompt, build_merge_category_plain_text_prompt, build_merge_category_prompt,
         format_llm_request_debug_message,
@@ -51,7 +55,7 @@ struct PreparedTaxonomyBatch {
 /// Returns an error when the LLM request fails or the returned taxonomy does
 /// not satisfy the configured depth and category-name validation rules.
 pub async fn synthesize_categories(
-    client: &dyn LlmClient,
+    client: Arc<dyn LlmClient>,
     preliminary_pairs: &[PreliminaryCategoryPair],
     category_depth: u8,
     taxonomy_batch_size: usize,
@@ -60,7 +64,7 @@ pub async fn synthesize_categories(
     verbosity: Verbosity,
 ) -> Result<(Vec<CategoryTree>, LlmUsageSummary)> {
     let batch_progress = synthesize_category_batches_with_progress(
-        client,
+        Arc::clone(&client),
         preliminary_pairs,
         category_depth,
         taxonomy_batch_size,
@@ -76,7 +80,7 @@ pub async fn synthesize_categories(
         .map(|batch| batch.categories.clone())
         .collect::<Vec<_>>();
     let (categories, merge_usage) = merge_category_batches(
-        client,
+        client.as_ref(),
         &partial_categories,
         category_depth,
         subcategories_suggestion_number,
@@ -93,7 +97,7 @@ pub async fn synthesize_categories(
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub async fn synthesize_categories_with_progress<F>(
-    client: &dyn LlmClient,
+    client: Arc<dyn LlmClient>,
     preliminary_pairs: &[PreliminaryCategoryPair],
     category_depth: u8,
     taxonomy_batch_size: usize,
@@ -107,7 +111,7 @@ where
     F: FnMut(&TaxonomyBatchProgress) -> Result<()>,
 {
     let batch_progress = synthesize_category_batches_with_progress(
-        client,
+        Arc::clone(&client),
         preliminary_pairs,
         category_depth,
         taxonomy_batch_size,
@@ -123,7 +127,7 @@ where
         .map(|batch| batch.categories.clone())
         .collect::<Vec<_>>();
     let (categories, merge_usage) = merge_category_batches(
-        client,
+        client.as_ref(),
         &partial_categories,
         category_depth,
         subcategories_suggestion_number,
@@ -139,7 +143,7 @@ where
 }
 
 pub async fn synthesize_category_batches_with_progress<F>(
-    client: &dyn LlmClient,
+    client: Arc<dyn LlmClient>,
     preliminary_pairs: &[PreliminaryCategoryPair],
     category_depth: u8,
     taxonomy_batch_size: usize,
@@ -202,62 +206,80 @@ where
         .map(|batch| batch.batch_index)
         .collect::<HashSet<_>>();
     let mut usage = progress_state.usage.clone();
-    let mut next_dispatch_at = None;
-    let dispatch_spacing = batch_dispatch_spacing(batch_start_delay_ms);
-
-    for batch in prepared_batches
+    let total_prepared = prepared_batches.len();
+    let pending_batches = prepared_batches
         .iter()
         .filter(|batch| !completed_indexes.contains(&batch.batch_index))
-    {
-        wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
-        let started_at = Instant::now();
-        let label = format!("taxonomy/batch {}", batch.batch_index);
-        let batch_user =
-            build_category_prompt(&batch.aggregated_preliminary_categories, category_depth)?;
-        let (categories, batch_usage) = request_validated_categories(
-            client,
-            "You design hierarchical folder taxonomies for academic PDFs. Return strict JSON only.",
-            &batch_user,
-            category_depth,
-            verbosity,
-            &label,
-        )
-        .await?;
-        let elapsed = started_at.elapsed();
-        let elapsed_ms = elapsed.as_millis().min(u128::from(u64::MAX)) as u64;
-        verbosity.stage_line(
-            "taxonomy",
-            format!(
-                "batch {}/{} completed in {} from {} aggregated categor(ies)",
-                batch.batch_index,
-                prepared_batches.len(),
-                format_duration(elapsed),
-                batch.aggregated_preliminary_categories.len()
-            ),
-        );
-        usage.merge(&batch_usage);
-        progress_state.completed_batches.push(TaxonomyBatchResult {
-            batch_index: batch.batch_index,
-            input_count: batch.aggregated_preliminary_categories.len(),
-            input_fingerprint: Some(taxonomy_batch_fingerprint(
-                &batch.aggregated_preliminary_categories,
-            )?),
-            categories,
-            elapsed_ms,
-        });
-        progress_state
-            .completed_batches
-            .sort_by_key(|batch| batch.batch_index);
-        progress_state.usage = usage.clone();
-        on_progress(&progress_state)?;
-        progress.inc(1);
-    }
+        .cloned()
+        .collect::<Vec<_>>();
 
-    report_slowest_batch(
-        &progress_state.completed_batches,
-        prepared_batches.len(),
-        verbosity,
-    );
+    run_delayed_concurrent_requests_streaming(
+        pending_batches,
+        RequestBatchOptions::new(MAX_CONCURRENT_BATCH_REQUESTS)
+            .with_dispatch_delay(batch_start_delay_ms),
+        {
+            let client = Arc::clone(&client);
+            move |batch: PreparedTaxonomyBatch| {
+                let client = Arc::clone(&client);
+                async move {
+                    let started_at = Instant::now();
+                    let label = format!("taxonomy/batch {}", batch.batch_index);
+                    let batch_user = build_category_prompt(
+                        &batch.aggregated_preliminary_categories,
+                        category_depth,
+                    )?;
+                    let (categories, batch_usage) = request_validated_categories(
+                        client.as_ref(),
+                        "You design hierarchical folder taxonomies for academic PDFs. Return strict JSON only.",
+                        &batch_user,
+                        category_depth,
+                        verbosity,
+                        &label,
+                    )
+                    .await?;
+                    let elapsed = started_at.elapsed();
+                    verbosity.stage_line(
+                        "taxonomy",
+                        format!(
+                            "batch {}/{} completed in {} from {} aggregated categor(ies)",
+                            batch.batch_index,
+                            total_prepared,
+                            format_duration(elapsed),
+                            batch.aggregated_preliminary_categories.len()
+                        ),
+                    );
+                    Ok((
+                        TaxonomyBatchResult {
+                            batch_index: batch.batch_index,
+                            input_count: batch.aggregated_preliminary_categories.len(),
+                            input_fingerprint: Some(taxonomy_batch_fingerprint(
+                                &batch.aggregated_preliminary_categories,
+                            )?),
+                            categories,
+                            elapsed_ms: elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+                        },
+                        batch_usage,
+                    ))
+                }
+            }
+        },
+        |(batch_result, batch_usage)| -> Result<()> {
+            usage.merge(&batch_usage);
+            progress_state.completed_batches.push(batch_result);
+            // Batches finish out of order; the saved artifact stays ordered so a
+            // resumed run merges partial taxonomies in stable batch order.
+            progress_state
+                .completed_batches
+                .sort_by_key(|batch| batch.batch_index);
+            progress_state.usage = usage.clone();
+            on_progress(&progress_state)?;
+            progress.inc(1);
+            Ok(())
+        },
+    )
+    .await?;
+
+    report_slowest_batch(&progress_state.completed_batches, total_prepared, verbosity);
 
     progress.finish();
     Ok(progress_state)

@@ -580,7 +580,7 @@ async fn synthesize_categories_stage(
         workspace.save_report(report)?;
     }
     let batch_progress = synthesize_category_batches_with_progress(
-        require_llm_client(llm_client)?.as_ref(),
+        Arc::clone(require_llm_client(llm_client)?),
         &keyword_state.preliminary_pairs,
         config.category_depth,
         config.taxonomy_batch_size,

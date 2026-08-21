@@ -163,7 +163,8 @@ impl LlmRunUsage {
 }
 
 pub use batch::{
-    DEFAULT_REQUEST_DISPATCH_DELAY_MS, RequestBatchOptions, run_delayed_concurrent_requests,
+    DEFAULT_REQUEST_DISPATCH_DELAY_MS, MAX_CONCURRENT_BATCH_REQUESTS, RequestBatchOptions,
+    run_delayed_concurrent_requests, run_delayed_concurrent_requests_streaming,
 };
 pub use batch::{batch_dispatch_spacing, wait_for_dispatch_slot};
 pub use client::{ChatConfig, LlmClient, LlmResponse, PageImage, ParsedLlmResponse, build_client};

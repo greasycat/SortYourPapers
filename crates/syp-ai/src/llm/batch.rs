@@ -7,10 +7,16 @@ use tokio::{
     time::{Instant as TokioInstant, sleep_until},
 };
 
-use crate::error::{AppError, Result};
+use crate::error::AppError;
 
 /// Default delay between dispatching concurrent LLM requests.
 pub const DEFAULT_REQUEST_DISPATCH_DELAY_MS: u64 = 500;
+
+/// How many batch requests one pipeline stage keeps in flight.
+///
+/// Stages run one after another, never concurrently with each other, so this
+/// is the whole pipeline's ceiling on simultaneous LLM requests.
+pub const MAX_CONCURRENT_BATCH_REQUESTS: usize = 4;
 
 /// Controls how delayed concurrent requests are dispatched.
 #[derive(Debug, Clone, Copy)]
@@ -63,65 +69,120 @@ pub async fn wait_for_dispatch_slot(
     *next_dispatch_at = Some(TokioInstant::now() + dispatch_spacing);
 }
 
-/// Executes async request jobs concurrently while spacing out dispatches.
+/// Executes async request jobs concurrently while spacing out dispatches,
+/// handing each result to `on_complete` as soon as it lands.
 ///
-/// Results are returned in the same order as the input sequence, even though
-/// requests may complete out of order.
-pub async fn run_delayed_concurrent_requests<I, T, F, Fut>(
+/// Results arrive in completion order, not input order, so a caller that needs
+/// input order must reorder them itself. Reach for this when each result has to
+/// be recorded the moment it arrives: a caller persisting resumable progress
+/// cannot wait for the whole set, or an interrupted run loses every batch that
+/// had already finished.
+///
+/// `on_complete` runs on the driving task, so it may borrow and mutate caller
+/// state without synchronization. Returning an error from it aborts the
+/// requests still in flight.
+///
+/// # Errors
+/// Returns the first request error, the first `on_complete` error, or an
+/// execution error when a request task panics. In every case the remaining
+/// in-flight requests are aborted.
+pub async fn run_delayed_concurrent_requests_streaming<I, T, E, F, Fut, P>(
     requests: impl IntoIterator<Item = I>,
     options: RequestBatchOptions,
     run_request: F,
-) -> Result<Vec<T>>
+    mut on_complete: P,
+) -> std::result::Result<(), E>
 where
     I: Send + 'static,
     T: Send + 'static,
+    E: From<AppError> + Send + 'static,
     F: Fn(I) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<T>> + Send + 'static,
+    Fut: Future<Output = std::result::Result<T, E>> + Send + 'static,
+    P: FnMut(T) -> std::result::Result<(), E>,
 {
     let options = options.normalized();
-    let requests: Vec<I> = requests.into_iter().collect();
-    if requests.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let request_count = requests.len();
     let dispatch_spacing = batch_dispatch_spacing(options.dispatch_delay_ms);
     let run_request = Arc::new(run_request);
-    let mut pending_requests = requests.into_iter().enumerate();
+    let mut pending_requests = requests.into_iter();
     let mut in_flight = JoinSet::new();
     let mut next_dispatch_at = None;
-    let mut completed = Vec::with_capacity(request_count);
 
     loop {
         while in_flight.len() < options.max_concurrency {
-            let Some((index, request)) = pending_requests.next() else {
+            let Some(request) = pending_requests.next() else {
                 break;
             };
             wait_for_dispatch_slot(&mut next_dispatch_at, dispatch_spacing).await;
 
             let run_request = Arc::clone(&run_request);
-            in_flight
-                .spawn(async move { run_request(request).await.map(|response| (index, response)) });
+            in_flight.spawn(async move { run_request(request).await });
         }
 
         let Some(joined) = in_flight.join_next().await else {
             break;
         };
 
-        match joined {
-            Ok(Ok(result)) => completed.push(result),
+        let result = match joined {
+            Ok(Ok(result)) => result,
             Ok(Err(err)) => {
                 in_flight.abort_all();
                 return Err(err);
             }
             Err(err) => {
                 in_flight.abort_all();
-                return Err(AppError::Execution(format!(
+                return Err(E::from(AppError::Execution(format!(
                     "delayed concurrent request task failed: {err}"
-                )));
+                ))));
             }
+        };
+
+        if let Err(err) = on_complete(result) {
+            in_flight.abort_all();
+            return Err(err);
         }
     }
+
+    Ok(())
+}
+
+/// Executes async request jobs concurrently while spacing out dispatches.
+///
+/// Results are returned in the same order as the input sequence, even though
+/// requests may complete out of order. Use
+/// [`run_delayed_concurrent_requests_streaming`] instead when results must be
+/// recorded as they arrive rather than collected at the end.
+///
+/// # Errors
+/// Returns the first request error, or an execution error when a request task
+/// panics.
+pub async fn run_delayed_concurrent_requests<I, T, E, F, Fut>(
+    requests: impl IntoIterator<Item = I>,
+    options: RequestBatchOptions,
+    run_request: F,
+) -> std::result::Result<Vec<T>, E>
+where
+    I: Send + 'static,
+    T: Send + 'static,
+    E: From<AppError> + Send + 'static,
+    F: Fn(I) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = std::result::Result<T, E>> + Send + 'static,
+{
+    let requests: Vec<I> = requests.into_iter().collect();
+    let mut completed = Vec::with_capacity(requests.len());
+
+    run_delayed_concurrent_requests_streaming(
+        requests.into_iter().enumerate(),
+        options,
+        move |(index, request): (usize, I)| {
+            let response = run_request(request);
+            async move { response.await.map(|response| (index, response)) }
+        },
+        |indexed| {
+            completed.push(indexed);
+            Ok(())
+        },
+    )
+    .await?;
 
     completed.sort_by_key(|(index, _)| *index);
     Ok(completed
@@ -176,7 +237,7 @@ mod tests {
                         update_max(&max_in_flight, in_flight);
                         sleep(Duration::from_millis(60)).await;
                         current_in_flight.fetch_sub(1, Ordering::SeqCst);
-                        Ok(index)
+                        Ok::<_, AppError>(index)
                     }
                 }
             },

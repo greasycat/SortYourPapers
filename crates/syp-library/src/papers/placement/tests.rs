@@ -28,17 +28,45 @@ struct StubLlmClient {
 
 #[async_trait]
 impl LlmClient for StubLlmClient {
-    async fn chat(&self, _system_prompt: &str, _user_prompt: &str) -> AiResult<LlmResponse> {
+    async fn chat(&self, _system_prompt: &str, user_prompt: &str) -> AiResult<LlmResponse> {
         let mut calls = self.calls.lock().await;
         *calls += 1;
         drop(calls);
 
+        // Batches run concurrently, so they do not necessarily arrive in queue
+        // order. Answer each one with the queued response naming the files it
+        // actually asked about, and these tests keep checking placement
+        // behaviour rather than dispatch timing.
         let mut responses = self.responses.lock().await;
-        responses
-            .pop_front()
+        let matched = responses
+            .iter()
+            .position(|content| response_matches_request(content, user_prompt))
+            .or(if responses.is_empty() { None } else { Some(0) });
+
+        matched
+            .and_then(|index| responses.remove(index))
             .map(|content| llm_response(&content))
             .ok_or_else(|| AiError::Execution("stub client ran out of responses".to_string()))
     }
+}
+
+/// Whether every `file_id` a queued response places was asked for by this request.
+fn response_matches_request(content: &str, user_prompt: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(content) else {
+        return false;
+    };
+    let Some(placements) = parsed.get("placements").and_then(|value| value.as_array()) else {
+        return false;
+    };
+    if placements.is_empty() {
+        return false;
+    }
+    placements.iter().all(|placement| {
+        placement
+            .get("file_id")
+            .and_then(|value| value.as_str())
+            .is_some_and(|file_id| user_prompt.contains(&format!("\"file_id\":\"{file_id}\"")))
+    })
 }
 
 #[test]
@@ -533,6 +561,133 @@ async fn placement_resume_skips_saved_batches() {
     assert_eq!(result.placements[1].file_id, "f2");
     assert_eq!(result.placements[2].file_id, "f3");
     assert_eq!(*client.calls.lock().await, 1);
+}
+
+struct ConcurrentPlacementProbeClient {
+    active_calls: std::sync::atomic::AtomicUsize,
+    max_active_calls: std::sync::atomic::AtomicUsize,
+    delay: std::time::Duration,
+}
+
+#[async_trait]
+impl LlmClient for ConcurrentPlacementProbeClient {
+    async fn chat(&self, _system_prompt: &str, user_prompt: &str) -> AiResult<LlmResponse> {
+        use std::sync::atomic::Ordering;
+
+        let active = self.active_calls.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut observed = self.max_active_calls.load(Ordering::SeqCst);
+        while active > observed {
+            match self.max_active_calls.compare_exchange(
+                observed,
+                active,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(actual) => observed = actual,
+            }
+        }
+
+        tokio::time::sleep(self.delay).await;
+        self.active_calls.fetch_sub(1, Ordering::SeqCst);
+
+        // Place back exactly the files this request asked about.
+        let placements = ["f1", "f2", "f3", "f4"]
+            .into_iter()
+            .filter(|file_id| user_prompt.contains(&format!("\"file_id\":\"{file_id}\"")))
+            .map(|file_id| serde_json::json!({"file_id": file_id, "target_rel_path": "."}))
+            .collect::<Vec<_>>();
+        Ok(llm_response(
+            &serde_json::json!({ "placements": placements }).to_string(),
+        ))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn placement_batches_run_concurrently() {
+    use std::sync::atomic::Ordering;
+
+    let client = Arc::new(ConcurrentPlacementProbeClient {
+        active_calls: std::sync::atomic::AtomicUsize::new(0),
+        max_active_calls: std::sync::atomic::AtomicUsize::new(0),
+        delay: std::time::Duration::from_millis(150),
+    });
+    let file_ids = ["f1", "f2", "f3", "f4"];
+    let papers = file_ids
+        .iter()
+        .map(|file_id| PaperText {
+            file_id: (*file_id).to_string(),
+            path: PathBuf::from(format!("/tmp/{file_id}.pdf")),
+            extracted_text: "x".to_string(),
+            llm_ready_text: "x".to_string(),
+            pages_read: 1,
+            from_page_images: false,
+        })
+        .collect::<Vec<_>>();
+    let keyword_sets = file_ids
+        .iter()
+        .map(|file_id| KeywordSet {
+            file_id: (*file_id).to_string(),
+            keywords: vec!["a".to_string()],
+        })
+        .collect::<Vec<_>>();
+    let preliminary_pairs = file_ids
+        .iter()
+        .map(|file_id| PreliminaryCategoryPair {
+            file_id: (*file_id).to_string(),
+            preliminary_categories_k_depth: "Root/A".to_string(),
+        })
+        .collect::<Vec<_>>();
+    let categories = vec![CategoryTree {
+        name: "Root".to_string(),
+        children: vec![],
+    }];
+    let snapshot = OutputSnapshot {
+        is_empty: true,
+        existing_folders: vec![".".to_string()],
+        tree_map: "<empty>".to_string(),
+    };
+
+    let started_at = std::time::Instant::now();
+    let (placements, usage) = generate_placements(
+        client.clone(),
+        &papers,
+        &keyword_sets,
+        &preliminary_pairs,
+        &categories,
+        &snapshot,
+        PlacementOptions {
+            batch_size: 1,
+            // No dispatch spacing, so nothing serializes these but the driver.
+            batch_start_delay_ms: 0,
+            assistance: PlacementAssistance::LlmOnly,
+            placement_mode: PlacementMode::AllowNew,
+            category_depth: 2,
+            embedding: None,
+            verbosity: Verbosity::new(false, false, true),
+        },
+    )
+    .await
+    .expect("concurrent placement generation should succeed");
+    let elapsed = started_at.elapsed();
+
+    assert_eq!(usage.call_count, 4);
+    assert_eq!(placements.len(), 4);
+    assert!(
+        client.max_active_calls.load(Ordering::SeqCst) > 1,
+        "placement batches should overlap rather than run one at a time"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(450),
+        "four 150ms batches capped at 4 in flight should finish well under the \
+         600ms a sequential run would take, took {elapsed:?}"
+    );
+    // Concurrent completion must still yield placements in stable batch order.
+    let ordered = placements
+        .iter()
+        .map(|placement| placement.file_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered, vec!["f1", "f2", "f3", "f4"]);
 }
 
 fn llm_response(content: &str) -> LlmResponse {
