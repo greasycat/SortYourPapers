@@ -6,6 +6,7 @@ Use LLMs to sort papers.
 - `crates/paper-db/` holds the DuckDB-backed paper/embedding store and uses `syp-core`'s embedding client API.
 - `python/` holds the `uv`-managed maintainer tooling for SciJudgeBench-backed arXiv test-set curation and export.
 - `crates/syp/` holds the batch CLI parser and dispatch layer for the `syp` binary.
+- `prototype/` holds a Python prototype of the ingest pipeline and folder watcher.
 
 ## What It Does
 - Scans a folder for PDFs (optional recursive mode)
