@@ -34,4 +34,4 @@
 
 ## Task-Specific Notes
 
-- Commands to know: `cargo fmt --all`, `cargo test --workspace`, `cargo clippy --workspace --all-targets`, `cargo run -p syp -- --help`, `cargo run -p syptui -- --help`, `uv run --project python pytest`.
+- Commands to know: `cargo fmt --all`, `cargo test --workspace`, `cargo clippy --workspace --all-targets`, `cargo run -p syp -- --help`, `uv run --project python pytest`.

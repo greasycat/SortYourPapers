@@ -252,7 +252,7 @@ fn saved_config_toml(config: &AppConfig) -> Result<String> {
     let serialized = toml::to_string(&PersistedConfig::from(config))
         .map_err(|err| AppError::Config(format!("failed to serialize config: {err}")))?;
     Ok(format!(
-        "# SortYourPapers saved configuration\n# Generated from the TUI run form\n\n{serialized}"
+        "# SortYourPapers saved configuration\n\n{serialized}"
     ))
 }
 

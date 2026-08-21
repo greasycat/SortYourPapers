@@ -8,7 +8,7 @@ pub mod session;
 #[cfg(test)]
 mod lib_tests;
 
-pub use app::{run, run_debug_tui, run_extract_text, run_with_args};
+pub use app::{run, run_extract_text, run_with_args};
 pub use config::{ApiKeySource, AppConfig};
 pub use inputs::{ExtractTextRequest, RunOverrides};
 pub use session::{

@@ -6,7 +6,6 @@ Use LLMs to sort papers.
 - `crates/paper-db/` holds the DuckDB-backed paper/embedding store and uses `syp-core`'s embedding client API.
 - `python/` holds the `uv`-managed maintainer tooling for SciJudgeBench-backed arXiv test-set curation and export.
 - `crates/syp/` holds the batch CLI parser and dispatch layer for the `syp` binary.
-- `crates/syptui/` holds the `ratatui` frontend, TUI-only preferences, and the `syptui` binary.
 
 ## What It Does
 - Scans a folder for PDFs (optional recursive mode)
@@ -29,7 +28,7 @@ Use LLMs to sort papers.
 - Supports preview mode by default and real moves with `--apply`
 - Supports rebuild mode to ignore existing folder names and reclassify all PDFs
 - Persists each run under the XDG cache dir so interrupted runs can be resumed, including partial keyword/preliminary-category batches
-- Shows `indicatif` progress bars in the plain CLI and embedded `ratatui` progress bars in the TUI for preprocessing, keyword batching, taxonomy synthesis, placement batching, and apply-mode moves
+- Shows `indicatif` progress bars for preprocessing, keyword batching, taxonomy synthesis, placement batching, and apply-mode moves
 - Keeps warnings/errors and the final summary visible by default while suppressing most staging chatter unless `-v` or `-vv` is enabled
 
 ## Configuration Priority
@@ -66,16 +65,6 @@ and an abstract-style description that stands in for the missing text. This
 costs one extra request per scanned PDF and needs a model that reads images —
 the Gemini and OpenAI defaults do; on Ollama it needs a multimodal model such
 as `llava`. Without one, the PDF is reported as a failure as before.
-
-Launch the TUI:
-```bash
-cargo run -p syptui --
-```
-
-The run form shows the fields most runs need. Press `a` to reveal the advanced
-tuning fields (extraction limits, batch sizes, base URL, rebuild, verbosity);
-hidden fields keep their configured values and are still used by the run and by
-`s` (save config).
 
 Set up a folder to watch, then organize papers as they arrive:
 ```bash

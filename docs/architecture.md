@@ -9,15 +9,13 @@ This document is a repo-structure reference for the current codebase. It reflect
 - `python/`: `uv`-managed maintainer tooling for SciJudgeBench sampling and arXiv PDF materialization.
 - `crates/syp-core/`: shared library crate.
 - `crates/syp/`: batch CLI crate for the `syp` binary.
-- `crates/syptui/`: TUI crate for the `syptui` binary.
 - `docs/`: project documentation.
 - `docs/archive/`: historical planning material kept for reference.
 - `target/`: Cargo build output.
 
 ## Binary Entrypoints
 - `crates/syp/src/main.rs`: `syp` binary. Parses the standard clap CLI and dispatches into `syp-core`.
-- `crates/syptui/src/main.rs`: `syptui` binary. Starts the terminal UI directly.
-- `crates/syp-core/src/lib.rs`: shared module wiring and public API used by both frontends.
+- `crates/syp-core/src/lib.rs`: shared module wiring and public API used by the CLI.
 
 ## Top-Level Source Modules
 - `crates/syp/src/cli.rs`: clap argument types for the batch CLI, including run arguments, session commands, and `extract-text`.
@@ -26,14 +24,12 @@ This document is a repo-structure reference for the current codebase. It reflect
 - `python/src/syp_paperfetch/`: SciJudgeBench catalog loading through Hugging Face Hub, deterministic sampling, manifest I/O, and arXiv PDF materialization.
 - `crates/syp-core/src/error.rs`: application error types and shared result aliases.
 - `crates/syp-core/src/report.rs`: final run report structures and file action summaries.
-- `crates/syp-core/src/app/`: orchestration for a full sorting run, including config resolution handoff, debug-TUI seeded runs, and report rendering.
+- `crates/syp-core/src/app/`: orchestration for a full sorting run, including config resolution handoff and report rendering.
 - `crates/syp-core/src/config/`: config loading and precedence resolution across overrides, environment variables, XDG config, and defaults.
 - `crates/syp-core/src/llm/`: provider-specific clients plus shared batching, retry, and schema logic.
 - `crates/syp-core/src/papers/`: the paper-processing pipeline, including discovery, extraction, preprocessing, taxonomy synthesis, placement, and filesystem planning.
 - `crates/syp-core/src/session/`: persisted run state, resume/rerun/review commands, and workspace artifact management.
 - `crates/syp-core/src/terminal/`: plain terminal output backend, verbosity handling, and report printing helpers.
-- `crates/syptui/src/tui/`: `ratatui` frontend, forms, backend event handling, and session/run screens.
-- `crates/syptui/src/prefs.rs`: TUI-only theme preference persistence.
 
 ## Papers Pipeline Layout
 The core workflow is grouped under `crates/syp-core/src/papers/` rather than split across top-level modules.
@@ -52,13 +48,6 @@ The core workflow is grouped under `crates/syp-core/src/papers/` rather than spl
 - `python/src/syp_paperfetch/manifest.py`: TOML manifest load/save helpers.
 - `python/src/syp_paperfetch/materialize.py`: arXiv PDF download, cache verification, and export helpers.
 - `python/src/syp_paperfetch/cli.py`: `uv`-run CLI entrypoints for build/materialize/export.
-
-## TUI Layout
-- `crates/syptui/src/tui/app.rs`: application state and key-driven behavior.
-- `crates/syptui/src/tui/render.rs`: screen rendering.
-- `crates/syptui/src/tui/forms/`: run configuration forms for interactive launches.
-- `crates/syptui/src/tui/session_view.rs`: saved-session browsing and review views.
-- `crates/syptui/src/tui/backend.rs` and `crates/syptui/src/tui/input.rs`: backend event integration and input handling.
 
 ## Run Stage Flow
 The persisted run pipeline is modeled in `crates/syp-core/src/session/workspace.rs` via `RunStage`.
