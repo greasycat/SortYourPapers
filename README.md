@@ -90,7 +90,11 @@ XDG config in precedence: CLI flags and `SYP_*` variables still win over it,
 and it wins over `~/.config`. `input` cannot be set there, since the folder
 holding the file is the folder being watched. Paths are written absolute, so
 starting the watcher from any directory means the same thing. Edit the file by
-hand, or rerun `watch init` and confirm the overwrite. `watch init` sets up the
+hand, or rerun `watch init` and confirm the overwrite. It also sets
+`placement_mode = "allow-new"` and `use_current_folder_tree = true`, because a
+watched folder is a library that keeps growing: without them every run after
+the first discards the taxonomy it just built and files new subjects into
+whichever existing folder fits worst. `watch init` sets up the
 current directory unless `--input` names another folder, ignoring the
 configured input folder so it always means the folder in front of you.
 

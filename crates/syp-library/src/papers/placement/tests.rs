@@ -549,3 +549,94 @@ fn llm_response(content: &str) -> LlmResponse {
         },
     }
 }
+
+/// The watcher's situation: a library that already has folders, and a new
+/// paper on a subject none of them cover.
+mod growing_library {
+    use super::*;
+
+    fn new_subject() -> Vec<CategoryTree> {
+        vec![CategoryTree {
+            name: "Marine Biology".to_string(),
+            children: vec![CategoryTree {
+                name: "Coral Reefs".to_string(),
+                children: vec![],
+            }],
+        }]
+    }
+
+    fn established_library() -> OutputSnapshot {
+        OutputSnapshot {
+            is_empty: false,
+            existing_folders: vec![
+                ".".to_string(),
+                "Computer Science".to_string(),
+                "Computer Science/Vision".to_string(),
+            ],
+            tree_map: String::new(),
+        }
+    }
+
+    #[test]
+    fn the_first_run_into_an_empty_library_creates_the_taxonomy() {
+        let allowed = build_allowed_targets(
+            &new_subject(),
+            &OutputSnapshot {
+                is_empty: true,
+                existing_folders: vec![".".to_string()],
+                tree_map: String::new(),
+            },
+            PlacementMode::ExistingOnly,
+            2,
+        );
+
+        assert!(allowed.iter().any(|target| target == "Marine Biology"));
+    }
+
+    #[test]
+    fn later_runs_discard_the_new_taxonomy_under_the_default_mode() {
+        let allowed = build_allowed_targets(
+            &new_subject(),
+            &established_library(),
+            PlacementMode::ExistingOnly,
+            2,
+        );
+
+        assert!(
+            !allowed.iter().any(|target| target.contains("Marine")),
+            "existing-only keeps a new subject out of the library: {allowed:?}"
+        );
+        assert_eq!(
+            allowed,
+            vec![
+                ".".to_string(),
+                "Computer Science".to_string(),
+                "Computer Science/Vision".to_string()
+            ],
+            "the paper can only go to a folder that already exists"
+        );
+    }
+
+    #[test]
+    fn allow_new_lets_a_genuinely_new_subject_get_its_own_folder() {
+        let allowed = build_allowed_targets(
+            &new_subject(),
+            &established_library(),
+            PlacementMode::AllowNew,
+            2,
+        );
+
+        assert!(allowed.iter().any(|target| target == "Marine Biology"));
+        assert!(
+            allowed
+                .iter()
+                .any(|target| target == "Marine Biology/Coral Reefs")
+        );
+        assert!(
+            allowed
+                .iter()
+                .any(|target| target == "Computer Science/Vision"),
+            "existing folders stay available"
+        );
+    }
+}

@@ -460,3 +460,32 @@ fn an_explicit_model_still_wins_over_the_provider_default() {
 
     assert_eq!(config.llm_model, "qwen3");
 }
+
+#[test]
+fn a_watch_folder_config_resolves_to_growing_library_behaviour() {
+    let temp = tempdir().expect("tempdir");
+    let folder = temp.path();
+    super::folder::write_watch_config(folder, &super::WatchSettings::defaults_for(folder), false)
+        .expect("write watch config");
+
+    // Exactly what a watch run does: the folder's own file becomes the file
+    // layer, with nothing from the CLI or environment.
+    let layer = layer_from_table(super::folder::load_watch_layer(folder).expect("layer"))
+        .expect("config layer");
+    let config = resolve_from_sources(RunOverrides::default(), ConfigLayer::default(), layer)
+        .expect("config should resolve");
+
+    assert_eq!(
+        config.placement_mode,
+        PlacementMode::AllowNew,
+        "a subject the library does not cover must be able to open a folder"
+    );
+    assert!(
+        config.use_current_folder_tree,
+        "merge must see the existing tree so it extends rather than duplicates"
+    );
+    assert!(
+        !config.rebuild,
+        "a watched library is added to, never rebuilt from scratch"
+    );
+}

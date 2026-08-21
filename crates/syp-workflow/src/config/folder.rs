@@ -16,6 +16,7 @@ use crate::{
     defaults::{DEFAULT_LLM_PROVIDER, DEFAULT_RECURSIVE, default_llm_model},
     error::{AppError, Result},
     llm::LlmProvider,
+    papers::placement::PlacementMode,
 };
 
 /// The settings `syp watch init` writes into a watch folder.
@@ -31,6 +32,11 @@ pub struct WatchSettings {
     /// Environment variable holding the API key, or `None` to leave the key to
     /// the environment and the XDG config.
     pub api_key_env: Option<String>,
+    /// Whether a paper on a subject the library does not cover may open a new
+    /// folder.
+    pub placement_mode: PlacementMode,
+    /// Whether taxonomy merge is shown the folders that already exist.
+    pub use_current_folder_tree: bool,
 }
 
 impl WatchSettings {
@@ -42,6 +48,12 @@ impl WatchSettings {
             llm_provider: DEFAULT_LLM_PROVIDER,
             llm_model: default_llm_model(DEFAULT_LLM_PROVIDER).to_string(),
             api_key_env: None,
+            // A watched folder is a library that keeps growing, which is not
+            // what the one-shot run defaults assume. Without these two, every
+            // run after the first discards the taxonomy it just built and
+            // files new subjects into whichever existing folder fits worst.
+            placement_mode: PlacementMode::AllowNew,
+            use_current_folder_tree: true,
         }
     }
 }
@@ -145,6 +157,12 @@ fn watch_config_toml(folder: &Path, settings: &WatchSettings) -> String {
             "output = \"{output}\"\n",
             "recursive = {recursive}\n",
             "\n",
+            "# A watched folder grows over time, so new subjects are allowed to\n",
+            "# open new folders, and taxonomy merge is shown the folders that\n",
+            "# already exist so it extends them instead of inventing near-duplicates.\n",
+            "placement_mode = \"{placement_mode}\"\n",
+            "use_current_folder_tree = {use_current_folder_tree}\n",
+            "\n",
             "llm_provider = \"{provider}\"\n",
             "llm_model = \"{model}\"\n",
             "{api_key}",
@@ -152,10 +170,21 @@ fn watch_config_toml(folder: &Path, settings: &WatchSettings) -> String {
         folder = folder.display(),
         output = settings.output.display(),
         recursive = settings.recursive,
+        placement_mode = placement_mode_key(settings.placement_mode),
+        use_current_folder_tree = settings.use_current_folder_tree,
         provider = provider_key(settings.llm_provider),
         model = settings.llm_model,
         api_key = api_key,
     )
+}
+
+/// Stable config-file spelling of a placement mode.
+#[must_use]
+pub fn placement_mode_key(mode: PlacementMode) -> &'static str {
+    match mode {
+        PlacementMode::ExistingOnly => "existing-only",
+        PlacementMode::AllowNew => "allow-new",
+    }
 }
 
 /// Stable config-file spelling of a provider.
@@ -213,6 +242,28 @@ mod tests {
     }
 
     #[test]
+    fn a_watch_folder_is_set_up_as_a_growing_library() {
+        let temp = tempdir().expect("tempdir");
+        let settings = WatchSettings::defaults_for(temp.path());
+
+        write_watch_config(temp.path(), &settings, false).expect("write config");
+        let layer = load_watch_layer(temp.path()).expect("layer");
+
+        assert_eq!(
+            layer.get("placement_mode").and_then(toml::Value::as_str),
+            Some("allow-new"),
+            "a new subject must be able to open its own folder"
+        );
+        assert_eq!(
+            layer
+                .get("use_current_folder_tree")
+                .and_then(toml::Value::as_bool),
+            Some(true),
+            "merge must see the existing tree to extend it rather than duplicate it"
+        );
+    }
+
+    #[test]
     fn chosen_settings_reach_the_written_config() {
         let temp = tempdir().expect("tempdir");
         let settings = WatchSettings {
@@ -221,6 +272,8 @@ mod tests {
             llm_provider: LlmProvider::Openai,
             llm_model: "gpt-test".to_string(),
             api_key_env: Some("OPENAI_API_KEY".to_string()),
+            placement_mode: PlacementMode::ExistingOnly,
+            use_current_folder_tree: false,
         };
 
         write_watch_config(temp.path(), &settings, false).expect("write config");
@@ -237,6 +290,11 @@ mod tests {
         assert_eq!(
             layer.get("llm_provider").and_then(toml::Value::as_str),
             Some("openai")
+        );
+        assert_eq!(
+            layer.get("placement_mode").and_then(toml::Value::as_str),
+            Some("existing-only"),
+            "an explicit choice must survive into the file"
         );
         assert_eq!(
             layer.get("api_key").and_then(toml::Value::as_table),
