@@ -401,12 +401,13 @@ fn aggregates_duplicate_preliminary_categories() {
         },
     ]);
 
+    // Sibling branches share only "AI", which is too little to be one concept.
     assert_eq!(
-        aggregated,
-        vec![
-            ("AI/Transformers".to_string(), 2),
-            ("AI/Vision".to_string(), 1)
-        ]
+        aggregated
+            .iter()
+            .map(|group| (group.label.as_str(), group.count))
+            .collect::<Vec<_>>(),
+        vec![("AI/Transformers", 2), ("AI/Vision", 1)]
     );
 }
 

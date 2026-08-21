@@ -1,5 +1,6 @@
 mod batching;
 mod keywords;
+mod labels;
 mod prompts;
 mod reference;
 mod taxonomy;

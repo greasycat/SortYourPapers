@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     error::{AppError, Result},
@@ -7,6 +7,7 @@ use crate::{
 };
 
 use super::KeywordPair;
+use super::labels::{LabelGroup, group_labels};
 
 /// Validates that all taxonomy branches stay within the configured depth limit.
 ///
@@ -45,21 +46,19 @@ pub(super) fn validate_category_names(categories: &[CategoryTree]) -> Result<()>
     Ok(())
 }
 
+/// Folds the per-paper labels into concepts, strongest first.
+///
+/// Labels arrive as free text, so one concept shows up under several
+/// spellings; grouping them keeps the count meaningful and stops the same idea
+/// being synthesized twice under different names.
 pub(super) fn aggregate_preliminary_categories(
     preliminary_pairs: &[PreliminaryCategoryPair],
-) -> Vec<(String, usize)> {
-    let mut counts = HashMap::<String, usize>::new();
-    for pair in preliminary_pairs {
-        *counts
-            .entry(pair.preliminary_categories_k_depth.clone())
-            .or_default() += 1;
-    }
-
-    counts
-        .into_iter()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+) -> Vec<LabelGroup> {
+    group_labels(
+        preliminary_pairs
+            .iter()
+            .map(|pair| pair.preliminary_categories_k_depth.as_str()),
+    )
 }
 
 pub(super) fn validate_keyword_batch_response(

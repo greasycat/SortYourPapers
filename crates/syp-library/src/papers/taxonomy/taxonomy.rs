@@ -17,6 +17,7 @@ use crate::{
     terminal::{ProgressTracker, Verbosity, format_duration},
 };
 
+use super::labels::batch_related_labels;
 use super::{
     GLOBAL_TAXONOMY_LABEL, MAX_JSON_ATTEMPTS, MAX_SEMANTIC_ATTEMPTS, TaxonomyBatchProgress,
     TaxonomyBatchResult,
@@ -160,14 +161,20 @@ where
     }
 
     let aggregated_preliminary_categories = aggregate_preliminary_categories(preliminary_pairs);
-    let prepared_batches = aggregated_preliminary_categories
-        .chunks(taxonomy_batch_size)
-        .enumerate()
-        .map(|(index, batch)| PreparedTaxonomyBatch {
-            batch_index: index + 1,
-            aggregated_preliminary_categories: batch.to_vec(),
-        })
-        .collect::<Vec<_>>();
+    // Each request gets a coherent subject rather than an arbitrary slice, so a
+    // partial taxonomy is built from concepts that actually belong together.
+    let prepared_batches =
+        batch_related_labels(&aggregated_preliminary_categories, taxonomy_batch_size)
+            .into_iter()
+            .enumerate()
+            .map(|(index, batch)| PreparedTaxonomyBatch {
+                batch_index: index + 1,
+                aggregated_preliminary_categories: batch
+                    .into_iter()
+                    .map(|group| (group.label, group.count))
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
     let mut progress_state = validate_saved_taxonomy_progress(&prepared_batches, saved_progress)?;
     let resumed_batches = progress_state.completed_batches.len();
     if resumed_batches > 0 {
