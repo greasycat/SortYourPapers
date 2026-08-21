@@ -138,6 +138,24 @@ pub fn run_bench(documents: &[BenchDocument], target_clusters: usize) -> Vec<Str
         &agglomerate(&tfidf(&distinctive_terms), target_clusters),
     ));
 
+    // Latent structure: two papers that never share a word can still both be
+    // about hadrons, if their words keep company with the same other words.
+    // This is what an embedding buys, computed here from the corpus itself.
+    for components in [8, 16] {
+        results.push(evaluate(
+            if components == 8 {
+                "latent topics (8), k = labels"
+            } else {
+                "latent topics (16), k = labels"
+            },
+            documents,
+            &agglomerate(
+                &latent_vectors(&tfidf(&title_and_abstract), components),
+                target_clusters,
+            ),
+        ));
+    }
+
     // Without the label count, a strategy has to decide when to stop merging.
     results.push(evaluate(
         "title + abstract, k unknown",
@@ -210,6 +228,98 @@ fn normalize(mut vector: BTreeMap<String, f64>) -> BTreeMap<String, f64> {
         }
     }
     vector
+}
+
+/// Re-describes each paper by its position in the corpus's strongest latent
+/// topics, rather than by the words it happens to use.
+///
+/// The document similarity matrix is decomposed by power iteration, which needs
+/// no randomness and so gives the same answer every run. Papers that share
+/// vocabulary *indirectly* — through the company their words keep — end up
+/// close, which plain term overlap cannot express.
+fn latent_vectors(
+    vectors: &[BTreeMap<String, f64>],
+    components: usize,
+) -> Vec<BTreeMap<String, f64>> {
+    let count = vectors.len();
+    if count == 0 {
+        return Vec::new();
+    }
+
+    // Rows are unit length, so this is the cosine similarity matrix.
+    let gram = (0..count)
+        .map(|row| {
+            (0..count)
+                .map(|column| cosine(&vectors[row], &vectors[column]))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let mut found: Vec<(Vec<f64>, f64)> = Vec::new();
+    for component in 0..components.min(count) {
+        // A fixed, non-uniform start: uniform would sit exactly on a symmetry
+        // and never move.
+        let mut vector = (0..count)
+            .map(|index| 1.0 + ((component * 31 + index * 7) % 13) as f64 / 13.0)
+            .collect::<Vec<_>>();
+        normalize_slice(&mut vector);
+
+        for _ in 0..64 {
+            let mut next = multiply(&gram, &vector);
+            for (previous, _) in &found {
+                let overlap = dot(&next, previous);
+                for (value, basis) in next.iter_mut().zip(previous.iter()) {
+                    *value -= overlap * basis;
+                }
+            }
+            if !normalize_slice(&mut next) {
+                break;
+            }
+            vector = next;
+        }
+
+        let eigenvalue = dot(&vector, &multiply(&gram, &vector));
+        if eigenvalue <= 1e-9 {
+            break;
+        }
+        found.push((vector, eigenvalue));
+    }
+
+    (0..count)
+        .map(|document| {
+            let mut coordinates = BTreeMap::new();
+            for (index, (vector, eigenvalue)) in found.iter().enumerate() {
+                coordinates.insert(
+                    format!("{index:03}"),
+                    vector[document] * eigenvalue.max(0.0).sqrt(),
+                );
+            }
+            normalize(coordinates)
+        })
+        .collect()
+}
+
+fn multiply(matrix: &[Vec<f64>], vector: &[f64]) -> Vec<f64> {
+    matrix
+        .iter()
+        .map(|row| row.iter().zip(vector.iter()).map(|(a, b)| a * b).sum())
+        .collect()
+}
+
+fn dot(left: &[f64], right: &[f64]) -> f64 {
+    left.iter().zip(right.iter()).map(|(a, b)| a * b).sum()
+}
+
+/// Scales to unit length, reporting whether there was anything to scale.
+fn normalize_slice(vector: &mut [f64]) -> bool {
+    let norm = dot(vector, vector).sqrt();
+    if norm <= 1e-12 {
+        return false;
+    }
+    for value in vector.iter_mut() {
+        *value /= norm;
+    }
+    true
 }
 
 /// Adds adjacent word pairs alongside the single words.
@@ -635,6 +745,129 @@ mod curated_set_bench {
             .await
             .expect("embedding bench");
         println!("{}", embedded.table_row());
+    }
+
+    /// Re-scores the leading strategies on overlapping subsets of the corpus.
+    ///
+    /// A ranking only means something if it survives leaving some papers out.
+    /// This reports the spread each strategy shows across folds, which says
+    /// whether the gaps between them are real at this corpus size.
+    #[test]
+    #[ignore = "measurement over the curated set; run explicitly with --nocapture"]
+    fn curated_set_stability_check() {
+        let docs = documents(|paper| paper.category.clone())
+            .into_iter()
+            .filter(|document| document.truth != "Others")
+            .collect::<Vec<_>>();
+        let classes = 3;
+
+        println!(
+            "\n=== stability across 5 leave-one-fifth-out folds, {} papers ===",
+            docs.len()
+        );
+        let mut spreads: Vec<(&str, Vec<f64>)> = vec![
+            ("title + abstract terms", Vec::new()),
+            ("latent topics (2)", Vec::new()),
+            ("latent topics (16)", Vec::new()),
+        ];
+
+        for fold in 0..5 {
+            let kept = docs
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| index % 5 != fold)
+                .map(|(_, document)| document.clone())
+                .collect::<Vec<_>>();
+            let vectors = tfidf(
+                &kept
+                    .iter()
+                    .map(|document| tokenize(&format!("{} {}", document.title, document.text)))
+                    .collect::<Vec<_>>(),
+            );
+
+            spreads[0].1.push(
+                evaluate("f", &kept, &agglomerate(&vectors, classes))
+                    .metrics
+                    .adjusted_rand_index,
+            );
+            spreads[1].1.push(
+                evaluate(
+                    "f",
+                    &kept,
+                    &agglomerate(&latent_vectors(&vectors, 2), classes),
+                )
+                .metrics
+                .adjusted_rand_index,
+            );
+            spreads[2].1.push(
+                evaluate(
+                    "f",
+                    &kept,
+                    &agglomerate(&latent_vectors(&vectors, 16), classes),
+                )
+                .metrics
+                .adjusted_rand_index,
+            );
+        }
+
+        for (name, mut scores) in spreads {
+            scores.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "{:<24} ari min {:>6.3}  median {:>6.3}  max {:>6.3}",
+                name,
+                scores[0],
+                scores[scores.len() / 2],
+                scores[scores.len() - 1]
+            );
+        }
+    }
+
+    /// Sweeps how many latent topics the papers are described by.
+    ///
+    /// Answers whether a richer representation keeps buying accuracy, or
+    /// whether the corpus's own co-occurrence signal runs out — which bounds
+    /// what any embedding could add on this data.
+    #[test]
+    #[ignore = "measurement over the curated set; run explicitly with --nocapture"]
+    fn curated_set_latent_component_sweep() {
+        for (name, docs) in [
+            (
+                "all 4 categories",
+                documents(|paper| paper.category.clone()),
+            ),
+            (
+                "3 coherent fields",
+                documents(|paper| paper.category.clone())
+                    .into_iter()
+                    .filter(|document| document.truth != "Others")
+                    .collect::<Vec<_>>(),
+            ),
+        ] {
+            let classes = docs
+                .iter()
+                .map(|document| document.truth.clone())
+                .collect::<BTreeSet<_>>()
+                .len();
+            let vectors = tfidf(
+                &docs
+                    .iter()
+                    .map(|document| tokenize(&format!("{} {}", document.title, document.text)))
+                    .collect::<Vec<_>>(),
+            );
+
+            println!(
+                "\n=== latent topic sweep, {name} ({} papers) ===",
+                docs.len()
+            );
+            for components in [2, 4, 8, 12, 16, 24, 32, 40] {
+                let labels = agglomerate(&latent_vectors(&vectors, components), classes);
+                let result = evaluate("sweep", &docs, &labels);
+                println!(
+                    "topics {:>3}  ari {:>6.3}  v {:>6.3}",
+                    components, result.metrics.adjusted_rand_index, result.metrics.v_measure
+                );
+            }
+        }
     }
 
     /// Sweeps the stopping threshold for the strategy that is not told how many

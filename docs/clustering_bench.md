@@ -22,12 +22,45 @@ a strategy fails, not to rank strategies.
 | title terms, k = labels | 4 | 0.000 | 0.087 |
 | title + abstract, k = labels | 4 | 0.050 | 0.132 |
 | words + word pairs, k = labels | 4 | 0.034 | 0.163 |
+| latent topics (8), k = labels | 4 | 0.067 | 0.162 |
+| latent topics (16), k = labels | 4 | 0.158 | 0.287 |
 | 12 rarest terms, k = labels | 4 | 0.004 | 0.090 |
 | title + abstract, k unknown | 52 | 0.028 | 0.516 |
 
 Excluding the `Others` category — a grab-bag with no shared subject, so no
 method can group it — leaves 45 papers over 3 fields, where the best term
 strategy reaches ARI 0.150.
+
+## Does a semantic representation help?
+
+Latent topics — truncated SVD over the same term matrix, so papers sharing
+vocabulary only *indirectly* still come out close — is the offline stand-in for
+an embedding. On the 3 coherent fields it produced the single best number in
+the whole bench, ARI 0.293 at 2 topics, against 0.150 for the best surface-term
+method.
+
+That number does not survive resampling. Re-scoring on five
+leave-one-fifth-out folds:
+
+| strategy | min | median | max |
+| --- | --- | --- | --- |
+| title + abstract terms | -0.010 | 0.160 | 0.243 |
+| latent topics (2) | 0.116 | 0.164 | 0.204 |
+| latent topics (16) | -0.003 | 0.119 | 0.272 |
+
+The spreads overlap almost entirely and the medians are 0.160, 0.164 and 0.119
+— indistinguishable. The 0.293 was a favourable split, not a better method.
+
+**So the honest answer to "which approach is best" is: this corpus cannot
+tell.** Single-run differences of ±0.1 ARI are within fold-to-fold noise at 45
+papers, which is larger than every gap the bench measured. Any ranking claimed
+from one run of this set — including one favouring embeddings — would be
+reading noise.
+
+The one durable difference is spread, not accuracy: latent topics at 2
+components varies least across folds (0.116–0.204), where the term methods
+swing through zero. A method that is merely stable is still worth something,
+but it is not the same as a method that is better.
 
 ## Findings
 
@@ -62,9 +95,15 @@ evidence the reduction is what limits grouping.
 
 ## Still open
 
-Embedding-based grouping is the one candidate this bench cannot settle offline,
-and it is the most likely to beat the floor: term overlap cannot see that
-"quark" and "hadron" belong together. It is implemented and gated on a key:
+Provider embeddings remain untested here — no API key and no local Ollama on
+this machine. The latent-topic result above is the offline stand-in for them
+and points the same way: semantic structure beats surface overlap against its
+own baseline (0.050 to 0.158 on the 4-label set), but not by enough to separate
+from noise on 45 papers.
+
+Testing real embeddings is therefore worth doing *after* the balanced set
+exists, not before — on this corpus the result would not be interpretable. It
+is implemented and gated on a key:
 
 ```bash
 SYP_API_KEY=... cargo test -p syp-library curated_set_embedding_bench -- --ignored --nocapture
@@ -73,7 +112,9 @@ SYP_API_KEY=... cargo test -p syp-library curated_set_embedding_bench -- --ignor
 That prints the term strategies and the embedding strategy over the same
 papers, so the comparison is direct.
 
-The corpus limits all of this: abstracts are truncated to ~320 characters, 60
-papers is small, and one of four categories is incoherent by construction. The
-balanced `clustering-eval` set exists for this reason and should replace the
-diverse set here once materialized.
+The corpus limits all of this, and the stability check puts a number on it:
+abstracts are truncated to ~320 characters, 45–60 papers is small enough that
+folds swing ARI by ±0.1, and one of four categories is incoherent by
+construction. Building the balanced `clustering-eval` set is therefore a
+prerequisite for ranking approaches, not a refinement of it — no amount of
+further method invention can be evaluated on this data.
