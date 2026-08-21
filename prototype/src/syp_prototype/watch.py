@@ -17,8 +17,8 @@ from watchdog.observers import Observer
 from .config import Settings
 from .discovery import Snapshot, snapshot_input
 from .ingest import IngestReport, ingest_folder
+from .library import Library
 from .llm import LlmClient
-from .store import INGEST_INDEX_FILE, IngestIndex
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,9 @@ class _WakeHandler(FileSystemEventHandler):
 async def watch(
     settings: Settings,
     client: LlmClient,
+    library: Library,
     *,
+    apply: bool = False,
     max_passes: int | None = None,
 ) -> list[IngestReport]:
     """Ingest the input folder whenever new PDFs settle in it.
@@ -64,27 +66,27 @@ async def watch(
             f"watch input folder does not exist: {settings.input_dir}"
         )
 
-    index = IngestIndex(settings.output_dir / INGEST_INDEX_FILE)
     wake = asyncio.Event()
     observer = _start_observer(settings, wake)
     log.info(
-        "watching %s -> %s (%d already ingested)",
+        "watching %s -> %s (%d already in the library, %s)",
         settings.input_dir,
-        settings.output_dir,
-        len(index),
+        library.root,
+        library.db.count(),
+        "apply mode" if apply else "preview only; pass --apply to move files",
     )
 
     reports: list[IngestReport] = []
     last_run: Snapshot | None = None
     try:
         while max_passes is None or len(reports) < max_passes:
-            pending = _pending(settings)
+            pending = _pending(settings, library)
             if not pending or pending == last_run:
                 await _wait_for_change(wake)
                 continue
 
             await asyncio.sleep(SETTLE_SECONDS)
-            if _pending(settings) != pending:
+            if _pending(settings, library) != pending:
                 # Still arriving. Re-measure rather than ingesting a partial copy.
                 continue
 
@@ -94,16 +96,17 @@ async def watch(
             last_run = pending
 
             try:
-                report = await ingest_folder(settings, client, index)
+                report = await ingest_folder(settings, client, library, apply=apply)
             except Exception as err:  # a bad pass must not kill the watcher
                 log.error("ingest failed: %s; waiting for the next change", err)
                 continue
 
             reports.append(report)
             log.info(
-                "ingested %d paper(s), %d skipped, %d failed",
+                "%s %d paper(s), %d already known, %d failed",
+                "filed" if apply else "would file",
                 report.processed,
-                report.skipped_already_ingested,
+                report.skipped_already_known,
                 len(report.failed),
             )
     finally:
@@ -124,10 +127,10 @@ def _start_observer(settings: Settings, wake: asyncio.Event) -> Observer:
     return observer
 
 
-def _pending(settings: Settings) -> Snapshot:
+def _pending(settings: Settings, library: Library) -> Snapshot:
     return snapshot_input(
         settings.input_dir,
-        settings.output_dir,
+        library.root,
         recursive=settings.recursive,
         max_file_size_mb=settings.max_file_size_mb,
     )

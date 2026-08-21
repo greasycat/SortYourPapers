@@ -11,7 +11,8 @@ crates.
 
 `ingest` walks the input folder, skips anything already known or too large,
 pulls text from the first page of each PDF, and sends batches of them to the
-model for keywords and a preliminary category. Batches run four at a time,
+model for keywords, a category, and the title, authors, and year the links are
+named by — all in one request per batch. Batches run four at a time,
 matching the Rust pipeline's ceiling, because the stage is bound by round-trips
 rather than tokens.
 
@@ -21,10 +22,38 @@ coalesced, missed, or caused by its own writes. A folder must stop changing for
 three seconds before a pass starts, so a PDF still being copied in is never read
 half-written.
 
-Results append to `ingest.jsonl` in the library folder, one line per paper,
-flushed as each is recorded. That file is also the "already seen" marker: papers
-are keyed by a hash of their contents, so re-running costs nothing and a renamed
-paper is not paid for twice.
+## How the library is laid out
+
+Every PDF lives in exactly one place — a single flat folder — and the browsable
+folder tree is made only of symlinks over it:
+
+```
+library/
+  papers.duckdb
+  store/
+    5112ee75ddcf__Machine Learning__Deep Learning__Transformers.pdf
+  tree/
+    Machine Learning/Deep Learning/Transformers/
+      vaswani_2017_attention-is-all-you-need.pdf -> ../../../../store/5112ee75ddcf__...pdf
+```
+
+The store filename is `<id>__<Tag>__<Tag>.pdf`. The id is permanent and the tags
+are not, so **re-tagging a paper is a rename plus a moved link** — no file is
+ever copied and nothing has to be found again. Tags are sanitized so no tag can
+contain `__`, which keeps the name unambiguous to parse.
+
+Links are named `author_year_title`, cleaned for filesystem safety, falling back
+to the store name when the model could not find all three. They are relative, so
+the whole library can be moved without breaking.
+
+**DuckDB is the source of truth.** Filenames and the tree are projections of it,
+which is why `sypy tree` can throw the tree away and rebuild it exactly, and why
+a tag list too long for a filename loses nothing. Papers are keyed by a hash of
+their contents, so re-running costs nothing and the same paper arriving twice
+under different names is recognised.
+
+Expanding the schema means appending to `_MIGRATIONS` in `db.py`; anything not
+worth a column yet goes in `paper_attributes` as a key/value pair.
 
 ## Usage
 
@@ -32,10 +61,19 @@ Put `sypy` on PATH, then use it from anywhere:
 
 ```bash
 ./prototype/scripts/sypy-path wire     # install and link
-sypy ingest --input ./inbox
-sypy watch  --input ./inbox
+
+sypy ingest --input ./inbox            # preview: shows where each paper would land
+sypy ingest --input ./inbox --apply    # actually file them
+sypy watch  --input ./inbox --apply    # keep doing it as papers arrive
+
+sypy list                              # what the library holds
+sypy retag <id> "Systems/Databases"    # re-tag: renames the file, moves the link
+sypy tree                              # rebuild the symlink tree from the database
+
 ./prototype/scripts/sypy-path unwire   # remove the link
 ```
+
+Nothing is moved without `--apply`. Re-run `wire` after changing dependencies.
 
 `wire` builds a virtualenv at `prototype/.venv`, installs the package into it in
 editable mode so source edits take effect without reinstalling, and symlinks
@@ -70,5 +108,6 @@ and the correct spelling wins when both are set.
 - Scanned PDFs with no text layer are reported as failures. The Rust pipeline
   renders their pages and asks a vision model; this does not.
 - Only OpenAI is wired up, because that is the key the repo carries.
-- No resumable run state beyond the ingest index: an interrupted pass keeps the
-  papers it finished and redoes the batch it was in the middle of.
+- No resumable run state beyond the database: an interrupted pass keeps the
+  papers it filed and redoes the batch it was in the middle of.
+- A preview run still creates an empty `papers.duckdb`, though it writes no rows.

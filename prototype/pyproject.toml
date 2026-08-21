@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Python prototype of the SortYourPapers ingest pipeline and folder watcher."
 requires-python = ">=3.11"
 dependencies = [
+  "duckdb>=1.1.0",
   "openai>=1.60.0",
   "pypdf>=5.1.0",
   "python-dotenv>=1.0.1",

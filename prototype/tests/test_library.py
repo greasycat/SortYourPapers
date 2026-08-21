@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from conftest import write_pdf
+
+from syp_prototype.db import Paper
+from syp_prototype.library import Library, LibraryError
+from syp_prototype.naming import new_paper_id, store_name
+
+
+def _paper(tags: list[str], **overrides) -> Paper:
+    paper_id = overrides.pop("file_id", new_paper_id())
+    fields = {
+        "file_id": paper_id,
+        "content_hash": "hash-" + paper_id,
+        "store_name": store_name(paper_id, tags),
+        "title": "Attention Is All You Need",
+        "authors": ["Ashish Vaswani"],
+        "year": 2017,
+        "tags": tags,
+    }
+    fields.update(overrides)
+    return Paper(**fields)
+
+
+def test_filing_moves_the_file_into_one_flat_store(
+    library: Library, tmp_path: Path
+) -> None:
+    source = write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    paper = _paper(["AI", "Transformers"])
+
+    filing = library.file_paper(paper, source)
+
+    assert not source.exists(), "the source should have been moved, not copied"
+    assert filing.store_path.parent == library.store_dir
+    assert filing.store_path.name == paper.store_name
+    assert filing.store_path.is_file()
+
+
+def test_the_tree_is_symlinks_pointing_back_into_the_store(
+    library: Library, tmp_path: Path
+) -> None:
+    source = write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    paper = _paper(["AI", "Transformers"])
+
+    filing = library.file_paper(paper, source)
+
+    link = filing.link_path
+    assert link.is_symlink()
+    assert link.parent == library.tree_dir / "AI" / "Transformers"
+    assert link.name == "vaswani_2017_attention-is-all-you-need.pdf"
+    assert link.resolve() == filing.store_path.resolve()
+
+
+def test_links_are_relative_so_the_library_can_be_moved(
+    library: Library, tmp_path: Path
+) -> None:
+    source = write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    filing = library.file_paper(_paper(["AI"]), source)
+    library.close()
+
+    moved = tmp_path / "moved-library"
+    library.root.rename(moved)
+    relocated = moved / filing.link_path.relative_to(library.root)
+
+    assert relocated.is_symlink()
+    assert relocated.resolve().is_file(), "relative link should survive the move"
+
+
+def test_a_paper_with_no_usable_metadata_links_under_its_store_name(
+    library: Library, tmp_path: Path
+) -> None:
+    source = write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    paper = _paper(["AI"], title=None, authors=[], year=None)
+
+    filing = library.file_paper(paper, source)
+
+    assert filing.link_path.name == paper.store_name
+
+
+def test_retagging_renames_the_file_and_moves_the_link(
+    library: Library, tmp_path: Path
+) -> None:
+    source = write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    filing = library.file_paper(_paper(["AI", "Transformers"]), source)
+    old_store_path = filing.store_path
+
+    updated = library.retag(filing.file_id, ["Systems", "Databases"])
+
+    assert not old_store_path.exists()
+    assert (library.store_dir / updated.store_name).is_file()
+    assert updated.store_name.endswith("__Systems__Databases.pdf")
+    assert updated.store_name.startswith(filing.file_id), "the id must not change"
+    new_link = library.tree_dir / "Systems" / "Databases" / filing.link_path.name
+    assert new_link.is_symlink()
+    assert not (library.tree_dir / "AI").exists(), "the emptied branch should be pruned"
+
+
+def test_retagging_an_unknown_paper_is_refused(library: Library) -> None:
+    with pytest.raises(LibraryError, match="no paper"):
+        library.retag("ffffffffffff", ["AI"])
+
+
+def test_filing_over_an_existing_store_entry_is_refused(
+    library: Library, tmp_path: Path
+) -> None:
+    paper = _paper(["AI"])
+    library.file_paper(paper, write_pdf(tmp_path / "a" / "raw.pdf", "one"))
+    second = write_pdf(tmp_path / "b" / "raw.pdf", "two")
+
+    with pytest.raises(LibraryError, match="already holds"):
+        library.file_paper(paper, second)
+
+    assert second.exists(), "a refused filing must not consume the source"
+
+
+def test_rebuilding_the_tree_restores_it_after_deletion(
+    library: Library, tmp_path: Path
+) -> None:
+    for index in range(3):
+        library.file_paper(
+            _paper(["AI", f"Sub{index}"], title=f"Paper {index}"),
+            write_pdf(tmp_path / f"src{index}" / "raw.pdf", f"text {index}"),
+        )
+
+    import shutil
+
+    shutil.rmtree(library.tree_dir)
+    linked = library.rebuild_tree()
+
+    assert linked == 3
+    links = [p for p in library.tree_dir.rglob("*") if p.is_symlink()]
+    assert len(links) == 3
+    assert all(link.resolve().is_file() for link in links)
+
+
+def test_rebuilding_disambiguates_two_papers_that_want_the_same_link_name(
+    library: Library, tmp_path: Path
+) -> None:
+    # Same author, year, and title, so both want the identical link name.
+    for index in range(2):
+        library.file_paper(
+            _paper(["AI"]), write_pdf(tmp_path / f"src{index}" / "raw.pdf", f"t{index}")
+        )
+
+    library.rebuild_tree()
+
+    links = sorted(p.name for p in (library.tree_dir / "AI").iterdir())
+    assert len(links) == 2, f"one link overwrote the other: {links}"
+    assert len({link for link in links}) == 2
+
+
+def test_missing_files_are_reported_not_linked(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    filing.store_path.unlink()
+
+    linked = library.rebuild_tree()
+
+    assert linked == 0
+    assert [paper.file_id for paper in library.missing_files()] == [filing.file_id]

@@ -14,8 +14,18 @@ from syp_prototype.llm import KeywordPair, LlmError
 class FakeLlmClient:
     """Answers every batch, recording what it was asked."""
 
-    def __init__(self, category: str = "AI/Transformers") -> None:
+    def __init__(
+        self,
+        category: str = "AI/Transformers",
+        *,
+        title: str = "Attention Is All You Need",
+        authors: list[str] | None = None,
+        year: int | None = 2017,
+    ) -> None:
         self.category = category
+        self.title = title
+        self.authors = ["Ashish Vaswani"] if authors is None else authors
+        self.year = year
         self.batches: list[list[str]] = []
 
     async def extract_keywords(self, batch: Sequence[PaperText]) -> list[KeywordPair]:
@@ -25,6 +35,9 @@ class FakeLlmClient:
                 file_id=paper.file_id,
                 keywords=["alpha", "beta"],
                 preliminary_category=self.category,
+                title=self.title,
+                authors=list(self.authors),
+                year=self.year,
             )
             for paper in batch
         ]
@@ -93,6 +106,17 @@ def settings(tmp_path: Path) -> Settings:
     inbox.mkdir()
     return Settings(
         input_dir=inbox,
-        output_dir=inbox / "sorted",
+        output_dir=inbox / "library",
         keyword_batch_size=2,
     )
+
+
+@pytest.fixture
+def library(settings: Settings):
+    from syp_prototype.library import Library
+
+    lib = Library(settings.output_dir)
+    try:
+        yield lib
+    finally:
+        lib.close()

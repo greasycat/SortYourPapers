@@ -7,7 +7,7 @@ without a network or an API key.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, Sequence
 
 from .config import MAX_TEXT_CHARS_PER_FILE, MAX_TOTAL_BATCH_TEXT_CHARS
@@ -20,11 +20,18 @@ class LlmError(RuntimeError):
 
 @dataclass(frozen=True)
 class KeywordPair:
-    """What the model returns for a single paper."""
+    """What the model returns for a single paper.
+
+    Title, authors, and year are what the symlink tree names links by, so they
+    are asked for in the same request rather than a second one.
+    """
 
     file_id: str
     keywords: list[str]
     preliminary_category: str
+    title: str = ""
+    authors: list[str] = field(default_factory=list)
+    year: int | None = None
 
 
 class LlmClient(Protocol):
@@ -50,11 +57,17 @@ _RESPONSE_SCHEMA = {
                     "file_id": {"type": "string"},
                     "keywords": {"type": "array", "items": {"type": "string"}},
                     "preliminary_categories_k_depth": {"type": "string"},
+                    "title": {"type": "string"},
+                    "authors": {"type": "array", "items": {"type": "string"}},
+                    "year": {"type": ["integer", "null"]},
                 },
                 "required": [
                     "file_id",
                     "keywords",
                     "preliminary_categories_k_depth",
+                    "title",
+                    "authors",
+                    "year",
                 ],
                 "additionalProperties": False,
             },
@@ -82,7 +95,8 @@ def build_prompt(batch: Sequence[PaperText]) -> str:
     return (
         "Return JSON with this exact schema:\n"
         '{"pairs":[{"file_id":"...","keywords":["..."],'
-        '"preliminary_categories_k_depth":"..."}]}\n'
+        '"preliminary_categories_k_depth":"...","title":"...",'
+        '"authors":["..."],"year":2017}]}\n'
         "Rules:\n"
         f"- Return exactly {len(batch)} pairs\n"
         "- Include every file_id exactly once\n"
@@ -90,6 +104,10 @@ def build_prompt(batch: Sequence[PaperText]) -> str:
         "- Keywords must be specific nouns or short noun phrases\n"
         "- `preliminary_categories_k_depth` is a plain-text category suggestion "
         "such as `Machine Learning/Transformers`; approximate is fine\n"
+        "- `title` is the paper\'s title, or \"\" if the text does not show one\n"
+        "- `authors` are full names in the order printed, or [] if none are shown\n"
+        "- `year` is the publication year as an integer, or null if not shown\n"
+        "- Do not guess title, authors, or year; leave them empty when unsure\n"
         "- No markdown\n\n"
         f"files:\n{json.dumps(files)}"
     )
@@ -124,12 +142,18 @@ def parse_response(content: str, batch: Sequence[PaperText]) -> list[KeywordPair
         keywords = pair.get("keywords") or []
         if not isinstance(keywords, list):
             raise LlmError(f"keywords for {file_id!r} must be a list")
+        authors = pair.get("authors") or []
+        if not isinstance(authors, list):
+            raise LlmError(f"authors for {file_id!r} must be a list")
         parsed[file_id] = KeywordPair(
             file_id=file_id,
             keywords=[str(keyword) for keyword in keywords],
             preliminary_category=str(
                 pair.get("preliminary_categories_k_depth") or ""
             ).strip(),
+            title=str(pair.get("title") or "").strip(),
+            authors=[str(author).strip() for author in authors if str(author).strip()],
+            year=_coerce_year(pair.get("year")),
         )
 
     missing = expected - parsed.keys()
@@ -138,6 +162,16 @@ def parse_response(content: str, batch: Sequence[PaperText]) -> list[KeywordPair
 
     # Answer in the batch's order so downstream records are stable.
     return [parsed[paper.file_id] for paper in batch]
+
+
+def _coerce_year(value: object) -> int | None:
+    """A publication year, or None when the model could not find a usable one."""
+    try:
+        year = int(str(value))
+    except (TypeError, ValueError):
+        return None
+    # Anything outside this range is a page number or a DOI fragment, not a year.
+    return year if 1400 <= year <= 2200 else None
 
 
 class OpenAiClient:
