@@ -70,6 +70,12 @@ _MIGRATIONS: list[tuple[str, str]] = [
         );
         """,
     ),
+    (
+        "0002_stored_file_state",
+        """
+        ALTER TABLE papers ADD COLUMN IF NOT EXISTS stored_mtime_ms BIGINT;
+        """,
+    ),
 ]
 
 
@@ -82,7 +88,10 @@ class Paper:
     store_name: str
     original_name: str | None = None
     source_path: str | None = None
+    # Size and mtime of the file in the store, as last observed. Together they
+    # are a cheap gate: a file whose stat has not moved does not need rehashing.
     size_bytes: int | None = None
+    stored_mtime_ms: int | None = None
     pages_read: int | None = None
     title: str | None = None
     year: int | None = None
@@ -186,7 +195,7 @@ class PaperDb:
         row = self._conn.execute(
             """
             SELECT file_id, content_hash, store_name, original_name, source_path,
-                   size_bytes, pages_read, title, year
+                   size_bytes, pages_read, title, year, stored_mtime_ms
             FROM papers WHERE file_id = ?
             """,
             [file_id],
@@ -199,7 +208,7 @@ class PaperDb:
         rows = self._conn.execute(
             """
             SELECT file_id, content_hash, store_name, original_name, source_path,
-                   size_bytes, pages_read, title, year
+                   size_bytes, pages_read, title, year, stored_mtime_ms
             FROM papers ORDER BY file_id
             """
         ).fetchall()
@@ -257,6 +266,7 @@ class PaperDb:
             pages_read=row[6],
             title=row[7],
             year=row[8],
+            stored_mtime_ms=row[9],
             tags=self._ordered(file_id, "paper_tags", "tag"),
             authors=self._ordered(file_id, "paper_authors", "name"),
             keywords=[
@@ -290,8 +300,9 @@ class PaperDb:
                 """
                 INSERT INTO papers (
                     file_id, content_hash, store_name, original_name, source_path,
-                    size_bytes, pages_read, title, year, created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    size_bytes, stored_mtime_ms, pages_read, title, year,
+                    created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     paper.file_id,
@@ -300,6 +311,7 @@ class PaperDb:
                     paper.original_name,
                     paper.source_path,
                     paper.size_bytes,
+                    paper.stored_mtime_ms,
                     paper.pages_read,
                     paper.title,
                     paper.year,
@@ -324,6 +336,25 @@ class PaperDb:
             self._conn.execute(
                 "UPDATE papers SET store_name = ?, updated_at_ms = ? WHERE file_id = ?",
                 [store_name, now_ms(), file_id],
+            )
+
+    def set_stored_file_state(
+        self, file_id: str, content_hash: str, size_bytes: int, mtime_ms: int
+    ) -> None:
+        """Record what the stored file looks like now.
+
+        Called after filing, and again whenever a rescan finds the file on disk
+        no longer matches what was recorded.
+        """
+        with self._transaction():
+            self._conn.execute(
+                """
+                UPDATE papers
+                SET content_hash = ?, size_bytes = ?, stored_mtime_ms = ?,
+                    updated_at_ms = ?
+                WHERE file_id = ?
+                """,
+                [content_hash, size_bytes, mtime_ms, now_ms(), file_id],
             )
 
     def set_attribute(self, file_id: str, key: str, value: str | None) -> None:

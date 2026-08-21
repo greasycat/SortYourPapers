@@ -128,6 +128,28 @@ def retag(
 
 
 @app.command()
+def scan(
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+) -> None:
+    """Re-check stored files and refresh the hashes of any edited in place."""
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        report = library.rescan()
+        typer.echo(
+            f"checked {report.checked} document(s); "
+            f"{report.rehashed} restatted; {len(report.changed)} changed; "
+            f"{len(report.missing)} missing"
+        )
+        for file_id, old, new in report.changed:
+            typer.echo(f"  {file_id}: {old[:12]} -> {new[:12]}")
+        for paper in report.missing:
+            typer.echo(
+                f"  ! {paper.file_id}: {paper.store_name} is missing from the store",
+                err=True,
+            )
+
+
+@app.command()
 def remove(
     file_id: str = typer.Argument(..., help="Document id, the part before the first __."),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),

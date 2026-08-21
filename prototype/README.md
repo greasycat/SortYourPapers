@@ -68,6 +68,20 @@ under different names is recognised.
 Expanding the schema means appending to `_MIGRATIONS` in `db.py`; anything not
 worth a column yet goes in `paper_attributes` as a key/value pair.
 
+## Editing a stored file
+
+Annotating or re-saving a file in the store keeps its name but changes its
+bytes, which makes the recorded hash stale. That matters because the hash is how
+the library recognises a document it already holds: left stale, the edited copy
+arriving in a watched folder later would be ingested a second time.
+
+`sypy scan` fixes that. It compares each stored file's size and mtime against
+what was recorded and only reads the ones that moved, so a quiet library costs
+one stat per document rather than a full re-read. Changed files get a fresh
+hash; a file that vanished is reported rather than silently dropped.
+
+It is not automatic — nothing runs it for you.
+
 ## Usage
 
 Put `sypy` on PATH, then use it from anywhere:
@@ -83,6 +97,7 @@ sypy watch  --input ./inbox --mode copy     # keep doing it as documents arrive
 sypy list                              # what the library holds
 sypy retag <id> "Systems/Databases"    # re-tag: renames the file, moves the link
 sypy remove <id>                       # delete link, file, and record (asks first)
+sypy scan                              # refresh hashes of files edited in place
 sypy tree                              # rebuild the symlink tree from the database
 
 ./prototype/scripts/sypy-path unwire   # remove the link
@@ -151,3 +166,7 @@ and the correct spelling wins when both are set.
   arrived by move. There is no unfile-but-keep option.
 - Category steering sends at most 200 existing paths; a larger library sends its
   alphabetically first.
+- `sypy scan` has to be run by hand; the watcher does not call it.
+- Editing the tree by hand does not work: links are relative, so moving one to a
+  different depth breaks it, and `sypy tree` reverts hand edits. A real file
+  placed in the tree is deleted by the next rebuild.

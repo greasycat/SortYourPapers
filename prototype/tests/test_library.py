@@ -218,3 +218,102 @@ def test_existing_categories_are_the_paths_already_in_use(
     )
 
     assert library.existing_categories() == ["Finance/Bills", "Medicine/Radiology"]
+
+
+def test_editing_a_stored_file_in_place_refreshes_its_hash(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    original_hash = library.db.get(filing.file_id).content_hash
+
+    # Same name, different bytes — an annotation, or a re-save.
+    filing.store_path.write_bytes(filing.store_path.read_bytes() + b"\n% annotated\n")
+    report = library.rescan()
+
+    refreshed = library.db.get(filing.file_id)
+    assert refreshed.content_hash != original_hash
+    assert [(f, o, n) for f, o, n in report.changed] == [
+        (filing.file_id, original_hash, refreshed.content_hash)
+    ]
+
+
+def test_a_refreshed_hash_stops_the_edited_copy_being_ingested_twice(
+    library: Library, tmp_path: Path
+) -> None:
+    # The stale hash matters because it is the key that recognises a document
+    # the library already holds.
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    filing.store_path.write_bytes(filing.store_path.read_bytes() + b"\n% annotated\n")
+    edited_hash = _sha_of(filing.store_path)
+
+    assert library.db.find_by_content_hash(edited_hash) is None, "stale before rescan"
+    library.rescan()
+    assert library.db.find_by_content_hash(edited_hash) == filing.file_id
+
+
+def test_an_unchanged_library_is_not_reread(library: Library, tmp_path: Path) -> None:
+    # The whole point of recording size and mtime: a quiet library costs one
+    # stat per document, not a full read of every file.
+    for index in range(3):
+        library.file_paper(
+            _paper(["AI"], title=f"Paper {index}"),
+            write_pdf(tmp_path / f"src{index}" / "raw.pdf", f"text {index}"),
+        )
+
+    report = library.rescan()
+
+    assert report.checked == 3
+    assert report.rehashed == 0, "nothing changed, so nothing should be reread"
+    assert report.changed == []
+
+
+def test_a_touched_but_unchanged_file_is_reread_once_then_settles(
+    library: Library, tmp_path: Path
+) -> None:
+    import os
+
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    # The fixture fabricates a hash rather than reading the file, and the stat
+    # gate means a rescan would never notice. Record the real one, so a moved
+    # mtime is the only thing this test changes.
+    stat = filing.store_path.stat()
+    library.db.set_stored_file_state(
+        filing.file_id,
+        _sha_of(filing.store_path),
+        stat.st_size,
+        int(stat.st_mtime * 1000),
+    )
+    os.utime(filing.store_path, (stat.st_atime, stat.st_mtime + 5))
+
+    first = library.rescan()
+    second = library.rescan()
+
+    assert first.rehashed == 1, "a moved mtime must be checked"
+    assert first.changed == [], "the bytes did not change"
+    assert second.rehashed == 0, "the new stat should have been recorded"
+
+
+def test_rescan_reports_a_file_that_vanished_rather_than_failing(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    filing.store_path.unlink()
+
+    report = library.rescan()
+
+    assert [paper.file_id for paper in report.missing] == [filing.file_id]
+    assert report.checked == 0
+
+
+def _sha_of(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]

@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 from .db import Paper, PaperDb
+from .discovery import file_id as hash_file
 from .naming import disambiguate, link_name, store_name
 
 STORE_DIR = "store"
@@ -42,6 +43,16 @@ class FilingMode(str, Enum):
 
 class LibraryError(RuntimeError):
     """Raised when the library on disk cannot be brought to the intended state."""
+
+
+@dataclass
+class RescanReport:
+    """What a rescan of the store found."""
+
+    checked: int = 0
+    rehashed: int = 0
+    changed: list[tuple[str, str, str]] = field(default_factory=list)
+    missing: list[Paper] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -116,6 +127,12 @@ class Library:
             shutil.copy2(source, target)
         else:
             shutil.move(str(source), str(target))
+
+        # The stat of the file that is now in the store, which is what a later
+        # rescan compares against.
+        stat = target.stat()
+        paper.size_bytes = stat.st_size
+        paper.stored_mtime_ms = int(stat.st_mtime * 1000)
         self.db.upsert(paper)
         link = self._link(paper)
         return PlannedFiling(
@@ -170,6 +187,41 @@ class Library:
         (self.store_dir / paper.store_name).unlink(missing_ok=True)
         self.db.delete(file_id)
         return paper
+
+    def rescan(self) -> RescanReport:
+        """Bring the recorded content hashes back in line with the store.
+
+        A file edited in place — annotated, re-saved — keeps its name but no
+        longer matches its recorded hash. Left alone that hash goes stale, and
+        since it is the key that recognises a document the library already has,
+        the edited copy arriving later would be ingested a second time.
+
+        Size and mtime are checked first so an unchanged library costs one stat
+        per document rather than a full read.
+        """
+        report = RescanReport()
+        for paper in self.db.all_papers():
+            path = self.store_dir / paper.store_name
+            if not path.exists():
+                report.missing.append(paper)
+                continue
+
+            report.checked += 1
+            stat = path.stat()
+            size, mtime_ms = stat.st_size, int(stat.st_mtime * 1000)
+            if paper.size_bytes == size and paper.stored_mtime_ms == mtime_ms:
+                continue
+
+            # The stat moved, so the content might have. Only now is it worth
+            # reading the file.
+            report.rehashed += 1
+            digest = hash_file(path)
+            if digest != paper.content_hash:
+                report.changed.append((paper.file_id, paper.content_hash, digest))
+            # Recorded even when the hash is unchanged — a touched file should
+            # not be re-read on every future scan.
+            self.db.set_stored_file_state(paper.file_id, digest, size, mtime_ms)
+        return report
 
     def existing_categories(self, limit: int | None = None) -> list[str]:
         """Category paths already in use, for steering a new document."""
