@@ -35,6 +35,24 @@ class SamplingPolicy:
 
 
 @dataclass(slots=True)
+class ClusteringEvalPolicy:
+    """Selection tuned for measuring how well papers get grouped.
+
+    The diversity policy above spreads thinly across subcategories, which
+    leaves most reference labels holding one or two papers. Scoring a grouping
+    needs the opposite: a few labels with enough members each that agreement
+    means something.
+    """
+
+    subcategories: int = 6
+    papers_per_subcategory: int = 10
+    random_seed: int = 1_511_510_650
+
+    def as_dict(self) -> dict[str, int]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class CuratedPaper:
     paper_id: str
     arxiv_id: str
@@ -62,7 +80,7 @@ class CuratedTestSet:
     set_id: str
     description: str
     source_dataset: str
-    selection_policy: SamplingPolicy
+    selection_policy: SamplingPolicy | ClusteringEvalPolicy
     generated_at_ms: int
     papers: list[CuratedPaper]
 

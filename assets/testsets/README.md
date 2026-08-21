@@ -9,3 +9,14 @@ Curated paper test sets live here as committed TOML and JSON artifacts.
 - Every sample stores paper metadata plus both the arXiv abstract URL and direct PDF URL.
 - `uv run --project python paperfetch build-manifest --output assets/testsets/scijudgebench-diverse.toml` refreshes both committed artifacts.
 - `uv run --project python paperfetch materialize assets/testsets/scijudgebench-diverse.toml` downloads the referenced arXiv PDFs into the cache.
+
+## Sets
+
+- `scijudgebench-diverse` — spread widely across subcategories (60 papers, 45
+  subcategories). Good for exercising the pipeline on varied inputs; too thin
+  per label to score grouping quality.
+- `clustering-eval` — balanced for measuring grouping: a few subcategories with
+  equal paper counts, so every reference label carries the same weight. Build it
+  with `uv run --project python syp-paperfetch build-clustering-eval`, then
+  materialize it and score a run with `syp eval --manifest
+  assets/testsets/clustering-eval.toml`.

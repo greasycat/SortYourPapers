@@ -5,7 +5,73 @@ import time
 from collections import defaultdict
 from collections.abc import Iterable
 
-from .models import Candidate, CuratedPaper, CuratedTestSet, SamplingPolicy, SelectionBucket
+from .models import (
+    Candidate,
+    ClusteringEvalPolicy,
+    CuratedPaper,
+    CuratedTestSet,
+    SamplingPolicy,
+    SelectionBucket,
+)
+
+
+def build_clustering_eval_set(
+    candidates: list[Candidate],
+    policy: ClusteringEvalPolicy,
+    set_id: str = "clustering-eval",
+    source_dataset: str = "OpenMOSS-Team/SciJudgeBench",
+    generated_at_ms: int | None = None,
+) -> CuratedTestSet:
+    """Picks a balanced set: the largest subcategories, equally sampled.
+
+    Only subcategories that can fill the quota are kept, so every reference
+    label carries the same weight and a score cannot be dominated by one
+    crowded label.
+    """
+
+    grouped: dict[str, list[Candidate]] = defaultdict(list)
+    for candidate in candidates:
+        subcategory = candidate.subcategory or "uncategorized"
+        grouped[subcategory].append(candidate)
+
+    eligible = sorted(
+        (
+            (subcategory, members)
+            for subcategory, members in grouped.items()
+            if len(members) >= policy.papers_per_subcategory
+        ),
+        key=lambda item: (-len(item[1]), item[0]),
+    )[: policy.subcategories]
+
+    selected: list[CuratedPaper] = []
+    for subcategory, members in eligible:
+        # Sample deterministically rather than by citations: a grouping should
+        # be measured on typical papers, not only landmark ones.
+        ordered = sorted(
+            members,
+            key=lambda item: (
+                _stable_random_key(subcategory, item.arxiv_id, policy.random_seed),
+                item.arxiv_id,
+            ),
+        )
+        for candidate in ordered[: policy.papers_per_subcategory]:
+            selected.append(_to_curated_paper(candidate, SelectionBucket.RANDOM))
+
+    selected.sort(key=lambda item: (item.subcategory, item.paper_id))
+
+    return CuratedTestSet(
+        set_id=set_id,
+        description=(
+            f"Balanced clustering evaluation set: {len(eligible)} subcategor(ies) "
+            f"x {policy.papers_per_subcategory} paper(s)."
+        ),
+        source_dataset=source_dataset,
+        selection_policy=policy,
+        generated_at_ms=generated_at_ms
+        if generated_at_ms is not None
+        else int(time.time() * 1000),
+        papers=selected,
+    )
 
 
 def build_curated_test_set(

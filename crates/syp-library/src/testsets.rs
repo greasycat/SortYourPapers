@@ -27,13 +27,29 @@ struct DevTestsetsConfig {
     cache_dir: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// How a curated set was selected.
+///
+/// Two shapes exist: the diversity policy that spreads across subcategories,
+/// and the clustering-eval policy that balances a few of them. Every field is
+/// optional so one reader handles both, and older manifests keep loading.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SamplingPolicy {
+    #[serde(default)]
     pub top_n_per_category: u32,
+    #[serde(default)]
     pub bottom_n_per_category: u32,
+    #[serde(default)]
     pub random_n_per_category: u32,
+    #[serde(default)]
     pub random_seed: u64,
+    #[serde(default)]
     pub per_subcategory_cap: u32,
+    /// Clustering-eval policy: how many reference labels the set covers.
+    #[serde(default)]
+    pub subcategories: u32,
+    /// Clustering-eval policy: papers held by each reference label.
+    #[serde(default)]
+    pub papers_per_subcategory: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,5 +331,78 @@ source_splits = ["train"]
     fn builds_materialized_pdf_path() {
         let path = materialized_pdf_path("demo", "arxiv-1234.5678").expect("pdf path");
         assert!(path.ends_with("demo/files/arxiv-1234.5678.pdf"));
+    }
+}
+
+#[cfg(test)]
+mod manifest_shape_tests {
+    use std::io::Write;
+
+    use tempfile::Builder;
+
+    use super::*;
+
+    fn manifest_with_policy(policy: &str) -> CuratedTestSet {
+        // The loader picks its parser from the extension.
+        let mut file = Builder::new()
+            .suffix(".toml")
+            .tempfile()
+            .expect("temp manifest");
+        write!(
+            file,
+            r#"
+id = "example"
+description = "d"
+source_dataset = "s"
+generated_at_ms = 0
+
+[selection_policy]
+{policy}
+
+[[papers]]
+paper_id = "arxiv-1"
+arxiv_id = "1"
+title = "t"
+category = "Computer Science"
+subcategory = "cs.LG"
+citations = 1
+abstract_excerpt = "a"
+selection_bucket = "random"
+paper_url = "u"
+pdf_url = "p"
+"#
+        )
+        .expect("write manifest");
+        load_manifest_from_path(file.path()).expect("manifest should load")
+    }
+
+    #[test]
+    fn the_diversity_policy_shape_loads() {
+        let set = manifest_with_policy(
+            "top_n_per_category = 5\nbottom_n_per_category = 5\nrandom_n_per_category = 5\nrandom_seed = 7\nper_subcategory_cap = 2",
+        );
+
+        assert_eq!(set.selection_policy.per_subcategory_cap, 2);
+        assert_eq!(set.papers.len(), 1);
+    }
+
+    #[test]
+    fn the_clustering_eval_policy_shape_loads() {
+        let set =
+            manifest_with_policy("subcategories = 6\npapers_per_subcategory = 10\nrandom_seed = 7");
+
+        assert_eq!(set.selection_policy.subcategories, 6);
+        assert_eq!(set.selection_policy.papers_per_subcategory, 10);
+        assert_eq!(set.papers[0].subcategory, "cs.LG");
+    }
+
+    #[test]
+    fn the_shipped_curated_manifest_still_loads() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/testsets/scijudgebench-diverse.toml");
+
+        let set = load_manifest_from_path(&path).expect("shipped manifest should load");
+
+        assert_eq!(set.papers.len(), 60);
     }
 }

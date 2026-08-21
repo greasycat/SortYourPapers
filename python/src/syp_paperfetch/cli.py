@@ -5,10 +5,10 @@ from pathlib import Path
 import typer
 
 from .catalog import DatasetSource, load_candidates
-from .curate import build_curated_test_set
+from .curate import build_clustering_eval_set, build_curated_test_set
 from .manifest import load_test_set, save_test_set
 from .materialize import export_test_set, materialize_test_set
-from .models import SamplingPolicy
+from .models import ClusteringEvalPolicy, SamplingPolicy
 
 app = typer.Typer(help="Curate and materialize SciJudgeBench-backed arXiv test sets.")
 
@@ -44,6 +44,40 @@ def build_manifest(
     save_test_set(toml_path, test_set)
     save_test_set(json_path, test_set)
     typer.echo(f"Wrote manifests to {toml_path} and {json_path}")
+
+
+@app.command("build-clustering-eval")
+def build_clustering_eval(
+    output: Path = typer.Option(
+        Path("assets/testsets/clustering-eval.toml"),
+        "--output",
+        help="Base manifest path to write. Writes both .toml and .json artifacts.",
+    ),
+    subcategories: int = typer.Option(6, "--subcategories"),
+    papers_per_subcategory: int = typer.Option(10, "--papers-per-subcategory"),
+    random_seed: int = typer.Option(1_511_510_650, "--random-seed"),
+    repo_id: str = typer.Option("OpenMOSS-Team/SciJudgeBench", "--repo-id"),
+    revision: str = typer.Option("main", "--revision"),
+) -> None:
+    """Build a balanced set for scoring how well papers get grouped."""
+    source = DatasetSource(repo_id=repo_id, revision=revision)
+    candidates = load_candidates(source)
+    test_set = build_clustering_eval_set(
+        candidates,
+        ClusteringEvalPolicy(
+            subcategories=subcategories,
+            papers_per_subcategory=papers_per_subcategory,
+            random_seed=random_seed,
+        ),
+    )
+    toml_path, json_path = _artifact_paths(output)
+    save_test_set(toml_path, test_set)
+    save_test_set(json_path, test_set)
+    typer.echo(
+        f"Wrote {len(test_set.papers)} paper(s) across "
+        f"{len({paper.subcategory for paper in test_set.papers})} subcategor(ies) "
+        f"to {toml_path} and {json_path}"
+    )
 
 
 @app.command("materialize")
