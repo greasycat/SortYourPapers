@@ -24,8 +24,8 @@ pub const DEFAULT_RECURSIVE: bool = false;
 pub const DEFAULT_REBUILD: bool = false;
 pub const DEFAULT_USE_CURRENT_FOLDER_TREE: bool = false;
 pub const DEFAULT_LLM_PROVIDER: LlmProvider = LlmProvider::Gemini;
-pub const DEFAULT_GEMINI_MODEL: &str = "gemini-3-flash-preview";
-pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5-mini";
+pub const DEFAULT_GEMINI_MODEL: &str = "gemini-3.7-flash";
+pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.6-terra";
 pub const DEFAULT_OLLAMA_MODEL: &str = "llama3.1";
 
 /// Chat model used when a provider is selected without naming a model.

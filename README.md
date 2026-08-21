@@ -199,7 +199,7 @@ cargo run -p syp -- extract-text \
 - `-R, --rebuild` default `false`  
 - `-a, --apply` move files instead of running in preview mode  
 - `-P, --llm-provider <openai|ollama|gemini>` default `gemini`  
-- `-m, --llm-model <STRING>` default `gemini-3-flash-preview`  
+- `-m, --llm-model <STRING>` defaults to the provider's model: `gemini-3.7-flash`, `gpt-5.6-terra`, or `llama3.1`  
 - `-u, --llm-base-url <URL>` optional  
 - `-k, --api-key <STRING>` optional
 - `--keyword-batch-size <usize>` default `20` (keyword extraction batch size)

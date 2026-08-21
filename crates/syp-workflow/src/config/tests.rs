@@ -194,7 +194,7 @@ fn defaults_to_gemini_when_no_sources_provide_values() {
     .expect("config");
 
     assert_eq!(cfg.llm_provider, LlmProvider::Gemini);
-    assert_eq!(cfg.llm_model, "gemini-3-flash-preview");
+    assert_eq!(cfg.llm_model, "gemini-3.7-flash");
     assert_eq!(cfg.taxonomy_assistance, TaxonomyAssistance::LlmOnly);
     assert_eq!(
         cfg.reference_manifest_path,
@@ -233,7 +233,7 @@ fn init_writes_default_config() {
     assert!(raw.contains("max_file_size_mb = 16"));
     assert!(raw.contains("pdf_extract_workers = 8"));
     assert!(raw.contains("llm_provider = \"gemini\""));
-    assert!(raw.contains("llm_model = \"gemini-3-flash-preview\""));
+    assert!(raw.contains("llm_model = \"gemini-3.7-flash\""));
 }
 
 #[test]
@@ -427,8 +427,8 @@ llm_model = "folder-model"
 #[test]
 fn model_default_follows_the_resolved_provider() {
     for (provider, expected) in [
-        (LlmProvider::Gemini, "gemini-3-flash-preview"),
-        (LlmProvider::Openai, "gpt-5-mini"),
+        (LlmProvider::Gemini, "gemini-3.7-flash"),
+        (LlmProvider::Openai, "gpt-5.6-terra"),
         (LlmProvider::Ollama, "llama3.1"),
     ] {
         let config = resolve_from_sources(

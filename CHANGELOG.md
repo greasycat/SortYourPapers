@@ -1,3 +1,4 @@
+- Update the default chat models to `gemini-3.7-flash` for Gemini and `gpt-5.6-terra` for OpenAI, including the generated config template and the OpenAI live-test fallback.
 - Default the chat model from the resolved provider instead of always falling back to the Gemini model, so `--llm-provider ollama` or `openai` with no model no longer sends `gemini-3-flash-preview` to the wrong API; `DEFAULT_LLM_MODEL` is replaced by per-provider constants and `default_llm_model(provider)`.
 - Carry the new provider's default model into the TUI run form when cycling the provider field, leaving a model the user typed untouched.
 - Prompt for watch folder settings in `syp watch init` when it runs in a terminal, using `cliclack` for the library folder, scan depth, model backend, model, and API key environment variable; piped or CI runs skip the questions and write the defaults, and rerunning in a terminal offers to overwrite instead of failing after the questions are answered.

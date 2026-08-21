@@ -771,7 +771,7 @@ mod tests {
     async fn live_openai_taxonomy_request_returns_non_empty_categories() {
         let api_key =
             env::var("SYP_API_KEY").expect("set SYP_API_KEY to run the live OpenAI adapter test");
-        let model = env::var("SYP_LLM_MODEL").unwrap_or_else(|_| "gpt-5-mini".to_string());
+        let model = env::var("SYP_LLM_MODEL").unwrap_or_else(|_| "gpt-5.6-terra".to_string());
         let base_url = env::var("SYP_LLM_BASE_URL").ok();
 
         let client = OpenAiClient::new(model, base_url, Some(api_key));
