@@ -1,5 +1,5 @@
 mod cleanup;
-mod impact;
+pub(crate) mod impact;
 mod init;
 mod list;
 mod rerun;

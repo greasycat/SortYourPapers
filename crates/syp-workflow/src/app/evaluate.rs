@@ -8,7 +8,8 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use syp_library::{
-    eval::{ClusterAssignment, ClusteringMetrics, score},
+    eval::{CalibrationReport, ClusterAssignment, ClusteringMetrics, calibrate, score},
+    papers::placement::PlacementEvidence,
     testsets::load_manifest_from_path,
 };
 
@@ -16,7 +17,7 @@ use crate::{
     defaults::DEFAULT_REFERENCE_MANIFEST_PATH,
     error::{AppError, Result},
     report::RunReport,
-    session::RunWorkspace,
+    session::{PLACEMENT_EVIDENCE_FILE, RunWorkspace},
     terminal::Verbosity,
 };
 
@@ -46,6 +47,8 @@ pub struct RunEvaluation {
     /// Papers in the plan that the manifest does not cover.
     pub unlabelled_papers: usize,
     pub by_label: Vec<(LabelField, ClusteringMetrics)>,
+    /// Placement score spread, when the run recorded one.
+    pub calibration: Option<CalibrationReport>,
 }
 
 impl RunEvaluation {
@@ -60,6 +63,16 @@ impl RunEvaluation {
             lines.push(format!("against {}:", field.name()));
             lines.extend(
                 metrics
+                    .summary_lines()
+                    .into_iter()
+                    .map(|line| format!("  {line}")),
+            );
+        }
+        if let Some(calibration) = &self.calibration {
+            lines.push(String::new());
+            lines.push("placement thresholds:".to_string());
+            lines.extend(
+                calibration
                     .summary_lines()
                     .into_iter()
                     .map(|line| format!("  {line}")),
@@ -164,11 +177,19 @@ pub(crate) fn evaluate_workspace(
         )));
     }
 
+    // Thresholds should follow the scores a run actually saw, so report the
+    // spread next to the quality numbers rather than in a separate tool.
+    let calibration = workspace
+        .load_artifact::<PlacementEvidence>(PLACEMENT_EVIDENCE_FILE)?
+        .as_ref()
+        .and_then(calibrate);
+
     Ok(RunEvaluation {
         run_id: workspace.run_id().to_string(),
         scored_papers,
         unlabelled_papers: unlabelled,
         by_label,
+        calibration,
     })
 }
 
@@ -284,6 +305,9 @@ mod workspace_tests {
 
     /// Builds a run whose plan files real curated papers, then scores it the
     /// way `syp eval` does.
+    ///
+    /// Also covers a run with no placement evidence, where calibration is
+    /// simply absent rather than fabricated.
     #[test]
     fn a_run_that_files_papers_by_field_scores_well_against_the_curated_labels() {
         let temp = tempdir().expect("tempdir");
@@ -321,6 +345,10 @@ mod workspace_tests {
         assert!(
             category.homogeneity > 0.0,
             "filing by field should explain some label structure: {category:?}"
+        );
+        assert!(
+            evaluation.calibration.is_none(),
+            "a run without placement evidence has no thresholds to report"
         );
     }
 

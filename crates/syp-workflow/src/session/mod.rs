@@ -3,6 +3,7 @@ mod output_flow;
 mod runtime;
 pub mod workspace;
 
+pub(crate) use commands::impact::PLACEMENT_EVIDENCE_FILE;
 pub use commands::{
     clear_sessions, init_config, list_sessions, remove_sessions, rerun_run, resume_run,
     review_session,

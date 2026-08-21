@@ -1,3 +1,7 @@
+- Report the placement score and margin spread a run recorded in `syp eval`, along with the gates that would defer the weakest fifth of decisions to the model, so placement thresholds can be set from measured distributions instead of round numbers.
+- Split the reference-retrieval bar from the placement decision gate, and stop a target profiled only by its own folder name from winning a placement on embeddings alone.
+- Group per-paper category labels into concepts before synthesis and batch each synthesis request by subject, replacing exact-string counting and positional chunking of an alphabetical list.
+- Add a balanced `clustering-eval` curated set policy and `syp eval`, which scores a run's folders against arXiv labels with adjusted rand index, v-measure, homogeneity, completeness, and purity.
 - Add an experimental `genai`-backed LLM adapter behind the existing `LlmClient` trait, selected with `SYP_LLM_BACKEND=genai`, covering chat, JSON-schema output, vision, and embeddings for all three providers so the two backends can be compared without touching any call site.
 - Read scanned PDFs that have no text layer by rendering their first pages with `pdftoppm` and asking the configured chat model to describe them, so image-only papers get sorted instead of failing extraction; the run reports how many were read this way, and `PaperText` records which papers came from page images.
 - Add `LlmClient::chat_with_images` with request bodies for Gemini inline data, both OpenAI APIs, and Ollama, so page images reach whichever provider is configured.

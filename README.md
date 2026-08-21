@@ -109,6 +109,18 @@ triggered run is a normal session, so `syp session list` and `syp session
 review` work as usual. Run it under `tmux`, `launchd`, or `systemd --user` to
 keep it alive in the background.
 
+Score a finished run against a curated test set:
+```bash
+cargo run -p syp -- eval --manifest assets/testsets/clustering-eval.toml
+```
+
+`eval` compares the folders a run produced against the reference labels the
+curated set carries, reporting adjusted rand index, v-measure, homogeneity,
+completeness, and purity. Folder names are never compared to label names, so a
+run is scored on grouping alone. It also reports the placement score spread the
+run recorded and the gates that spread implies, so `--placement-min-similarity`
+and `--placement-min-margin` can be set from data rather than guessed.
+
 If a run is interrupted after some stages completed, list saved runs and choose one to resume:
 ```bash
 cargo run -p syp -- session resume
