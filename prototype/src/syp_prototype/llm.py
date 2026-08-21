@@ -35,10 +35,12 @@ class KeywordPair:
 
 
 class LlmClient(Protocol):
-    """Extracts keywords and a preliminary category for a batch of papers."""
+    """Extracts keywords and a preliminary category for a batch of documents."""
 
     async def extract_keywords(
-        self, batch: Sequence[PaperText]
+        self,
+        batch: Sequence[PaperText],
+        existing_categories: Sequence[str] = (),
     ) -> list[KeywordPair]: ...
 
 
@@ -78,13 +80,29 @@ _RESPONSE_SCHEMA = {
 }
 
 
-def build_prompt(batch: Sequence[PaperText]) -> str:
+def build_prompt(
+    batch: Sequence[PaperText], existing_categories: Sequence[str] = ()
+) -> str:
     """Build the user prompt for one batch.
 
     Each document's text is truncated so a large batch cannot blow the context
     window; the per-file share shrinks as the batch grows, exactly as the Rust
     pipeline does it.
     """
+    existing_section = ""
+    existing_rule = ""
+    if existing_categories:
+        # Without this every document invents its own taxonomy, so two utility
+        # bills can land under unrelated top-level branches.
+        existing_rule = (
+            "- Prefer a path from existing_categories when the document "
+            "plausibly belongs under one, matching it exactly; invent a new "
+            "path only when none fits\n"
+        )
+        existing_section = (
+            f"\n\nexisting_categories:\n{json.dumps(list(existing_categories))}"
+        )
+
     per_file_limit = min(
         MAX_TEXT_CHARS_PER_FILE, max(400, MAX_TOTAL_BATCH_TEXT_CHARS // max(len(batch), 1))
     )
@@ -113,8 +131,10 @@ def build_prompt(batch: Sequence[PaperText]) -> str:
         "bills, receipts, and manuals usually have none\n"
         "- `year` is the year the document is dated, as an integer, or null if not shown\n"
         "- Do not guess title, authors, or year; leave them empty when unsure\n"
+        f"{existing_rule}"
         "- No markdown\n\n"
         f"files:\n{json.dumps(files)}"
+        f"{existing_section}"
     )
 
 
@@ -188,7 +208,11 @@ class OpenAiClient:
         self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
 
-    async def extract_keywords(self, batch: Sequence[PaperText]) -> list[KeywordPair]:
+    async def extract_keywords(
+        self,
+        batch: Sequence[PaperText],
+        existing_categories: Sequence[str] = (),
+    ) -> list[KeywordPair]:
         if not batch:
             return []
         try:
@@ -196,7 +220,10 @@ class OpenAiClient:
                 model=self._model,
                 messages=[
                     {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": build_prompt(batch)},
+                    {
+                        "role": "user",
+                        "content": build_prompt(batch, existing_categories),
+                    },
                 ],
                 response_format={
                     "type": "json_schema",

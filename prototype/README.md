@@ -15,7 +15,14 @@ crates.
 `ingest` walks the input folder, skips anything already known or too large,
 pulls text from the first page of each PDF, and sends batches of them to the
 model for keywords, a category, and the title, authors, and year the links are
-named by — all in one request per batch. Batches run four at a time,
+named by — all in one request per batch.
+
+Each request also carries the category paths the library already uses, so a new
+document joins an existing branch instead of inventing a parallel one. Without
+it an electricity bill and a water bill land under unrelated top-level folders;
+with it the second joins the first. Batches within one pass run concurrently and
+cannot see each other's choices, so two new documents arriving together can
+still diverge — arriving one at a time, as under the watcher, they cannot. Batches run four at a time,
 matching the Rust pipeline's ceiling, because the stage is bound by round-trips
 rather than tokens.
 
@@ -45,8 +52,11 @@ are not, so **re-tagging a paper is a rename plus a moved link** — no file is
 ever copied and nothing has to be found again. Tags are sanitized so no tag can
 contain `__`, which keeps the name unambiguous to parse.
 
-Links are named `author_year_title`, cleaned for filesystem safety, falling back
-to the store name when the model could not find all three. They are relative, so
+Links are named from whichever of author, year, and title are known —
+`vaswani_2017_attention-is-all-you-need`, or `vaswani_attention…` when the year
+is missing, or `attention…` when only the title is. A document with neither an
+author nor a title falls back to the store name, since a bare year names
+nothing. They are relative, so
 the whole library can be moved without breaking.
 
 **DuckDB is the source of truth.** Filenames and the tree are projections of it,
@@ -72,6 +82,7 @@ sypy watch  --input ./inbox --mode copy     # keep doing it as documents arrive
 
 sypy list                              # what the library holds
 sypy retag <id> "Systems/Databases"    # re-tag: renames the file, moves the link
+sypy remove <id>                       # delete link, file, and record (asks first)
 sypy tree                              # rebuild the symlink tree from the database
 
 ./prototype/scripts/sypy-path unwire   # remove the link
@@ -136,7 +147,7 @@ and the correct spelling wins when both are set.
 - A preview run still creates an empty `papers.duckdb`, though it writes no rows.
 - Preview and apply are separate model calls, so the categories a preview shows
   are not always the ones a later run produces.
-- Link naming needs title, authors, *and* year; a document missing only the year
-  falls back to the opaque store name.
-- There is no way to remove a document from the library short of editing the
-  database by hand.
+- `remove` deletes the stored file, which is the only copy when the document
+  arrived by move. There is no unfile-but-keep option.
+- Category steering sends at most 200 existing paths; a larger library sends its
+  alphabetically first.

@@ -234,3 +234,62 @@ async def test_move_mode_works_across_filesystems(
 
     assert calls, "move mode must go through shutil.move, not os.replace"
     assert report.filed[0].store_path.is_file()
+
+
+async def test_a_new_document_is_shown_the_categories_already_in_use(
+    settings: Settings, library: Library
+) -> None:
+    # Without this each document invents its own taxonomy and related documents
+    # land under unrelated top-level branches.
+    write_pdf(settings.input_dir / "first.pdf", "one")
+    await ingest_folder(
+        settings,
+        FakeLlmClient(category="Medicine/Radiology"),
+        library,
+        mode=FilingMode.COPY,
+    )
+
+    write_pdf(settings.input_dir / "second.pdf", "two")
+    client = FakeLlmClient(category="Medicine/Radiology")
+    await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert client.seen_categories == [["Medicine/Radiology"]]
+
+
+async def test_the_first_document_into_an_empty_library_is_steered_by_nothing(
+    settings: Settings, library: Library
+) -> None:
+    write_pdf(settings.input_dir / "a.pdf", "one")
+    client = FakeLlmClient()
+
+    await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert client.seen_categories == [[]]
+
+
+async def test_steering_is_read_once_so_concurrent_batches_see_the_same_library(
+    settings: Settings, library: Library
+) -> None:
+    # Batches run concurrently and cannot inform each other; every batch in a
+    # pass is steered by the library as it stood when the pass began.
+    await ingest_folder(
+        settings,
+        FakeLlmClient(category="Medicine/Radiology"),
+        library,
+        mode=FilingMode.COPY,
+    )
+    write_pdf(settings.input_dir / "seed.pdf", "seed")
+    await ingest_folder(
+        settings,
+        FakeLlmClient(category="Medicine/Radiology"),
+        library,
+        mode=FilingMode.COPY,
+    )
+
+    for index in range(4):
+        write_pdf(settings.input_dir / f"n{index}.pdf", f"doc {index}")
+    client = FakeLlmClient(category="Finance/Bills")
+    await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert len(client.seen_categories) == 2, "batch size 2 over 4 documents"
+    assert all(seen == ["Medicine/Radiology"] for seen in client.seen_categories)

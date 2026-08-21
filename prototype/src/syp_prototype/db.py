@@ -208,6 +208,36 @@ class PaperDb:
     def count(self) -> int:
         return self._conn.execute("SELECT count(*) FROM papers").fetchone()[0]
 
+    def tag_paths(self, limit: int | None = None) -> list[str]:
+        """Every distinct category path the library already uses, as `A/B/C`.
+
+        This is what a new document is shown so it can join an existing branch
+        instead of inventing a parallel one.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT string_agg(tag, '/' ORDER BY position) AS path
+            FROM paper_tags
+            GROUP BY file_id
+            """
+        ).fetchall()
+        paths = sorted({path for (path,) in rows if path})
+        return paths[:limit] if limit else paths
+
+    def delete(self, file_id: str) -> None:
+        """Forget a document entirely."""
+        with self._transaction():
+            for table in (
+                "paper_tags",
+                "paper_authors",
+                "paper_keywords",
+                "paper_attributes",
+                "papers",
+            ):
+                self._conn.execute(
+                    f"DELETE FROM {table} WHERE file_id = ?", [file_id]  # noqa: S608
+                )
+
     def attributes(self, file_id: str) -> dict[str, str | None]:
         rows = self._conn.execute(
             "SELECT key, value FROM paper_attributes WHERE file_id = ? ORDER BY key",

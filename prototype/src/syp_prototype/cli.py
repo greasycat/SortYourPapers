@@ -127,6 +127,31 @@ def retag(
         typer.echo(f"{paper.store_name}  [{' / '.join(paper.tags)}]")
 
 
+@app.command()
+def remove(
+    file_id: str = typer.Argument(..., help="Document id, the part before the first __."),
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation."),
+) -> None:
+    """Delete a document from the library: its link, its file, and its record."""
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        paper = library.db.get(file_id)
+        if paper is None:
+            typer.echo(f"error: no document with id {file_id}", err=True)
+            raise typer.Exit(code=1)
+
+        label = paper.title or paper.original_name or paper.store_name
+        if not yes:
+            typer.echo(f"{paper.store_name}\n  {label}")
+            # The stored file is the only copy when it arrived by move, so this
+            # is not undoable.
+            typer.confirm("permanently delete this document?", abort=True)
+
+        library.remove(file_id)
+        typer.echo(f"removed {file_id}")
+
+
 @app.command("list")
 def list_papers(
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),

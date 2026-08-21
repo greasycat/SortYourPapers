@@ -56,9 +56,9 @@ class _SizeRecordingClient(FakeLlmClient):
         self._path = path
         self.size_when_called: int | None = None
 
-    async def extract_keywords(self, batch):
+    async def extract_keywords(self, batch, existing_categories=()):
         self.size_when_called = self._path.stat().st_size
-        return await super().extract_keywords(batch)
+        return await super().extract_keywords(batch, existing_categories)
 
 
 async def test_a_still_growing_file_is_not_ingested_half_written(

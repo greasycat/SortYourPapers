@@ -104,14 +104,21 @@ def link_name(
 ) -> str:
     """Name for the symlink in the browsable tree.
 
-    `author_year_title` when all three are known, and `fallback` — the store
-    name — when any is missing, so a link is never left unnamed.
+    Built from whichever of author, year, and title are known, joined in that
+    order: `vaswani_2017_attention-is-all-you-need`, `vaswani_attention…` when
+    the year is missing, `attention…` when only the title is.
+
+    A year on its own names nothing a person could recognise, so a document with
+    neither an author nor a title falls back to `fallback` — the store name —
+    rather than being called `2017.pdf`.
     """
     author = _first_author_surname(authors or [])
     slug = _slugify(title or "")[:MAX_TITLE_SLUG_CHARS].strip("-")
-    if not (author and year and slug):
+    if not (author or slug):
         return fallback
-    return f"{author}_{year}_{slug}{suffix}"[:MAX_NAME_CHARS]
+
+    parts = [part for part in (author, str(year) if year else "", slug) if part]
+    return f"{'_'.join(parts)}{suffix}"[:MAX_NAME_CHARS]
 
 
 def disambiguate(name: str, paper_id: str) -> str:

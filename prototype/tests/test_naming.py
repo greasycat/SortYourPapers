@@ -80,14 +80,31 @@ def test_link_name_handles_surname_first_authors_and_accents() -> None:
 
 
 @pytest.mark.parametrize(
-    "authors,year,title",
-    [([], 2017, "A Title"), (["A Author"], None, "A Title"), (["A Author"], 2017, "")],
+    "authors,year,title,expected",
+    [
+        (["Ashish Vaswani"], 2017, "A Title", "vaswani_2017_a-title.pdf"),
+        # A missing piece drops out rather than costing the whole name.
+        (["Ashish Vaswani"], None, "A Title", "vaswani_a-title.pdf"),
+        ([], 2017, "A Title", "2017_a-title.pdf"),
+        ([], None, "A Title", "a-title.pdf"),
+        (["Ashish Vaswani"], 2017, "", "vaswani_2017.pdf"),
+        (["Ashish Vaswani"], None, "", "vaswani.pdf"),
+    ],
 )
-def test_link_name_falls_back_to_the_store_name_when_a_piece_is_missing(
-    authors, year, title
+def test_link_name_uses_whichever_pieces_are_known(
+    authors, year, title, expected
 ) -> None:
     assert (
-        link_name(fallback="abc123__AI.pdf", authors=authors, year=year, title=title)
+        link_name(fallback="abc.pdf", authors=authors, year=year, title=title)
+        == expected
+    )
+
+
+@pytest.mark.parametrize("year", [None, 2017])
+def test_link_name_falls_back_without_an_author_or_a_title(year) -> None:
+    # A bare year names nothing anyone could recognise, so the store name wins.
+    assert (
+        link_name(fallback="abc123__AI.pdf", authors=[], year=year, title="")
         == "abc123__AI.pdf"
     )
 

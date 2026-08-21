@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
-from .config import MAX_CONCURRENT_REQUESTS, Settings
+from .config import MAX_CONCURRENT_REQUESTS, MAX_STEERING_CATEGORIES, Settings
 from .db import Paper
 from .discovery import discover_pdfs, file_id as content_hash_of
 from .extract import ExtractionError, PaperText, extract_paper_text
@@ -63,11 +63,17 @@ async def ingest_folder(
         papers[start : start + settings.keyword_batch_size]
         for start in range(0, len(papers), settings.keyword_batch_size)
     ]
+    # Read once, before any batch runs: every batch in this pass is steered by
+    # the library as it stood at the start. Batches run concurrently, so they
+    # cannot see each other's categories — two new documents in the same pass
+    # can still invent parallel branches. Arriving one at a time, which is the
+    # watcher's case, they cannot.
+    existing = library.existing_categories(limit=MAX_STEERING_CATEGORIES)
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
     async def run_batch(batch: Sequence[PaperText]):
         async with semaphore:
-            return await client.extract_keywords(batch)
+            return await client.extract_keywords(batch, existing)
 
     results = await asyncio.gather(
         *(run_batch(batch) for batch in batches), return_exceptions=True

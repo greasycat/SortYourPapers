@@ -29,6 +29,11 @@ MAX_TEXT_CHARS_PER_FILE = 4_000
 # llm batch layer.
 MAX_CONCURRENT_REQUESTS = 4
 
+# How many existing category paths a new document is shown so it can join a
+# branch rather than invent one. Capped because the whole list rides in every
+# request; a library past this many branches sends its alphabetically first.
+MAX_STEERING_CATEGORIES = 200
+
 
 class ConfigError(RuntimeError):
     """Raised when the resolved configuration cannot be used."""

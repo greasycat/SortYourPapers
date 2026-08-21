@@ -164,3 +164,57 @@ def test_missing_files_are_reported_not_linked(
 
     assert linked == 0
     assert [paper.file_id for paper in library.missing_files()] == [filing.file_id]
+
+
+def test_removing_takes_the_link_the_file_and_the_record(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI", "Transformers"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+
+    removed = library.remove(filing.file_id)
+
+    assert removed.file_id == filing.file_id
+    assert not filing.store_path.exists(), "the stored file should be gone"
+    assert not filing.link_path.exists(), "the link should be gone"
+    assert library.db.get(filing.file_id) is None
+    assert not (library.tree_dir / "AI").exists(), "the emptied branch is pruned"
+
+
+def test_removing_leaves_the_other_documents_alone(
+    library: Library, tmp_path: Path
+) -> None:
+    keep = library.file_paper(
+        _paper(["AI"], title="Kept"), write_pdf(tmp_path / "a" / "raw.pdf", "one")
+    )
+    drop = library.file_paper(
+        _paper(["Systems"], title="Dropped"), write_pdf(tmp_path / "b" / "raw.pdf", "two")
+    )
+
+    library.remove(drop.file_id)
+
+    assert keep.store_path.is_file()
+    assert keep.link_path.is_symlink()
+    assert [p.file_id for p in library.db.all_papers()] == [keep.file_id]
+
+
+def test_removing_an_unknown_document_is_refused(library: Library) -> None:
+    with pytest.raises(LibraryError, match="no document"):
+        library.remove("ffffffffffff")
+
+
+def test_existing_categories_are_the_paths_already_in_use(
+    library: Library, tmp_path: Path
+) -> None:
+    library.file_paper(
+        _paper(["Medicine", "Radiology"]), write_pdf(tmp_path / "a" / "r.pdf", "one")
+    )
+    library.file_paper(
+        _paper(["Medicine", "Radiology"]), write_pdf(tmp_path / "b" / "r.pdf", "two")
+    )
+    library.file_paper(
+        _paper(["Finance", "Bills"]), write_pdf(tmp_path / "c" / "r.pdf", "three")
+    )
+
+    assert library.existing_categories() == ["Finance/Bills", "Medicine/Radiology"]

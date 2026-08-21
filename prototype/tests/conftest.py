@@ -27,9 +27,13 @@ class FakeLlmClient:
         self.authors = ["Ashish Vaswani"] if authors is None else authors
         self.year = year
         self.batches: list[list[str]] = []
+        self.seen_categories: list[list[str]] = []
 
-    async def extract_keywords(self, batch: Sequence[PaperText]) -> list[KeywordPair]:
+    async def extract_keywords(
+        self, batch: Sequence[PaperText], existing_categories: Sequence[str] = ()
+    ) -> list[KeywordPair]:
         self.batches.append([paper.file_id for paper in batch])
+        self.seen_categories.append(list(existing_categories))
         return [
             KeywordPair(
                 file_id=paper.file_id,
@@ -50,7 +54,9 @@ class FailingLlmClient:
         self.message = message
         self.calls = 0
 
-    async def extract_keywords(self, batch: Sequence[PaperText]) -> list[KeywordPair]:
+    async def extract_keywords(
+        self, batch: Sequence[PaperText], existing_categories: Sequence[str] = ()
+    ) -> list[KeywordPair]:
         self.calls += 1
         raise LlmError(self.message)
 

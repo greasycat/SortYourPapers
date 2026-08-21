@@ -151,6 +151,30 @@ class Library:
         self._link(updated)
         return updated
 
+    def remove(self, file_id: str) -> Paper:
+        """Take a document out of the library: link, stored file, and rows.
+
+        The link goes first and the rows last, so an interruption leaves the
+        library holding less than it claims rather than claiming more than it
+        holds. A stale row pointing at a deleted file is the harder state to
+        notice.
+
+        Raises:
+            LibraryError: if the document is unknown.
+        """
+        paper = self.db.get(file_id)
+        if paper is None:
+            raise LibraryError(f"no document with id {file_id}")
+
+        self._unlink_existing(paper)
+        (self.store_dir / paper.store_name).unlink(missing_ok=True)
+        self.db.delete(file_id)
+        return paper
+
+    def existing_categories(self, limit: int | None = None) -> list[str]:
+        """Category paths already in use, for steering a new document."""
+        return self.db.tag_paths(limit=limit)
+
     def rebuild_tree(self) -> int:
         """Rebuild every symlink from the database, discarding the old tree.
 
