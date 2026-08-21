@@ -1,3 +1,4 @@
+- Add an experimental `genai`-backed LLM adapter behind the existing `LlmClient` trait, selected with `SYP_LLM_BACKEND=genai`, covering chat, JSON-schema output, vision, and embeddings for all three providers so the two backends can be compared without touching any call site.
 - Read scanned PDFs that have no text layer by rendering their first pages with `pdftoppm` and asking the configured chat model to describe them, so image-only papers get sorted instead of failing extraction; the run reports how many were read this way, and `PaperText` records which papers came from page images.
 - Add `LlmClient::chat_with_images` with request bodies for Gemini inline data, both OpenAI APIs, and Ollama, so page images reach whichever provider is configured.
 - Distinguish "this PDF has no text layer" from "this PDF could not be read" in the extractors, which previously reported both as the same extraction failure.

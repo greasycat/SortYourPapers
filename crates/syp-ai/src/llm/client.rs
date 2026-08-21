@@ -99,7 +99,29 @@ pub trait LlmClient: Send + Sync {
     }
 }
 
+/// Whether the experimental `genai`-backed adapter is selected.
+///
+/// Reading it here keeps the choice in one place while the two backends are
+/// being compared; it is not part of the persisted config.
+#[must_use]
+pub fn genai_backend_selected() -> bool {
+    std::env::var(providers::genai_backend::BACKEND_ENV).is_ok_and(|value| {
+        value
+            .trim()
+            .eq_ignore_ascii_case(providers::genai_backend::BACKEND_NAME)
+    })
+}
+
 pub fn build_client(config: &ChatConfig) -> Result<Box<dyn LlmClient>> {
+    if genai_backend_selected() {
+        return Ok(Box::new(providers::genai_backend::GenaiClient::new(
+            config.provider,
+            config.model.clone(),
+            config.base_url.clone(),
+            config.api_key.clone(),
+        )));
+    }
+
     Ok(match config.provider {
         LlmProvider::Openai => Box::new(providers::openai::OpenAiClient::new(
             config.model.clone(),

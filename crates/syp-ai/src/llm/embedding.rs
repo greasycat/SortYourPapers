@@ -72,6 +72,15 @@ pub trait EmbeddingClient: Send + Sync {
 }
 
 pub fn build_embedding_client(config: &EmbeddingConfig) -> Result<Box<dyn EmbeddingClient>> {
+    if super::client::genai_backend_selected() {
+        return Ok(Box::new(providers::genai_backend::GenaiClient::new(
+            config.provider,
+            config.model.clone(),
+            config.base_url.clone(),
+            config.api_key.clone(),
+        )));
+    }
+
     Ok(match config.provider {
         LlmProvider::Openai => Box::new(providers::openai::OpenAiClient::new(
             config.model.clone(),
