@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+#
+# Run the watcher as a background service via launchd.
+#
+#   ./prototype/scripts/sypy-service install [watched-folder] [library-folder]
+#   ./prototype/scripts/sypy-service status
+#   ./prototype/scripts/sypy-service logs
+#   ./prototype/scripts/sypy-service uninstall
+#
+# Defaults to watching ~/Downloads in copy mode, so the watched folder is
+# indexed but never rearranged. Override the mode with SYPY_MODE=move.
+set -euo pipefail
+
+LABEL="com.sortyourpapers.sypy"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_DIR="${SYPY_VENV_DIR:-$PROJECT_DIR/.venv}"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+LOG_DIR="${SYPY_LOG_DIR:-$HOME/Library/Logs/sypy}"
+LOG_FILE="$LOG_DIR/sypy.log"
+MODE="${SYPY_MODE:-copy}"
+DOMAIN="gui/$(id -u)"
+
+die() { printf 'error: %s\n' "$1" >&2; exit 1; }
+note() { printf '%s\n' "$1"; }
+
+is_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+
+install_service() {
+  local watched="${1:-$HOME/Downloads}"
+  local library="${2:-$HOME/Documents/sypy-library}"
+
+  [ -x "$VENV_DIR/bin/sypy" ] || die "sypy is not installed; run scripts/sypy-path wire first"
+  [ -d "$watched" ] || die "watched folder does not exist: $watched"
+  case "$MODE" in
+    copy|move) ;;
+    *) die "SYPY_MODE must be copy or move, got '$MODE'" ;;
+  esac
+
+  # Reinstalling should replace cleanly rather than fail on the existing job.
+  if is_loaded; then
+    note "replacing the running service"
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+  fi
+
+  mkdir -p "$LOG_DIR" "$library" "$(dirname "$PLIST")"
+
+  cat > "$PLIST" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$VENV_DIR/bin/sypy</string>
+        <string>watch</string>
+        <string>--input</string><string>$watched</string>
+        <string>--library</string><string>$library</string>
+        <string>--mode</string><string>$MODE</string>
+    </array>
+    <key>WorkingDirectory</key><string>$PROJECT_DIR</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ProcessType</key><string>Background</string>
+    <key>StandardOutPath</key><string>$LOG_FILE</string>
+    <key>StandardErrorPath</key><string>$LOG_FILE</string>
+</dict>
+</plist>
+PLIST_EOF
+
+  launchctl bootstrap "$DOMAIN" "$PLIST" || die "launchctl bootstrap failed"
+  note "installed $LABEL"
+  note "  watching : $watched"
+  note "  library  : $library"
+  note "  mode     : $MODE"
+  note "  logs     : $LOG_FILE"
+}
+
+uninstall_service() {
+  if is_loaded; then
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+    note "stopped $LABEL"
+  else
+    note "$LABEL was not running"
+  fi
+  if [ -f "$PLIST" ]; then
+    rm -f "$PLIST"
+    note "removed $PLIST"
+  fi
+  note "the library and its logs are left in place"
+}
+
+case "${1:-}" in
+  install) shift; install_service "$@" ;;
+  uninstall) uninstall_service ;;
+  status)
+    if is_loaded; then
+      launchctl print "$DOMAIN/$LABEL" | grep -E "^\s+(state|pid|last exit code) " || true
+    else
+      note "$LABEL is not loaded"
+    fi
+    ;;
+  logs) [ -f "$LOG_FILE" ] && tail -n "${2:-40}" "$LOG_FILE" || note "no log at $LOG_FILE" ;;
+  *)
+    printf 'usage: %s {install [watched] [library]|uninstall|status|logs [n]}\n' \
+      "$(basename "$0")" >&2
+    printf '\n  defaults: watch ~/Downloads -> ~/Documents/sypy-library, mode=%s\n' "$MODE" >&2
+    printf '  override mode with SYPY_MODE=move\n' >&2
+    exit 2
+    ;;
+esac

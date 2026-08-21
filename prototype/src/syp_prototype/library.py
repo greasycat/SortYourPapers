@@ -11,7 +11,9 @@ Links are relative, so the whole library can be moved without breaking.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from .db import Paper, PaperDb
@@ -20,6 +22,22 @@ from .naming import disambiguate, link_name, store_name
 STORE_DIR = "store"
 TREE_DIR = "tree"
 DB_FILE = "papers.duckdb"
+
+
+class FilingMode(str, Enum):
+    """What filing is allowed to do to the source file.
+
+    `COPY` exists so a real folder someone else owns — a Downloads folder, a
+    shared drive — can be indexed without being rearranged underneath them.
+    """
+
+    PREVIEW = "preview"
+    COPY = "copy"
+    MOVE = "move"
+
+    @property
+    def writes(self) -> bool:
+        return self is not FilingMode.PREVIEW
 
 
 class LibraryError(RuntimeError):
@@ -51,6 +69,10 @@ class Library:
     def close(self) -> None:
         self.db.close()
 
+    def release(self) -> None:
+        """Drop the database lock while idle, so other commands can run."""
+        self.db.release()
+
     def __enter__(self) -> "Library":
         return self
 
@@ -70,19 +92,30 @@ class Library:
             link_path=self._link_path(paper, taken=set()),
         )
 
-    def file_paper(self, paper: Paper, source: Path) -> PlannedFiling:
-        """Move a paper into the store, record it, and link it into the tree.
+    def file_paper(
+        self, paper: Paper, source: Path, mode: FilingMode = FilingMode.MOVE
+    ) -> PlannedFiling:
+        """Put a paper into the store, record it, and link it into the tree.
 
-        The move happens before the database write, so a crash leaves a file in
+        The file lands before the database write, so a crash leaves a file in
         the store with no row rather than a row pointing at nothing. The first
         is repairable by re-ingesting; the second is a dangling reference.
+
+        `shutil` rather than `os.replace` because the source folder is often on
+        a different filesystem than the library, which `os.replace` refuses.
         """
+        if mode is FilingMode.PREVIEW:
+            raise LibraryError("file_paper called in preview mode")
+
         target = self.store_dir / paper.store_name
         self.store_dir.mkdir(parents=True, exist_ok=True)
         if target.exists():
             raise LibraryError(f"store already holds {target.name}")
 
-        os.replace(source, target)
+        if mode is FilingMode.COPY:
+            shutil.copy2(source, target)
+        else:
+            shutil.move(str(source), str(target))
         self.db.upsert(paper)
         link = self._link(paper)
         return PlannedFiling(

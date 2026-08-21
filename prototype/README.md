@@ -1,7 +1,10 @@
 # Python Prototype
 
 A Python prototype of the front half of the pipeline: read a folder of PDFs,
-label each one with an LLM, and keep doing it as new papers arrive.
+label each one with an LLM, and keep doing it as new documents arrive.
+
+Documents are not assumed to be academic papers. Bills, receipts, and manuals
+are categorized on their own terms.
 
 This is deliberately **not** the whole product. It covers ingest and the
 watcher. Taxonomy synthesis, placement, and moving files stay in the Rust
@@ -62,9 +65,10 @@ Put `sypy` on PATH, then use it from anywhere:
 ```bash
 ./prototype/scripts/sypy-path wire     # install and link
 
-sypy ingest --input ./inbox            # preview: shows where each paper would land
-sypy ingest --input ./inbox --apply    # actually file them
-sypy watch  --input ./inbox --apply    # keep doing it as papers arrive
+sypy ingest --input ./inbox                 # preview: nothing is written
+sypy ingest --input ./inbox --mode copy     # copy in, leave the source alone
+sypy ingest --input ./inbox --mode move     # move in, draining the source
+sypy watch  --input ./inbox --mode copy     # keep doing it as documents arrive
 
 sypy list                              # what the library holds
 sypy retag <id> "Systems/Databases"    # re-tag: renames the file, moves the link
@@ -73,7 +77,26 @@ sypy tree                              # rebuild the symlink tree from the datab
 ./prototype/scripts/sypy-path unwire   # remove the link
 ```
 
-Nothing is moved without `--apply`. Re-run `wire` after changing dependencies.
+Nothing is written without `--mode`. Use `copy` for a folder you did not create
+— a Downloads folder keeps its files and the library gets copies. Re-run `wire`
+after changing dependencies.
+
+## Running it as a service
+
+```bash
+./prototype/scripts/sypy-service install ~/Downloads ~/Documents/sypy-library
+./prototype/scripts/sypy-service status
+./prototype/scripts/sypy-service logs
+./prototype/scripts/sypy-service uninstall
+```
+
+Installs a launchd agent that watches in copy mode, so the watched folder is
+indexed but never rearranged. `SYPY_MODE=move` overrides that. Logs go to
+`~/Library/Logs/sypy/sypy.log`.
+
+The watcher drops its database lock whenever it is idle, so `sypy list`, `tree`,
+and `retag` all work while the service is running. DuckDB locks per process, so
+without that a running service would block every other command.
 
 `wire` builds a virtualenv at `prototype/.venv`, installs the package into it in
 editable mode so source edits take effect without reinstalling, and symlinks
@@ -111,3 +134,9 @@ and the correct spelling wins when both are set.
 - No resumable run state beyond the database: an interrupted pass keeps the
   papers it filed and redoes the batch it was in the middle of.
 - A preview run still creates an empty `papers.duckdb`, though it writes no rows.
+- Preview and apply are separate model calls, so the categories a preview shows
+  are not always the ones a later run produces.
+- Link naming needs title, authors, *and* year; a document missing only the year
+  falls back to the opaque store name.
+- There is no way to remove a document from the library short of editing the
+  database by hand.

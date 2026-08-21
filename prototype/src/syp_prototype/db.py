@@ -101,11 +101,33 @@ class PaperDb:
     def __init__(self, path: Path) -> None:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = duckdb.connect(str(path))
-        self._migrate()
+        self._connection: duckdb.DuckDBPyConnection | None = None
+
+    @property
+    def _conn(self) -> duckdb.DuckDBPyConnection:
+        """The connection, opened on first use.
+
+        DuckDB takes an exclusive lock on the file, so a long-running watcher
+        that held one open would block every other `sypy` command for as long as
+        it ran. Connecting lazily lets an idle watcher drop the lock — see
+        `release` — and pick it up again for the next pass.
+        """
+        if self._connection is None:
+            self._connection = duckdb.connect(str(self.path))
+            self._migrate()
+        return self._connection
+
+    def release(self) -> None:
+        """Drop the connection, and the file lock with it.
+
+        Safe to call at any time: the next read or write reconnects.
+        """
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
 
     def close(self) -> None:
-        self._conn.close()
+        self.release()
 
     def __enter__(self) -> "PaperDb":
         return self
@@ -114,7 +136,9 @@ class PaperDb:
         self.close()
 
     def _migrate(self) -> None:
-        self._conn.execute(
+        conn = self._connection
+        assert conn is not None  # only called from the connection property
+        conn.execute(
             """
             CREATE TABLE IF NOT EXISTS schema_version (
                 name        TEXT PRIMARY KEY,
@@ -123,20 +147,20 @@ class PaperDb:
             """
         )
         applied = {
-            row[0] for row in self._conn.execute("SELECT name FROM schema_version").fetchall()
+            row[0] for row in conn.execute("SELECT name FROM schema_version").fetchall()
         }
         for name, sql in _MIGRATIONS:
             if name in applied:
                 continue
-            self._conn.execute("BEGIN")
+            conn.execute("BEGIN")
             try:
-                self._conn.execute(sql)
-                self._conn.execute(
+                conn.execute(sql)
+                conn.execute(
                     "INSERT INTO schema_version VALUES (?, ?)", [name, now_ms()]
                 )
-                self._conn.execute("COMMIT")
+                conn.execute("COMMIT")
             except Exception:
-                self._conn.execute("ROLLBACK")
+                conn.execute("ROLLBACK")
                 raise
 
     @contextmanager

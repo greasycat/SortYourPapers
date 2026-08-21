@@ -22,7 +22,7 @@ from .config import MAX_CONCURRENT_REQUESTS, Settings
 from .db import Paper
 from .discovery import discover_pdfs, file_id as content_hash_of
 from .extract import ExtractionError, PaperText, extract_paper_text
-from .library import Library, LibraryError, PlannedFiling
+from .library import FilingMode, Library, LibraryError, PlannedFiling
 from .llm import KeywordPair, LlmClient, LlmError
 from .naming import new_paper_id, split_category, store_name
 
@@ -49,9 +49,9 @@ async def ingest_folder(
     client: LlmClient,
     library: Library,
     *,
-    apply: bool = False,
+    mode: FilingMode = FilingMode.PREVIEW,
 ) -> IngestReport:
-    """Ingest every not-yet-known PDF in the input folder."""
+    """Ingest every not-yet-known document in the input folder."""
     report = IngestReport()
     prepared = _prepare_papers(settings, library, report)
     if not prepared:
@@ -87,7 +87,7 @@ async def ingest_folder(
                 paper_text,
                 pair,
                 hashes[paper_text.file_id],
-                apply=apply,
+                mode=mode,
             )
 
     return report
@@ -100,7 +100,7 @@ def _record(
     pair: KeywordPair,
     content_hash: str,
     *,
-    apply: bool,
+    mode: FilingMode,
 ) -> None:
     """Turn one model answer into a library row and a filed file."""
     tags = split_category(pair.preliminary_category)
@@ -122,12 +122,12 @@ def _record(
         paper.file_id, tags, suffix=paper_text.path.suffix or ".pdf"
     )
 
-    if not apply:
+    if not mode.writes:
         report.planned.append(library.plan_filing(paper, paper_text.path))
         return
 
     try:
-        report.filed.append(library.file_paper(paper, paper_text.path))
+        report.filed.append(library.file_paper(paper, paper_text.path, mode))
     except (LibraryError, OSError) as err:
         report.failed.append((paper_text.path, str(err)))
 

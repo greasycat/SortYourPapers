@@ -10,7 +10,7 @@ import typer
 
 from .config import ConfigError, resolve_api_key, resolve_settings
 from .ingest import ingest_folder
-from .library import Library
+from .library import FilingMode, Library
 from .llm import OpenAiClient
 from .naming import split_category
 from .watch import watch as watch_loop
@@ -34,20 +34,22 @@ def ingest(
     page_cutoff: int = typer.Option(None, "--page-cutoff", "-p"),
     batch_size: int = typer.Option(None, "--batch-size"),
     model: str = typer.Option(None, "--model", "-m"),
-    apply: bool = typer.Option(
-        False, "--apply", "-a", help="Actually move files. Without it, preview only."
+    mode: FilingMode = typer.Option(
+        FilingMode.PREVIEW.value,
+        "--mode",
+        help="preview (default), copy to leave the source in place, or move.",
     ),
 ) -> None:
-    """Read every not-yet-known PDF and file it into the library."""
+    """Read every not-yet-known document and file it into the library."""
     settings, client = _build(
         input_dir, library_dir, recursive, page_cutoff, batch_size, model
     )
     with Library(settings.output_dir) as library:
-        report = asyncio.run(ingest_folder(settings, client, library, apply=apply))
+        report = asyncio.run(ingest_folder(settings, client, library, mode=mode))
 
-        verb = "filed" if apply else "would file"
+        verb = "filed" if mode.writes else "would file"
         typer.echo(
-            f"{verb} {report.processed} paper(s); "
+            f"{verb} {report.processed} document(s); "
             f"{report.skipped_already_known} already known; "
             f"{len(report.skipped_oversized)} oversized; {len(report.failed)} failed"
         )
@@ -55,8 +57,8 @@ def ingest(
             typer.echo(f"  {filing.describe()}")
         for path, reason in report.failed:
             typer.echo(f"  ! {path.name}: {reason}", err=True)
-        if not apply and report.planned:
-            typer.echo("\nnothing was moved; re-run with --apply")
+        if not mode.writes and report.planned:
+            typer.echo("\nnothing was written; re-run with --mode copy or --mode move")
 
     if report.failed:
         raise typer.Exit(code=1)
@@ -70,17 +72,19 @@ def watch(
     page_cutoff: int = typer.Option(None, "--page-cutoff", "-p"),
     batch_size: int = typer.Option(None, "--batch-size"),
     model: str = typer.Option(None, "--model", "-m"),
-    apply: bool = typer.Option(
-        False, "--apply", "-a", help="Actually move files. Without it, preview only."
+    mode: FilingMode = typer.Option(
+        FilingMode.PREVIEW.value,
+        "--mode",
+        help="preview (default), copy to leave the source in place, or move.",
     ),
 ) -> None:
-    """File new PDFs into the library whenever they settle in the input folder."""
+    """File new documents into the library whenever they settle in the input folder."""
     settings, client = _build(
         input_dir, library_dir, recursive, page_cutoff, batch_size, model
     )
     try:
         with Library(settings.output_dir) as library:
-            asyncio.run(watch_loop(settings, client, library, apply=apply))
+            asyncio.run(watch_loop(settings, client, library, mode=mode))
     except KeyboardInterrupt:
         typer.echo("stopped")
 
@@ -93,7 +97,7 @@ def tree(
     settings = _settings(None, library_dir)
     with Library(settings.output_dir) as library:
         linked = library.rebuild_tree()
-        typer.echo(f"linked {linked} paper(s) under {library.tree_dir}")
+        typer.echo(f"linked {linked} document(s) under {library.tree_dir}")
         for paper in library.missing_files():
             typer.echo(
                 f"  ! {paper.file_id}: {paper.store_name} is missing from the store",
@@ -103,11 +107,11 @@ def tree(
 
 @app.command()
 def retag(
-    file_id: str = typer.Argument(..., help="Paper id, the part before the first __."),
+    file_id: str = typer.Argument(..., help="Document id, the part before the first __."),
     category: str = typer.Argument(..., help="New category path, e.g. 'AI/Transformers'."),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
 ) -> None:
-    """Give a paper new tags, renaming its file and moving its link."""
+    """Give a document new tags, renaming its file and moving its link."""
     settings = _settings(None, library_dir)
     tags = split_category(category)
     if not tags:
@@ -134,7 +138,7 @@ def list_papers(
         for paper in papers:
             tags = " / ".join(paper.tags) or "-"
             typer.echo(f"{paper.file_id}  {tags:<40}  {paper.title or paper.original_name}")
-        typer.echo(f"\n{len(papers)} paper(s) in {library.root}")
+        typer.echo(f"\n{len(papers)} document(s) in {library.root}")
 
 
 def _settings(input_dir: Path | None, library_dir: Path | None):

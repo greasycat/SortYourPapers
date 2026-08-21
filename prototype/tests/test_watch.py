@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,7 @@ from conftest import FailingLlmClient, FakeLlmClient, write_pdf
 
 import syp_prototype.watch as watch_module
 from syp_prototype.config import Settings
-from syp_prototype.library import Library
+from syp_prototype.library import FilingMode, Library
 from syp_prototype.watch import watch
 
 
@@ -24,7 +25,7 @@ async def test_ingests_what_is_already_waiting(settings: Settings, library: Libr
     client = FakeLlmClient()
 
     reports = await asyncio.wait_for(
-        watch(settings, client, library, apply=True, max_passes=1), timeout=10
+        watch(settings, client, library, mode=FilingMode.MOVE, max_passes=1), timeout=10
     )
 
     assert reports[0].processed == 1
@@ -39,7 +40,7 @@ async def test_a_pdf_arriving_later_triggers_a_pass(settings: Settings, library:
 
     reports, _ = await asyncio.wait_for(
         asyncio.gather(
-            watch(settings, client, library, apply=True, max_passes=1), drop_a_paper_in()
+            watch(settings, client, library, mode=FilingMode.MOVE, max_passes=1), drop_a_paper_in()
         ),
         timeout=10,
     )
@@ -75,7 +76,7 @@ async def test_a_still_growing_file_is_not_ingested_half_written(
 
     await asyncio.wait_for(
         asyncio.gather(
-            watch(settings, client, library, apply=False, max_passes=1), keep_writing()
+            watch(settings, client, library, mode=FilingMode.PREVIEW, max_passes=1), keep_writing()
         ),
         timeout=10,
     )
@@ -95,7 +96,7 @@ async def test_unchanged_input_is_not_retried_after_a_failure(
     # Two passes are requested but the input never changes, so the watcher must
     # idle after the first rather than burning calls on the same failure.
     with pytest.raises(asyncio.TimeoutError):
-        await asyncio.wait_for(watch(settings, client, library, apply=True, max_passes=2), timeout=1.0)
+        await asyncio.wait_for(watch(settings, client, library, mode=FilingMode.MOVE, max_passes=2), timeout=1.0)
 
     assert client.calls == 1
 
@@ -110,7 +111,7 @@ async def test_a_failed_pass_does_not_stop_the_watcher(settings: Settings, libra
 
     _, _ = await asyncio.wait_for(
         asyncio.gather(
-            watch(settings, client, library, apply=True, max_passes=2), drop_a_second_paper_in()
+            watch(settings, client, library, mode=FilingMode.MOVE, max_passes=2), drop_a_second_paper_in()
         ),
         timeout=10,
     )
@@ -128,3 +129,52 @@ async def test_a_missing_input_folder_is_refused_up_front(
 
     with pytest.raises(NotADirectoryError):
         await watch(settings, FakeLlmClient(), library, max_passes=1)
+
+
+async def test_an_idle_watcher_does_not_hold_the_database_lock(
+    settings: Settings, library: Library
+) -> None:
+    """A background service must not lock every other command out.
+
+    DuckDB's lock is held per process, so this probes from a real subprocess: a
+    second connection inside this one would succeed either way and prove
+    nothing. The watcher is left running rather than bounded by max_passes,
+    because the lock is only dropped on the idle path.
+    """
+    import subprocess
+    import sys
+
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    watcher = asyncio.create_task(
+        watch(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+    )
+    try:
+        # Long enough for the first pass to finish and the watcher to settle
+        # into its wait, which is where the lock should be dropped.
+        await asyncio.sleep(0.6)
+        assert not watcher.done(), "the watcher should still be running"
+
+        probe = await asyncio.to_thread(
+            subprocess.run,
+            [
+                sys.executable,
+                "-c",
+                "import duckdb;"
+                f"c=duckdb.connect({str(library.db.path)!r});"
+                "print(c.execute('SELECT count(*) FROM papers').fetchone()[0]);"
+                "c.close()",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    finally:
+        watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watcher
+
+    assert probe.returncode == 0, (
+        "another process could not open the library while the watcher idled:\n"
+        f"{probe.stderr}"
+    )
+    assert probe.stdout.strip() == "1", probe.stdout

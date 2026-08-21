@@ -43,7 +43,7 @@ class LlmClient(Protocol):
 
 
 _SYSTEM_PROMPT = (
-    "You read academic papers and label them. Return strict JSON only."
+    "You read documents of any kind and label them. Return strict JSON only."
 )
 
 _RESPONSE_SCHEMA = {
@@ -81,7 +81,7 @@ _RESPONSE_SCHEMA = {
 def build_prompt(batch: Sequence[PaperText]) -> str:
     """Build the user prompt for one batch.
 
-    Each paper's text is truncated so a large batch cannot blow the context
+    Each document's text is truncated so a large batch cannot blow the context
     window; the per-file share shrinks as the batch grows, exactly as the Rust
     pipeline does it.
     """
@@ -103,10 +103,15 @@ def build_prompt(batch: Sequence[PaperText]) -> str:
         "- Keep 5 to 12 keywords for each file\n"
         "- Keywords must be specific nouns or short noun phrases\n"
         "- `preliminary_categories_k_depth` is a plain-text category suggestion "
-        "such as `Machine Learning/Transformers`; approximate is fine\n"
-        "- `title` is the paper\'s title, or \"\" if the text does not show one\n"
-        "- `authors` are full names in the order printed, or [] if none are shown\n"
-        "- `year` is the publication year as an integer, or null if not shown\n"
+        "such as `Machine Learning/Transformers` or `Finance/Utility Bills`; "
+        "approximate is fine\n"
+        "- Documents are not always academic papers. Bills, receipts, manuals, "
+        "contracts, and notes are all expected; categorize each on its own terms "
+        "rather than forcing it into an academic subject\n"
+        "- `title` is the document\'s title, or \"\" if the text does not show one\n"
+        "- `authors` are full names in the order printed, or [] if none are shown; "
+        "bills, receipts, and manuals usually have none\n"
+        "- `year` is the year the document is dated, as an integer, or null if not shown\n"
         "- Do not guess title, authors, or year; leave them empty when unsure\n"
         "- No markdown\n\n"
         f"files:\n{json.dumps(files)}"

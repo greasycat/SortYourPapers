@@ -17,7 +17,7 @@ from watchdog.observers import Observer
 from .config import Settings
 from .discovery import Snapshot, snapshot_input
 from .ingest import IngestReport, ingest_folder
-from .library import Library
+from .library import FilingMode, Library
 from .llm import LlmClient
 
 log = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ async def watch(
     client: LlmClient,
     library: Library,
     *,
-    apply: bool = False,
+    mode: FilingMode = FilingMode.PREVIEW,
     max_passes: int | None = None,
 ) -> list[IngestReport]:
     """Ingest the input folder whenever new PDFs settle in it.
@@ -69,11 +69,11 @@ async def watch(
     wake = asyncio.Event()
     observer = _start_observer(settings, wake)
     log.info(
-        "watching %s -> %s (%d already in the library, %s)",
+        "watching %s -> %s (%d already in the library, mode=%s)",
         settings.input_dir,
         library.root,
         library.db.count(),
-        "apply mode" if apply else "preview only; pass --apply to move files",
+        mode.value,
     )
 
     reports: list[IngestReport] = []
@@ -82,9 +82,13 @@ async def watch(
         while max_passes is None or len(reports) < max_passes:
             pending = _pending(settings, library)
             if not pending or pending == last_run:
+                # Nothing to do, so hold no database lock while waiting or the
+                # other `sypy` commands could never run against this library.
+                library.release()
                 await _wait_for_change(wake)
                 continue
 
+            library.release()
             await asyncio.sleep(SETTLE_SECONDS)
             if _pending(settings, library) != pending:
                 # Still arriving. Re-measure rather than ingesting a partial copy.
@@ -96,15 +100,15 @@ async def watch(
             last_run = pending
 
             try:
-                report = await ingest_folder(settings, client, library, apply=apply)
+                report = await ingest_folder(settings, client, library, mode=mode)
             except Exception as err:  # a bad pass must not kill the watcher
                 log.error("ingest failed: %s; waiting for the next change", err)
                 continue
 
             reports.append(report)
             log.info(
-                "%s %d paper(s), %d already known, %d failed",
-                "filed" if apply else "would file",
+                "%s %d document(s), %d already known, %d failed",
+                "filed" if mode.writes else "would file",
                 report.processed,
                 report.skipped_already_known,
                 len(report.failed),
