@@ -8,7 +8,7 @@ use crate::llm::LlmCallMetrics;
 
 use crate::llm::{
     EmbeddingClient, EmbeddingRequest, EmbeddingResponse, EmbeddingVector, JsonResponseSchema,
-    LlmClient, LlmResponse,
+    LlmClient, LlmResponse, PageImage,
 };
 
 const DEFAULT_BASE_URL: &str = "http://localhost:11434";
@@ -50,6 +50,20 @@ struct ChatRequest {
 struct Message {
     role: String,
     content: String,
+    /// Raw base64 page images; Ollama takes them beside the text, not inside
+    /// it. Only multimodal models accept them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    images: Vec<String>,
+}
+
+impl Message {
+    fn new(role: &str, content: String) -> Self {
+        Self {
+            role: role.to_string(),
+            content,
+            images: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,6 +99,16 @@ impl LlmClient for OllamaClient {
         self.send_chat(system_prompt, user_prompt, None).await
     }
 
+    async fn chat_with_images(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        images: &[PageImage],
+    ) -> Result<LlmResponse> {
+        self.send_chat_messages(system_prompt, user_prompt, None, images)
+            .await
+    }
+
     async fn chat_json(
         &self,
         system_prompt: &str,
@@ -110,22 +134,27 @@ impl OllamaClient {
         user_prompt: &str,
         format: Option<Value>,
     ) -> Result<LlmResponse> {
+        self.send_chat_messages(system_prompt, user_prompt, format, &[])
+            .await
+    }
+
+    async fn send_chat_messages(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        format: Option<Value>,
+        images: &[PageImage],
+    ) -> Result<LlmResponse> {
         let url = format!("{}/api/chat", self.base_url.trim_end_matches('/'));
+
+        let mut user = Message::new("user", user_prompt.to_string());
+        user.images = images.iter().map(PageImage::base64).collect();
 
         let payload = ChatRequest {
             model: self.model.clone(),
             stream: false,
             format,
-            messages: vec![
-                Message {
-                    role: "system".to_string(),
-                    content: system_prompt.to_string(),
-                },
-                Message {
-                    role: "user".to_string(),
-                    content: user_prompt.to_string(),
-                },
-            ],
+            messages: vec![Message::new("system", system_prompt.to_string()), user],
         };
 
         let resp = self

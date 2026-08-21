@@ -1,3 +1,6 @@
+- Read scanned PDFs that have no text layer by rendering their first pages with `pdftoppm` and asking the configured chat model to describe them, so image-only papers get sorted instead of failing extraction; the run reports how many were read this way, and `PaperText` records which papers came from page images.
+- Add `LlmClient::chat_with_images` with request bodies for Gemini inline data, both OpenAI APIs, and Ollama, so page images reach whichever provider is configured.
+- Distinguish "this PDF has no text layer" from "this PDF could not be read" in the extractors, which previously reported both as the same extraction failure.
 - Update the default chat models to `gemini-3.7-flash` for Gemini and `gpt-5.6-terra` for OpenAI, including the generated config template and the OpenAI live-test fallback.
 - Default the chat model from the resolved provider instead of always falling back to the Gemini model, so `--llm-provider ollama` or `openai` with no model no longer sends `gemini-3-flash-preview` to the wrong API; `DEFAULT_LLM_MODEL` is replaced by per-provider constants and `default_llm_model(provider)`.
 - Carry the new provider's default model into the TUI run form when cycling the provider field, leaving a model the user typed untouched.

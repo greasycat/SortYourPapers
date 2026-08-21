@@ -78,6 +78,7 @@ pub(crate) fn seed_debug_stages(
                 extracted_text: "Debug extracted text from mocked PDF content".to_string(),
                 llm_ready_text: "Mocked LLM-ready text for debug workflow".to_string(),
                 pages_read: 5,
+                from_page_images: false,
             }
         })
         .collect::<Vec<_>>();

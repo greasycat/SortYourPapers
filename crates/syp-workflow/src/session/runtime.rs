@@ -73,14 +73,16 @@ pub fn stage_sequence(include_discover_output: bool, include_llm_client: bool) -
         RunStage::DiscoverInput,
         RunStage::Dedupe,
         RunStage::FilterSize,
-        RunStage::ExtractText,
     ];
     if include_discover_output {
         stages.insert(1, RunStage::DiscoverOutput);
     }
+    // The client is built before extraction because a PDF with no text layer
+    // is read by the model from its page images.
     if include_llm_client {
         stages.push(RunStage::BuildLlmClient);
     }
+    stages.push(RunStage::ExtractText);
     stages.extend([
         RunStage::ExtractKeywords,
         RunStage::SynthesizeCategories,
@@ -154,8 +156,16 @@ pub(crate) async fn run_with_workspace(
     report.skipped = filter_state.skipped.len();
     workspace.save_report(&report)?;
 
-    let extract_state =
-        extract_text_stage(&filter_state, &config, workspace, verbosity, &stage_plan).await?;
+    let llm_client = build_llm_client_stage(&config, needs_llm, workspace, verbosity, &stage_plan)?;
+    let extract_state = extract_text_stage(
+        &filter_state,
+        llm_client.as_ref(),
+        &config,
+        workspace,
+        verbosity,
+        &stage_plan,
+    )
+    .await?;
     for failure in &extract_state.failures {
         verbosity.warn_line(
             "EXTRACT",
@@ -170,7 +180,6 @@ pub(crate) async fn run_with_workspace(
         return finalize_empty_run(report, workspace, verbosity, run_started.elapsed());
     }
 
-    let llm_client = build_llm_client_stage(&config, needs_llm, workspace, verbosity, &stage_plan)?;
     let keyword_sets = extract_keywords_stage(
         saved_keyword_state,
         llm_client.as_ref(),
@@ -389,8 +398,10 @@ fn filter_size_stage(
     Ok(state)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn extract_text_stage(
     filter_state: &FilterSizeState,
+    llm_client: Option<&Arc<dyn llm::LlmClient>>,
     config: &AppConfig,
     workspace: &mut RunWorkspace,
     verbosity: Verbosity,
@@ -420,8 +431,20 @@ async fn extract_text_stage(
         verbosity.verbose_enabled(),
         config.pdf_extract_workers,
         verbosity,
+        llm_client,
     )
     .await;
+    let from_page_images = papers.iter().filter(|paper| paper.from_page_images).count();
+    if from_page_images > 0 {
+        // Reading pages with the model costs a request per scanned PDF, so this
+        // stays visible without --verbose.
+        verbosity.info(format!(
+            "{} read {from_page_images} scanned PDF(s) with {} because they had no text layer",
+            verbosity.accent("SCANNED"),
+            config.llm_model
+        ));
+    }
+
     let state = ExtractTextState {
         papers,
         failures: failures

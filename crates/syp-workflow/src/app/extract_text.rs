@@ -43,6 +43,7 @@ pub async fn run_extract_text(args: ExtractTextRequest) -> Result<()> {
         debug,
         args.pdf_extract_workers,
         verbosity,
+        None,
     )
     .await;
 

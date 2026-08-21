@@ -8,7 +8,7 @@ use crate::llm::LlmCallMetrics;
 
 use crate::llm::{
     EmbeddingClient, EmbeddingRequest, EmbeddingResponse, EmbeddingVector, JsonResponseSchema,
-    LlmClient, LlmResponse,
+    LlmClient, LlmResponse, PageImage,
 };
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
@@ -60,7 +60,35 @@ struct Content {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Part {
-    text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    inline_data: Option<InlineData>,
+}
+
+impl Part {
+    fn text(text: String) -> Self {
+        Self {
+            text: Some(text),
+            inline_data: None,
+        }
+    }
+
+    fn image(image: &PageImage) -> Self {
+        Self {
+            text: None,
+            inline_data: Some(InlineData {
+                mime_type: image.mime_type.clone(),
+                data: image.base64(),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct InlineData {
+    mime_type: String,
+    data: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +158,16 @@ impl LlmClient for GeminiClient {
         self.send_chat(system_prompt, user_prompt, None, None).await
     }
 
+    async fn chat_with_images(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        images: &[PageImage],
+    ) -> Result<LlmResponse> {
+        self.send_chat_with_images(system_prompt, user_prompt, images)
+            .await
+    }
+
     fn prefers_plain_text_taxonomy_merge(&self) -> bool {
         true
     }
@@ -181,9 +219,7 @@ impl GeminiClient {
             system_instruction: None,
             contents: vec![Content {
                 role: Some("user".to_string()),
-                parts: vec![Part {
-                    text: combined_prompt,
-                }],
+                parts: vec![Part::text(combined_prompt)],
             }],
             generation_config: GenerationConfig {
                 temperature: None,
@@ -215,7 +251,7 @@ impl GeminiClient {
                 content
                     .parts
                     .into_iter()
-                    .map(|part| part.text)
+                    .filter_map(|part| part.text)
                     .find(|text| !text.trim().is_empty())
             })
             .map(|text| text.trim().to_string())
@@ -226,6 +262,92 @@ impl GeminiClient {
                 provider: "gemini".to_string(),
                 model: self.model.clone(),
                 endpoint_kind: "generate_content".to_string(),
+                request_chars: prompt_chars(system_prompt, user_prompt),
+                response_chars: content.chars().count() as u64,
+                input_tokens: usage_metadata
+                    .as_ref()
+                    .and_then(|usage| usage.prompt_token_count),
+                output_tokens: usage_metadata
+                    .as_ref()
+                    .and_then(|usage| usage.candidates_token_count),
+                total_tokens: usage_metadata
+                    .as_ref()
+                    .and_then(|usage| usage.total_token_count),
+                ..LlmCallMetrics::default()
+            },
+            content,
+        })
+    }
+
+    /// Sends the prompt with page images attached as inline data parts.
+    ///
+    /// Text leads the parts list, which is the order Gemini's guidance asks
+    /// for when a prompt describes the images that follow.
+    async fn send_chat_with_images(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        images: &[PageImage],
+    ) -> Result<LlmResponse> {
+        let api_key = self
+            .api_key
+            .as_deref()
+            .ok_or(AppError::MissingConfig("api_key (required for gemini)"))?;
+        let url = format!(
+            "{}/models/{}:generateContent",
+            self.base_url.trim_end_matches('/'),
+            self.normalized_model()
+        );
+
+        let mut parts = vec![Part::text(combine_prompts(system_prompt, user_prompt))];
+        parts.extend(images.iter().map(Part::image));
+
+        let payload = GenerateContentRequest {
+            system_instruction: None,
+            contents: vec![Content {
+                role: Some("user".to_string()),
+                parts,
+            }],
+            generation_config: GenerationConfig {
+                temperature: None,
+                response_mime_type: None,
+                response_schema: None,
+                thinking_config: Some(ThinkingConfig {
+                    thinking_level: "MEDIUM".to_string(),
+                }),
+            },
+        };
+
+        let resp = self
+            .http
+            .post(url)
+            .query(&[("key", api_key)])
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let body: GenerateContentResponse = resp.json().await?;
+        let usage_metadata = body.usage_metadata;
+        let content = body
+            .candidates
+            .and_then(|candidates| candidates.into_iter().next())
+            .and_then(|candidate| candidate.content)
+            .and_then(|content| {
+                content
+                    .parts
+                    .into_iter()
+                    .filter_map(|part| part.text)
+                    .find(|text| !text.trim().is_empty())
+            })
+            .map(|text| text.trim().to_string())
+            .ok_or_else(|| AppError::Llm("Gemini response has no content".to_string()))?;
+
+        Ok(LlmResponse {
+            metrics: LlmCallMetrics {
+                provider: "gemini".to_string(),
+                model: self.model.clone(),
+                endpoint_kind: "generate_content_vision".to_string(),
                 request_chars: prompt_chars(system_prompt, user_prompt),
                 response_chars: content.chars().count() as u64,
                 input_tokens: usage_metadata
@@ -267,9 +389,7 @@ impl GeminiClient {
                     model: format!("models/{}", self.normalized_model()),
                     content: Content {
                         role: None,
-                        parts: vec![Part {
-                            text: input.text.clone(),
-                        }],
+                        parts: vec![Part::text(input.text.clone())],
                     },
                 })
                 .collect(),
@@ -371,7 +491,7 @@ fn gemini_response_schema(schema: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{EmbeddingClient, EmbeddingRequest};
+    use crate::llm::{EmbeddingClient, EmbeddingRequest, PageImage};
     use serde_json::{Value, json};
     use std::{
         env,
@@ -704,6 +824,37 @@ mod tests {
             response.metrics.endpoint_kind, "embedding",
             "live embedding request should report embedding metrics"
         );
+    }
+
+    #[tokio::test]
+    async fn vision_call_sends_inline_data_parts_after_the_prompt() {
+        let (base_url, request_rx, handle) = spawn_single_request_server(
+            "HTTP/1.1 200 OK",
+            r#"{"candidates":[{"content":{"parts":[{"text":"a scanned paper"}]}}]}"#,
+        );
+        let client = GeminiClient::new(
+            "gemini-3.7-flash".to_string(),
+            Some(base_url),
+            Some("test-key".to_string()),
+        );
+        let images = vec![PageImage::png(b"fake-png-bytes".to_vec())];
+
+        let response = client
+            .chat_with_images("system prompt", "user prompt", &images)
+            .await
+            .expect("vision call should succeed");
+
+        let request = request_rx.recv().expect("captured request");
+        let request_str = String::from_utf8(request).expect("utf8 request");
+        let payload = request_body_json(&request_str);
+
+        let parts = &payload["contents"][0]["parts"];
+        assert_eq!(parts[0]["text"], "system prompt\n\nuser prompt");
+        assert_eq!(parts[1]["inline_data"]["mime_type"], "image/png");
+        assert_eq!(parts[1]["inline_data"]["data"], images[0].base64());
+        assert!(parts[1].get("text").is_none());
+        assert_eq!(response.content, "a scanned paper");
+        handle.join().expect("server thread");
     }
 
     fn spawn_single_request_server(

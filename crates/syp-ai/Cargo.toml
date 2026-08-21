@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+base64.workspace = true
 async-trait.workspace = true
 clap.workspace = true
 reqwest.workspace = true

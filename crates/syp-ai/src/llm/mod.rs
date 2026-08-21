@@ -166,7 +166,7 @@ pub use batch::{
     DEFAULT_REQUEST_DISPATCH_DELAY_MS, RequestBatchOptions, run_delayed_concurrent_requests,
 };
 pub use batch::{batch_dispatch_spacing, wait_for_dispatch_slot};
-pub use client::{ChatConfig, LlmClient, LlmResponse, ParsedLlmResponse, build_client};
+pub use client::{ChatConfig, LlmClient, LlmResponse, PageImage, ParsedLlmResponse, build_client};
 pub use embedding::{
     EmbeddingClient, EmbeddingConfig, EmbeddingInput, EmbeddingRequest, EmbeddingResponse,
     EmbeddingVector, build_embedding_client,

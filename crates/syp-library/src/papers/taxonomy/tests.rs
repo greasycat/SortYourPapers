@@ -347,6 +347,7 @@ fn prompt_uses_llm_ready_terms_instead_of_raw_text() {
         extracted_text: "raw prose sentence".to_string(),
         llm_ready_text: "graph neural network, node classification".to_string(),
         pages_read: 1,
+        from_page_images: false,
     }];
 
     let prompt = build_batch_keyword_prompt(&batch).expect("prompt");
@@ -1130,6 +1131,7 @@ fn make_paper(id: &str) -> PaperText {
         extracted_text: "text".to_string(),
         llm_ready_text: "term list".to_string(),
         pages_read: 1,
+        from_page_images: false,
     }
 }
 

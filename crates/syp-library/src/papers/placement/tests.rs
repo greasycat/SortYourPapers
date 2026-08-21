@@ -55,6 +55,7 @@ fn existing_only_rejects_unknown_folder() {
         extracted_text: "x".to_string(),
         llm_ready_text: "x".to_string(),
         pages_read: 1,
+        from_page_images: false,
     }];
     let placements = vec![PlacementDecision {
         file_id: "f1".to_string(),
@@ -93,6 +94,7 @@ fn placement_prompt_uses_allowed_targets_without_extra_context() {
         extracted_text: "x".to_string(),
         llm_ready_text: "x".to_string(),
         pages_read: 1,
+        from_page_images: false,
     }];
     let keyword_sets = [KeywordSet {
         file_id: "f1".to_string(),
@@ -197,6 +199,7 @@ async fn generate_placements_batches_requests() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
         PaperText {
             file_id: "f2".to_string(),
@@ -204,6 +207,7 @@ async fn generate_placements_batches_requests() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
         PaperText {
             file_id: "f3".to_string(),
@@ -211,6 +215,7 @@ async fn generate_placements_batches_requests() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
     ];
     let keyword_sets = vec![
@@ -314,6 +319,7 @@ async fn generate_placements_uses_stable_batch_order() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
         PaperText {
             file_id: "f1".to_string(),
@@ -321,6 +327,7 @@ async fn generate_placements_uses_stable_batch_order() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
         PaperText {
             file_id: "f2".to_string(),
@@ -328,6 +335,7 @@ async fn generate_placements_uses_stable_batch_order() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
     ];
     let keyword_sets = vec![
@@ -418,6 +426,7 @@ async fn placement_resume_skips_saved_batches() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
         PaperText {
             file_id: "f3".to_string(),
@@ -425,6 +434,7 @@ async fn placement_resume_skips_saved_batches() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
         PaperText {
             file_id: "f1".to_string(),
@@ -432,6 +442,7 @@ async fn placement_resume_skips_saved_batches() {
             extracted_text: "x".to_string(),
             llm_ready_text: "x".to_string(),
             pages_read: 1,
+            from_page_images: false,
         },
     ];
     let keyword_sets = vec![

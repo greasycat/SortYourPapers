@@ -9,7 +9,7 @@ use crate::llm::LlmCallMetrics;
 
 use crate::llm::{
     EmbeddingClient, EmbeddingRequest, EmbeddingResponse, EmbeddingVector, JsonResponseSchema,
-    LlmClient, LlmResponse,
+    LlmClient, LlmResponse, PageImage,
 };
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
@@ -56,7 +56,39 @@ struct ChatRequest {
 #[derive(Debug, Serialize)]
 struct Message {
     role: String,
-    content: String,
+    content: MessageContent<ChatContentPart>,
+}
+
+/// A message body is either a plain string or a list of typed parts; the
+/// image shapes differ between the two OpenAI APIs, so the part type varies.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum MessageContent<P> {
+    Text(String),
+    Parts(Vec<P>),
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum ChatContentPart {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image_url")]
+    ImageUrl { image_url: ChatImageUrl },
+}
+
+#[derive(Debug, Serialize)]
+struct ChatImageUrl {
+    url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum ResponseContentPart {
+    #[serde(rename = "input_text")]
+    InputText { text: String },
+    #[serde(rename = "input_image")]
+    InputImage { image_url: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,7 +134,7 @@ struct ResponsesRequest {
 #[derive(Debug, Serialize)]
 struct ResponseInputMessage {
     role: String,
-    content: String,
+    content: MessageContent<ResponseContentPart>,
 }
 
 #[derive(Debug, Serialize)]
@@ -191,6 +223,16 @@ impl LlmClient for OpenAiClient {
         self.send_chat(system_prompt, user_prompt, Some(schema))
             .await
     }
+
+    async fn chat_with_images(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        images: &[PageImage],
+    ) -> Result<LlmResponse> {
+        self.send_chat_with_images(system_prompt, user_prompt, images)
+            .await
+    }
 }
 
 #[async_trait]
@@ -220,11 +262,11 @@ impl OpenAiClient {
             messages: vec![
                 Message {
                     role: "system".to_string(),
-                    content: system_prompt.to_string(),
+                    content: MessageContent::Text(system_prompt.to_string()),
                 },
                 Message {
                     role: "user".to_string(),
-                    content: user_prompt.to_string(),
+                    content: MessageContent::Text(user_prompt.to_string()),
                 },
             ],
             temperature: 0.0,
@@ -309,11 +351,11 @@ impl OpenAiClient {
             input: vec![
                 ResponseInputMessage {
                     role: "system".to_string(),
-                    content: system_prompt.to_string(),
+                    content: MessageContent::Text(system_prompt.to_string()),
                 },
                 ResponseInputMessage {
                     role: "user".to_string(),
-                    content: user_prompt.to_string(),
+                    content: MessageContent::Text(user_prompt.to_string()),
                 },
             ],
             text: response_schema.map(response_text_config),
@@ -322,20 +364,7 @@ impl OpenAiClient {
         let body = self.post_openai_json(&url, headers, &payload).await?;
         let parsed: ResponsesResponse = serde_json::from_value(body)?;
         let usage = parsed.usage.clone();
-        let content = parsed
-            .output_text
-            .map(|text| text.trim().to_string())
-            .filter(|text| !text.is_empty())
-            .or_else(|| {
-                parsed
-                    .output
-                    .into_iter()
-                    .flat_map(|item| item.content.into_iter())
-                    .filter_map(|item| item.text)
-                    .map(|text| text.trim().to_string())
-                    .find(|text| !text.is_empty())
-            })
-            .ok_or_else(|| AppError::Llm("OpenAI response has no content".to_string()))?;
+        let content = responses_content(parsed)?;
 
         Ok(LlmResponse {
             metrics: self.call_metrics(
@@ -344,6 +373,105 @@ impl OpenAiClient {
                 user_prompt,
                 &content,
                 usage.as_ref(),
+            ),
+            content,
+        })
+    }
+
+    /// Sends the prompt with page images attached.
+    ///
+    /// The two OpenAI APIs spell image parts differently, so the model decides
+    /// which body shape is built, exactly as it does for text.
+    async fn send_chat_with_images(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        images: &[PageImage],
+    ) -> Result<LlmResponse> {
+        let headers = self.request_headers()?;
+
+        if self.use_responses_api() {
+            let mut content = vec![ResponseContentPart::InputText {
+                text: user_prompt.to_string(),
+            }];
+            content.extend(images.iter().map(|image| ResponseContentPart::InputImage {
+                image_url: image.data_url(),
+            }));
+
+            let url = format!("{}/responses", self.base_url.trim_end_matches('/'));
+            let payload = ResponsesRequest {
+                model: self.model.clone(),
+                input: vec![
+                    ResponseInputMessage {
+                        role: "system".to_string(),
+                        content: MessageContent::Text(system_prompt.to_string()),
+                    },
+                    ResponseInputMessage {
+                        role: "user".to_string(),
+                        content: MessageContent::Parts(content),
+                    },
+                ],
+                text: None,
+            };
+
+            let body = self.post_openai_json(&url, headers, &payload).await?;
+            let parsed: ResponsesResponse = serde_json::from_value(body)?;
+            let usage = parsed.usage.clone();
+            let content = responses_content(parsed)?;
+            return Ok(LlmResponse {
+                metrics: self.call_metrics(
+                    "responses_vision",
+                    system_prompt,
+                    user_prompt,
+                    &content,
+                    usage.as_ref(),
+                ),
+                content,
+            });
+        }
+
+        let mut content = vec![ChatContentPart::Text {
+            text: user_prompt.to_string(),
+        }];
+        content.extend(images.iter().map(|image| ChatContentPart::ImageUrl {
+            image_url: ChatImageUrl {
+                url: image.data_url(),
+            },
+        }));
+
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        let payload = ChatRequest {
+            model: self.model.clone(),
+            messages: vec![
+                Message {
+                    role: "system".to_string(),
+                    content: MessageContent::Text(system_prompt.to_string()),
+                },
+                Message {
+                    role: "user".to_string(),
+                    content: MessageContent::Parts(content),
+                },
+            ],
+            temperature: 0.0,
+            response_format: None,
+        };
+
+        let body = self.post_openai_json(&url, headers, &payload).await?;
+        let parsed: ChatResponse = serde_json::from_value(body)?;
+        let content = parsed
+            .choices
+            .first()
+            .map(|c| c.message.content.trim().to_string())
+            .filter(|c| !c.is_empty())
+            .ok_or_else(|| AppError::Llm("OpenAI response has no content".to_string()))?;
+
+        Ok(LlmResponse {
+            metrics: self.call_metrics(
+                "chat_completions_vision",
+                system_prompt,
+                user_prompt,
+                &content,
+                parsed.usage.as_ref(),
             ),
             content,
         })
@@ -422,6 +550,23 @@ impl OpenAiClient {
             ..LlmCallMetrics::default()
         }
     }
+}
+
+fn responses_content(parsed: ResponsesResponse) -> Result<String> {
+    parsed
+        .output_text
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .or_else(|| {
+            parsed
+                .output
+                .into_iter()
+                .flat_map(|item| item.content.into_iter())
+                .filter_map(|item| item.text)
+                .map(|text| text.trim().to_string())
+                .find(|text| !text.is_empty())
+        })
+        .ok_or_else(|| AppError::Llm("OpenAI response has no content".to_string()))
 }
 
 fn chat_response_format(schema: &JsonResponseSchema) -> ChatResponseFormat {
@@ -516,7 +661,7 @@ fn embedding_request_chars(request: &EmbeddingRequest) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::OpenAiClient;
-    use crate::llm::{EmbeddingClient, EmbeddingRequest, JsonResponseSchema, LlmClient};
+    use crate::llm::{EmbeddingClient, EmbeddingRequest, JsonResponseSchema, LlmClient, PageImage};
     use serde_json::{Value, json};
     use std::{
         env,
@@ -809,6 +954,64 @@ mod tests {
             }),
             "every category should be a non-empty string path"
         );
+    }
+
+    #[tokio::test]
+    async fn gpt5_vision_call_uses_responses_input_image_parts() {
+        let (base_url, request_rx, handle) =
+            spawn_single_request_server("HTTP/1.1 200 OK", r#"{"output_text":"a scanned paper"}"#);
+        let client = OpenAiClient::new("gpt-5-mini".to_string(), Some(base_url), None);
+        let images = vec![PageImage::png(b"fake-png-bytes".to_vec())];
+
+        let response = client
+            .chat_with_images("system prompt", "user prompt", &images)
+            .await
+            .expect("vision call should succeed");
+
+        let request = request_rx.recv().expect("captured request");
+        let request_str = String::from_utf8(request).expect("utf8 request");
+        let payload = request_body_json(&request_str);
+
+        assert!(request_str.starts_with("POST /responses HTTP/1.1"));
+        assert_eq!(payload["input"][0]["role"], "system");
+        assert_eq!(payload["input"][0]["content"], "system prompt");
+        assert_eq!(payload["input"][1]["content"][0]["type"], "input_text");
+        assert_eq!(payload["input"][1]["content"][0]["text"], "user prompt");
+        assert_eq!(payload["input"][1]["content"][1]["type"], "input_image");
+        assert_eq!(
+            payload["input"][1]["content"][1]["image_url"],
+            format!("data:image/png;base64,{}", images[0].base64())
+        );
+        assert_eq!(response.content, "a scanned paper");
+        handle.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn chat_completions_vision_call_uses_image_url_parts() {
+        let (base_url, request_rx, handle) = spawn_single_request_server(
+            "HTTP/1.1 200 OK",
+            r#"{"choices":[{"message":{"content":"a scanned paper"}}]}"#,
+        );
+        let client = OpenAiClient::new("gpt-4o-mini".to_string(), Some(base_url), None);
+        let images = vec![PageImage::png(b"fake-png-bytes".to_vec())];
+
+        client
+            .chat_with_images("system prompt", "user prompt", &images)
+            .await
+            .expect("vision call should succeed");
+
+        let request = request_rx.recv().expect("captured request");
+        let request_str = String::from_utf8(request).expect("utf8 request");
+        let payload = request_body_json(&request_str);
+
+        assert!(request_str.starts_with("POST /chat/completions HTTP/1.1"));
+        assert_eq!(payload["messages"][1]["content"][0]["type"], "text");
+        assert_eq!(payload["messages"][1]["content"][1]["type"], "image_url");
+        assert_eq!(
+            payload["messages"][1]["content"][1]["image_url"]["url"],
+            format!("data:image/png;base64,{}", images[0].base64())
+        );
+        handle.join().expect("server thread");
     }
 
     fn spawn_single_request_server(

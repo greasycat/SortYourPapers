@@ -45,6 +45,7 @@ pub(super) async fn collect_extract_preview(args: ExtractTextArgs) -> Result<Ext
         debug,
         args.pdf_extract_workers,
         verbosity,
+        None,
     )
     .await;
     Ok(ExtractPreview { papers, failures })

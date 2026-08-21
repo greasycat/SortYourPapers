@@ -4,6 +4,7 @@ pub mod extract;
 pub mod fs_ops;
 pub mod placement;
 pub mod preprocess;
+pub mod scanned;
 pub mod taxonomy;
 
 use std::path::PathBuf;
@@ -25,6 +26,10 @@ pub struct PaperText {
     pub extracted_text: String,
     pub llm_ready_text: String,
     pub pages_read: u8,
+    /// True when the text was written by a model reading page images, because
+    /// the PDF had no text layer of its own.
+    #[serde(default)]
+    pub from_page_images: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

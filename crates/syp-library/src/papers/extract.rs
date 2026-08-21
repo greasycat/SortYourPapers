@@ -13,9 +13,13 @@ use clap::ValueEnum;
 use pdf_oxide::PdfDocument;
 use tokio::{sync::Semaphore, task::JoinSet};
 
+use syp_ai::llm::LlmClient;
+
 use crate::{
     error::AppError,
-    papers::{PaperText, PdfCandidate, preprocess::preprocess_for_llm},
+    papers::{
+        PaperText, PdfCandidate, preprocess::preprocess_for_llm, scanned::summarize_scanned_pdf,
+    },
     terminal::{ProgressTracker, Verbosity},
 };
 
@@ -31,6 +35,7 @@ pub enum ExtractorMode {
 enum ExtractorUsed {
     PdfOxide,
     Pdftotext,
+    PageImages,
 }
 
 const DEBUG_EXTRACT_LOG_PATH: &str = "/tmp/sortyourpapers.log";
@@ -52,6 +57,10 @@ pub fn reset_debug_extract_log(enabled: bool) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Extracts text for every candidate.
+///
+/// `vision` is the model used for PDFs with no text layer; without one, those
+/// PDFs are reported as failures.
 pub async fn extract_text_batch(
     candidates: &[PdfCandidate],
     page_cutoff: u8,
@@ -59,6 +68,7 @@ pub async fn extract_text_batch(
     debug: bool,
     workers: usize,
     verbosity: Verbosity,
+    vision: Option<&Arc<dyn LlmClient>>,
 ) -> (Vec<PaperText>, Vec<(std::path::PathBuf, String)>) {
     let max_workers = workers.max(1);
     let semaphore = Arc::new(Semaphore::new(max_workers));
@@ -73,16 +83,20 @@ pub async fn extract_text_batch(
             .acquire_owned()
             .await
             .expect("pdf extract semaphore should not close");
+        let vision = vision.cloned();
         join_set.spawn(async move {
             let _permit = permit;
             let path = candidate.path.clone();
             let file_id = make_file_id(&candidate.path);
-            let result = tokio::task::spawn_blocking(move || {
-                extract_one(&candidate, page_cutoff, file_id, mode, debug)
-            })
-            .await
-            .map_err(|err| AppError::Execution(format!("pdf extraction task failed: {err}")))
-            .and_then(|result| result);
+            let result = extract_paper(
+                candidate,
+                page_cutoff,
+                file_id,
+                mode,
+                debug,
+                vision.as_deref(),
+            )
+            .await;
             (index, path, result)
         });
     }
@@ -117,6 +131,50 @@ pub async fn extract_text_batch(
     )
 }
 
+/// Produces the text for one PDF, reading its text layer if it has one and
+/// otherwise asking the model to read the rendered pages.
+async fn extract_paper(
+    candidate: PdfCandidate,
+    page_cutoff: u8,
+    file_id: String,
+    mode: ExtractorMode,
+    debug: bool,
+    vision: Option<&dyn LlmClient>,
+) -> Result<PaperText, AppError> {
+    let started = Instant::now();
+    let blocking_candidate = candidate.clone();
+    let layer = tokio::task::spawn_blocking(move || {
+        extract_text_layer(&blocking_candidate, page_cutoff, mode)
+    })
+    .await
+    .map_err(|err| AppError::Execution(format!("pdf extraction task failed: {err}")))??;
+
+    if let Some(layer) = layer {
+        return Ok(build_paper(&candidate, file_id, layer, started, debug));
+    }
+
+    let Some(vision) = vision else {
+        return Err(AppError::Pdf(format!(
+            "{} has no text layer, and no model was available to read its pages",
+            candidate.path.display()
+        )));
+    };
+
+    let summary = summarize_scanned_pdf(vision, &candidate.path, page_cutoff).await?;
+    Ok(build_paper(
+        &candidate,
+        file_id,
+        TextLayer {
+            text: summary,
+            pages_read: page_cutoff,
+            extractor_used: ExtractorUsed::PageImages,
+            fallback_reason: Some("no text layer; read the page images instead".to_string()),
+        },
+        started,
+        debug,
+    ))
+}
+
 pub fn extract_text_from_path(
     path: &Path,
     page_cutoff: u8,
@@ -128,47 +186,105 @@ pub fn extract_text_from_path(
         size_bytes: 0,
     };
     let file_id = make_file_id(path);
-    extract_one(&candidate, page_cutoff, file_id, mode, debug)
+    let started = Instant::now();
+    let layer = extract_text_layer(&candidate, page_cutoff, mode)?.ok_or_else(|| {
+        AppError::Pdf(format!(
+            "{} has no text layer; run it through a sorting run to read the pages with a model",
+            path.display()
+        ))
+    })?;
+    Ok(build_paper(&candidate, file_id, layer, started, debug))
 }
 
-fn extract_one(
+/// Text read from a PDF's own text layer.
+struct TextLayer {
+    text: String,
+    pages_read: u8,
+    extractor_used: ExtractorUsed,
+    fallback_reason: Option<String>,
+}
+
+/// Reads a PDF's text layer, or reports that it has none.
+///
+/// `Ok(None)` means every extractor that could open the file found no text —
+/// the signature of a scanned page, which the caller can hand to a model that
+/// reads images instead.
+fn extract_text_layer(
     candidate: &PdfCandidate,
     page_cutoff: u8,
-    file_id: String,
     mode: ExtractorMode,
-    debug: bool,
-) -> Result<PaperText, AppError> {
-    let started = Instant::now();
-
+) -> Result<Option<TextLayer>, AppError> {
     let mut fallback_reason: Option<String> = None;
-    let (extracted_text, pages_read, extractor_used) = match mode {
+    let layer = match mode {
         ExtractorMode::Auto => match extract_with_pdf_oxide(candidate, page_cutoff) {
-            Ok((text, pages_read)) => (text, pages_read, ExtractorUsed::PdfOxide),
-            Err(primary_err) => {
-                fallback_reason = Some(primary_err.to_string());
+            Ok(Some((text, pages_read))) => Some(TextLayer {
+                text,
+                pages_read,
+                extractor_used: ExtractorUsed::PdfOxide,
+                fallback_reason: None,
+            }),
+            primary => {
+                if let Err(primary_err) = &primary {
+                    fallback_reason = Some(primary_err.to_string());
+                }
                 match extract_with_pdftotext(candidate, page_cutoff) {
-                    Ok(text) => (text, page_cutoff, ExtractorUsed::Pdftotext),
+                    Ok(Some(text)) => Some(TextLayer {
+                        text,
+                        pages_read: page_cutoff,
+                        extractor_used: ExtractorUsed::Pdftotext,
+                        fallback_reason,
+                    }),
+                    Ok(None) => None,
                     Err(fallback_err) => {
-                        return Err(AppError::Pdf(format!(
-                            "failed to extract text from {}: primary={} ; fallback={}",
-                            candidate.path.display(),
-                            primary_err,
-                            fallback_err
-                        )));
+                        return match primary {
+                            Err(primary_err) => Err(AppError::Pdf(format!(
+                                "failed to extract text from {}: primary={} ; fallback={}",
+                                candidate.path.display(),
+                                primary_err,
+                                fallback_err
+                            ))),
+                            // pdf_oxide opened the file and found no text, so
+                            // it is readable even though poppler failed.
+                            Ok(_) => Ok(None),
+                        };
                     }
                 }
             }
         },
         ExtractorMode::PdfOxide => {
-            let (text, pages_read) = extract_with_pdf_oxide(candidate, page_cutoff)?;
-            (text, pages_read, ExtractorUsed::PdfOxide)
+            extract_with_pdf_oxide(candidate, page_cutoff)?.map(|(text, pages_read)| TextLayer {
+                text,
+                pages_read,
+                extractor_used: ExtractorUsed::PdfOxide,
+                fallback_reason: None,
+            })
         }
         ExtractorMode::Pdftotext => {
-            let text = extract_with_pdftotext(candidate, page_cutoff)?;
-            (text, page_cutoff, ExtractorUsed::Pdftotext)
+            extract_with_pdftotext(candidate, page_cutoff)?.map(|text| TextLayer {
+                text,
+                pages_read: page_cutoff,
+                extractor_used: ExtractorUsed::Pdftotext,
+                fallback_reason: None,
+            })
         }
     };
 
+    Ok(layer)
+}
+
+fn build_paper(
+    candidate: &PdfCandidate,
+    file_id: String,
+    layer: TextLayer,
+    started: Instant,
+    debug: bool,
+) -> PaperText {
+    let TextLayer {
+        text: extracted_text,
+        pages_read,
+        extractor_used,
+        fallback_reason,
+    } = layer;
     let llm_ready_text = preprocess_for_llm(&extracted_text);
 
     if debug {
@@ -201,19 +317,25 @@ fn extract_one(
         }
     }
 
-    Ok(PaperText {
+    PaperText {
         file_id,
         path: candidate.path.clone(),
         extracted_text,
         llm_ready_text,
         pages_read,
-    })
+        from_page_images: extractor_used == ExtractorUsed::PageImages,
+    }
 }
 
+/// Reads the PDF's own text layer.
+///
+/// `Ok(None)` means the file opened but holds no text at all, which is what a
+/// scanned page looks like; that is a different situation from a PDF that
+/// cannot be parsed.
 fn extract_with_pdf_oxide(
     candidate: &PdfCandidate,
     page_cutoff: u8,
-) -> Result<(String, u8), AppError> {
+) -> Result<Option<(String, u8)>, AppError> {
     let mut doc = PdfDocument::open(&candidate.path)
         .map_err(|e| AppError::Pdf(format!("{}: {e}", candidate.path.display())))?;
 
@@ -249,17 +371,20 @@ fn extract_with_pdf_oxide(
 
     let extracted_text = page_text.join("\n\n");
     if extracted_text.trim().is_empty() {
-        return Err(AppError::Pdf(format!(
-            "pdf_oxide produced empty output for {}",
-            candidate.path.display()
-        )));
+        return Ok(None);
     }
 
     let pages_read = u8::try_from(pages_read).unwrap_or(page_cutoff);
-    Ok((extracted_text, pages_read))
+    Ok(Some((extracted_text, pages_read)))
 }
 
-fn extract_with_pdftotext(candidate: &PdfCandidate, page_cutoff: u8) -> Result<String, AppError> {
+/// Reads the PDF's own text layer with poppler.
+///
+/// `Ok(None)` means poppler read the file and found no text.
+fn extract_with_pdftotext(
+    candidate: &PdfCandidate,
+    page_cutoff: u8,
+) -> Result<Option<String>, AppError> {
     let output = Command::new("pdftotext")
         .arg("-f")
         .arg("1")
@@ -289,10 +414,10 @@ fn extract_with_pdftotext(candidate: &PdfCandidate, page_cutoff: u8) -> Result<S
 
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if text.is_empty() {
-        return Err(AppError::Pdf("pdftotext produced empty output".to_string()));
+        return Ok(None);
     }
 
-    Ok(text)
+    Ok(Some(text))
 }
 
 pub fn make_file_id(path: &Path) -> String {
@@ -306,6 +431,7 @@ impl ExtractorUsed {
         match self {
             ExtractorUsed::PdfOxide => "pdf-oxide",
             ExtractorUsed::Pdftotext => "pdftotext",
+            ExtractorUsed::PageImages => "page-images",
         }
     }
 }

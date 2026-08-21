@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+
 use crate::{
-    error::Result,
+    error::{AppError, Result},
     llm::{LlmCallMetrics, LlmProvider},
 };
 
@@ -17,6 +19,38 @@ pub struct LlmResponse {
 pub struct ParsedLlmResponse<T> {
     pub value: T,
     pub metrics: LlmCallMetrics,
+}
+
+/// One rendered page handed to a vision-capable model.
+///
+/// Used to read PDFs that carry no text layer, where the page image is the
+/// only content there is.
+#[derive(Debug, Clone)]
+pub struct PageImage {
+    pub mime_type: String,
+    pub data: Vec<u8>,
+}
+
+impl PageImage {
+    #[must_use]
+    pub fn png(data: Vec<u8>) -> Self {
+        Self {
+            mime_type: "image/png".to_string(),
+            data,
+        }
+    }
+
+    /// Base64 payload on its own, the shape Gemini and Ollama expect.
+    #[must_use]
+    pub fn base64(&self) -> String {
+        BASE64.encode(&self.data)
+    }
+
+    /// Base64 payload as a `data:` URL, the shape OpenAI expects.
+    #[must_use]
+    pub fn data_url(&self) -> String {
+        format!("data:{};base64,{}", self.mime_type, self.base64())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +76,26 @@ pub trait LlmClient: Send + Sync {
         _schema: &JsonResponseSchema,
     ) -> Result<LlmResponse> {
         self.chat(system_prompt, user_prompt).await
+    }
+
+    /// Sends page images alongside the prompt.
+    ///
+    /// Whether the request succeeds depends on the model, not the provider: a
+    /// text-only model reports the failure from the API.
+    ///
+    /// # Errors
+    /// Returns an error when the provider cannot send images at all, or when
+    /// the request fails.
+    async fn chat_with_images(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        images: &[PageImage],
+    ) -> Result<LlmResponse> {
+        let _ = (system_prompt, user_prompt, images);
+        Err(AppError::Llm(
+            "this provider cannot send images to a model".to_string(),
+        ))
     }
 }
 

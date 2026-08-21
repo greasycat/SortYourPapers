@@ -232,8 +232,8 @@ fn stage_sequence_includes_optional_stages_when_needed() {
             RunStage::DiscoverOutput,
             RunStage::Dedupe,
             RunStage::FilterSize,
-            RunStage::ExtractText,
             RunStage::BuildLlmClient,
+            RunStage::ExtractText,
             RunStage::ExtractKeywords,
             RunStage::SynthesizeCategories,
             RunStage::InspectOutput,
@@ -271,13 +271,31 @@ fn category_tree_renderer_uses_ascii_tree_layout() {
 }
 
 #[test]
+fn stage_sequence_builds_the_llm_client_before_extraction() {
+    let stages = stage_sequence(false, true);
+    let client = stages
+        .iter()
+        .position(|stage| *stage == RunStage::BuildLlmClient)
+        .expect("client stage");
+    let extract = stages
+        .iter()
+        .position(|stage| *stage == RunStage::ExtractText)
+        .expect("extract stage");
+
+    assert!(
+        client < extract,
+        "extraction reads scanned pages with the model, so the client comes first"
+    );
+}
+
+#[test]
 fn rerun_impact_describes_reset_scope_for_early_stage_restart() {
     let impact =
         describe_rerun_impact(&sample_config(), RunStage::ExtractText).expect("describe impact");
 
     assert_eq!(
         impact.previous_last_completed_stage,
-        Some(RunStage::FilterSize)
+        Some(RunStage::BuildLlmClient)
     );
     assert!(impact.cleared_stage_files.contains(&RunStage::ExtractText));
     assert!(impact.cleared_stage_files.contains(&RunStage::BuildPlan));

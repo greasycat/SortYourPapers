@@ -59,6 +59,14 @@ cargo run -p syp -- \
   --llm-provider ollama
 ```
 
+Scanned PDFs are handled automatically. When a PDF has no text layer, its first
+pages are rendered with `pdftoppm` (part of poppler, the same package as the
+`pdftotext` fallback) and sent to the configured model, which writes the title
+and an abstract-style description that stands in for the missing text. This
+costs one extra request per scanned PDF and needs a model that reads images —
+the Gemini and OpenAI defaults do; on Ollama it needs a multimodal model such
+as `llava`. Without one, the PDF is reported as a failure as before.
+
 Launch the TUI:
 ```bash
 cargo run -p syptui --
