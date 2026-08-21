@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+#
+# Put the prototype's `sypy` command on PATH, or take it back off.
+#
+#   ./prototype/scripts/sypy-path wire
+#   ./prototype/scripts/sypy-path unwire
+#
+# `wire` builds a virtualenv beside the project, installs the package into it
+# in editable mode so edits take effect without reinstalling, and symlinks the
+# resulting `sypy` into a directory on PATH.
+#
+# Uses python3 -m venv rather than `uv tool install --editable`, which would be
+# the one-liner, because uv is not required to be installed to use this.
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_DIR="${SYPY_VENV_DIR:-$PROJECT_DIR/.venv}"
+BIN_DIR="${SYPY_BIN_DIR:-$HOME/.local/bin}"
+LINK="$BIN_DIR/sypy"
+
+die() { printf 'error: %s\n' "$1" >&2; exit 1; }
+note() { printf '%s\n' "$1"; }
+
+# Whether $LINK is a symlink this script created, rather than some other sypy
+# that happens to share the name. Everything destructive checks this first.
+links_into_venv() {
+  [ -L "$LINK" ] || return 1
+  case "$(readlink "$LINK")" in
+    "$VENV_DIR"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+on_path() {
+  case ":$PATH:" in
+    *":$BIN_DIR:"* | *":$BIN_DIR/:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+wire() {
+  command -v python3 >/dev/null 2>&1 || die "python3 not found"
+
+  # Checked before installing anything, so a name clash costs nothing.
+  if { [ -e "$LINK" ] || [ -L "$LINK" ]; } && ! links_into_venv; then
+    die "$LINK already exists and was not created by this script; remove it first"
+  fi
+
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    note "creating virtualenv at $VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+  fi
+
+  note "installing syp-prototype (editable) into $VENV_DIR"
+  "$VENV_DIR/bin/python" -m pip install --quiet --upgrade pip
+  "$VENV_DIR/bin/python" -m pip install --quiet --editable "$PROJECT_DIR"
+
+  [ -x "$VENV_DIR/bin/sypy" ] || die "install finished but $VENV_DIR/bin/sypy is missing"
+
+  rm -f "$LINK"
+  mkdir -p "$BIN_DIR"
+  ln -s "$VENV_DIR/bin/sypy" "$LINK"
+  note "wired $LINK -> $VENV_DIR/bin/sypy"
+
+  if on_path; then
+    note "run: sypy --help"
+  else
+    note ""
+    note "$BIN_DIR is not on PATH. Add it:"
+    note "  echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc && exec zsh"
+  fi
+}
+
+unwire() {
+  if [ ! -e "$LINK" ] && [ ! -L "$LINK" ]; then
+    note "nothing to remove at $LINK"
+    return 0
+  fi
+  links_into_venv || die "$LINK was not created by this script; leaving it alone"
+
+  rm -f "$LINK"
+  note "unwired $LINK"
+  note "the virtualenv at $VENV_DIR is left in place; delete it to reclaim space"
+}
+
+case "${1:-}" in
+  wire) wire ;;
+  unwire) unwire ;;
+  *)
+    printf 'usage: %s {wire|unwire}\n' "$(basename "$0")" >&2
+    printf '\n  wire    install into %s and link it into %s\n' "$VENV_DIR" "$BIN_DIR" >&2
+    printf '  unwire  remove that link\n' >&2
+    printf '\nOverride with SYPY_VENV_DIR / SYPY_BIN_DIR.\n' >&2
+    exit 2
+    ;;
+esac

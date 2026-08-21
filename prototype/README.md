@@ -28,9 +28,25 @@ paper is not paid for twice.
 
 ## Usage
 
+Put `sypy` on PATH, then use it from anywhere:
+
+```bash
+./prototype/scripts/sypy-path wire     # install and link
+sypy ingest --input ./inbox
+sypy watch  --input ./inbox
+./prototype/scripts/sypy-path unwire   # remove the link
+```
+
+`wire` builds a virtualenv at `prototype/.venv`, installs the package into it in
+editable mode so source edits take effect without reinstalling, and symlinks
+`sypy` into `~/.local/bin`. It refuses to replace a `sypy` it did not create,
+and `unwire` refuses to delete one, so an unrelated command of the same name
+survives both. Override the locations with `SYPY_VENV_DIR` and `SYPY_BIN_DIR`.
+
+Without wiring, run it through the project directly:
+
 ```bash
 uv run --project prototype sypy ingest --input ./inbox
-uv run --project prototype sypy watch --input ./inbox
 uv run --project prototype --extra dev python -m pytest prototype/tests
 ```
 
