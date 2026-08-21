@@ -117,6 +117,27 @@ pub fn run_bench(documents: &[BenchDocument], target_clusters: usize) -> Vec<Str
         &agglomerate(&tfidf(&title_and_abstract), target_clusters),
     ));
 
+    // Word pairs, which carry the distinctions single words lose: "neural
+    // network" and "network protocol" share a word but not a subject.
+    let bigram_terms = documents
+        .iter()
+        .map(|document| with_bigrams(&tokenize(&format!("{} {}", document.title, document.text))))
+        .collect::<Vec<_>>();
+    results.push(evaluate(
+        "words + word pairs, k = labels",
+        documents,
+        &agglomerate(&tfidf(&bigram_terms), target_clusters),
+    ));
+
+    // Keeping only the rarest terms per paper, on the theory that the shared
+    // middle of the vocabulary is what blurs the fields together.
+    let distinctive_terms = most_distinctive(&title_and_abstract, 12);
+    results.push(evaluate(
+        "12 rarest terms, k = labels",
+        documents,
+        &agglomerate(&tfidf(&distinctive_terms), target_clusters),
+    ));
+
     // Without the label count, a strategy has to decide when to stop merging.
     results.push(evaluate(
         "title + abstract, k unknown",
@@ -189,6 +210,41 @@ fn normalize(mut vector: BTreeMap<String, f64>) -> BTreeMap<String, f64> {
         }
     }
     vector
+}
+
+/// Adds adjacent word pairs alongside the single words.
+fn with_bigrams(terms: &[String]) -> Vec<String> {
+    let mut expanded = terms.to_vec();
+    for pair in terms.windows(2) {
+        expanded.push(format!("{}_{}", pair[0], pair[1]));
+    }
+    expanded
+}
+
+/// Keeps each paper's rarest terms, measured across the whole corpus.
+fn most_distinctive(documents: &[Vec<String>], keep: usize) -> Vec<Vec<String>> {
+    let mut document_frequency = HashMap::<&str, usize>::new();
+    for terms in documents {
+        for term in terms.iter().collect::<HashSet<_>>() {
+            *document_frequency.entry(term.as_str()).or_insert(0) += 1;
+        }
+    }
+
+    documents
+        .iter()
+        .map(|terms| {
+            let mut unique = terms.iter().cloned().collect::<Vec<_>>();
+            unique.sort();
+            unique.dedup();
+            unique.sort_by_key(|term| {
+                (
+                    *document_frequency.get(term.as_str()).unwrap_or(&1),
+                    term.clone(),
+                )
+            });
+            unique.into_iter().take(keep).collect()
+        })
+        .collect()
 }
 
 fn evaluate(name: &'static str, documents: &[BenchDocument], labels: &[usize]) -> StrategyResult {

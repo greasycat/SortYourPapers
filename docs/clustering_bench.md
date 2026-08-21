@@ -21,6 +21,8 @@ a strategy fails, not to rank strategies.
 | pipeline-reduced terms, k = labels | 4 | **0.204** | 0.274 |
 | title terms, k = labels | 4 | 0.000 | 0.087 |
 | title + abstract, k = labels | 4 | 0.050 | 0.132 |
+| words + word pairs, k = labels | 4 | 0.034 | 0.163 |
+| 12 rarest terms, k = labels | 4 | 0.004 | 0.090 |
 | title + abstract, k unknown | 52 | 0.028 | 0.516 |
 
 Excluding the `Others` category — a grab-bag with no shared subject, so no
@@ -33,6 +35,13 @@ strategy reaches ARI 0.150.
 true number of labels, no lexical strategy passes ARI 0.21, and most sit near
 0.1. Replacing the model's labelling with cheap term clustering would be a
 regression, not a simplification.
+
+**Smarter lexical features do not rescue it.** Adding adjacent word pairs
+scored 0.034 against 0.050 for single words, and keeping only each paper's
+twelve rarest terms scored 0.004. Both are worse than the plain version, so the
+limit is not the feature engineering — shared vocabulary in a 320-character
+abstract simply does not separate these fields. That closes off the lexical
+direction rather than inviting more of it.
 
 **Not knowing how many folders to make costs more than any tuning.** Sweeping
 the stopping threshold on the coherent 45 papers moves ARI from 0.104 (13
