@@ -98,7 +98,7 @@ pub(super) async fn prepare_embedding_runtime(
             .map_err(map_paperdb_error)?;
         let strong_matches = matches
             .iter()
-            .filter(|candidate| candidate.similarity >= options.min_similarity)
+            .filter(|candidate| candidate.similarity >= REFERENCE_MATCH_MIN_SIMILARITY)
             .cloned()
             .collect::<Vec<_>>();
         let (source, centroid_embedding, reference_support) =
@@ -183,6 +183,22 @@ pub(super) fn rank_targets_for_paper(
     Ok(ranking)
 }
 
+/// How similar a reference paper must be to a category's name before it is
+/// allowed to shape that category's profile.
+///
+/// This is a retrieval quality bar between a *label* and a *paper*, which is a
+/// different measurement from the paper-to-profile score that decides a
+/// placement. Sharing one number between them made a change to either affect
+/// both in opposite directions.
+pub(super) const REFERENCE_MATCH_MIN_SIMILARITY: f32 = 0.35;
+
+/// Whether the embedding ranking is trustworthy enough to place without asking
+/// the model.
+///
+/// A target whose profile is only its own folder name carries no evidence from
+/// real papers, and its scores are not on the same scale as a profile built
+/// from reference papers. Those go to the model rather than winning a
+/// comparison they were never comparable in.
 pub(super) fn should_use_embedding_decision(
     ranking: &[PlacementCandidateScore],
     runtime: &PlacementEmbeddingRuntime,
@@ -190,6 +206,9 @@ pub(super) fn should_use_embedding_decision(
     let Some(top) = ranking.first() else {
         return false;
     };
+    if !runtime.is_reference_backed(&top.target_rel_path) {
+        return false;
+    }
     if ranking.len() == 1 {
         return true;
     }

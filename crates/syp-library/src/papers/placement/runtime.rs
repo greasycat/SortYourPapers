@@ -72,6 +72,22 @@ struct PlacementEmbeddingRuntime {
     min_margin: f32,
 }
 
+impl PlacementEmbeddingRuntime {
+    /// Whether a target's profile was built from real reference papers rather
+    /// than from the folder name alone.
+    fn is_reference_backed(&self, target_rel_path: &str) -> bool {
+        self.target_profiles
+            .iter()
+            .find(|profile| profile.target_rel_path == target_rel_path)
+            .is_some_and(|profile| {
+                matches!(
+                    profile.source,
+                    PlacementTargetProfileSource::ReferenceCentroid
+                )
+            })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PlacementRunResult {
     pub placements: Vec<PlacementDecision>,
