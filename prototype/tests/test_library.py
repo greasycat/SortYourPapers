@@ -49,7 +49,14 @@ def test_the_tree_is_symlinks_pointing_back_into_the_store(
 
     link = filing.link_path
     assert link.is_symlink()
-    assert link.parent == library.tree_dir / "AI" / "Transformers"
+    # Each document sits in its own folder, named after it, so notes and
+    # supplements have somewhere to live beside it.
+    assert link.parent == (
+        library.tree_dir
+        / "AI"
+        / "Transformers"
+        / "vaswani_2017_attention-is-all-you-need"
+    )
     assert link.name == "vaswani_2017_attention-is-all-you-need.pdf"
     assert link.resolve() == filing.store_path.resolve()
 
@@ -93,7 +100,13 @@ def test_retagging_renames_the_file_and_moves_the_link(
     assert (library.store_dir / updated.store_name).is_file()
     assert updated.store_name.endswith("__Systems__Databases.pdf")
     assert updated.store_name.startswith(filing.file_id), "the id must not change"
-    new_link = library.tree_dir / "Systems" / "Databases" / filing.link_path.name
+    new_link = (
+        library.tree_dir
+        / "Systems"
+        / "Databases"
+        / filing.link_path.parent.name
+        / filing.link_path.name
+    )
     assert new_link.is_symlink()
     assert not (library.tree_dir / "AI").exists(), "the emptied branch should be pruned"
 
@@ -317,3 +330,97 @@ def _sha_of(path: Path) -> str:
     import hashlib
 
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def test_a_note_filed_beside_a_document_survives_a_rebuild(
+    library: Library, tmp_path: Path
+) -> None:
+    """The reason each document gets a folder: things can be kept in it.
+
+    A rebuild converges the links. It is not a licence to delete work someone
+    filed alongside a document.
+    """
+    filing = library.file_paper(
+        _paper(["AI", "Transformers"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    note = filing.link_path.parent / "my-notes.md"
+    note.write_text("what I thought of this paper")
+
+    library.rebuild_tree()
+
+    assert note.is_file(), "a rebuild must not delete files it did not create"
+    assert note.read_text() == "what I thought of this paper"
+    assert filing.link_path.is_symlink(), "the link is still rebuilt"
+
+
+def test_a_note_follows_its_document_when_it_is_retagged(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI", "Transformers"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    (filing.link_path.parent / "my-notes.md").write_text("notes")
+
+    library.retag(filing.file_id, ["Systems", "Databases"])
+
+    moved = (
+        library.tree_dir
+        / "Systems"
+        / "Databases"
+        / filing.link_path.parent.name
+        / "my-notes.md"
+    )
+    assert moved.is_file(), "the whole folder should move, not just the link"
+    assert moved.read_text() == "notes"
+    assert not (library.tree_dir / "AI").exists(), "the emptied branch is pruned"
+
+
+def test_the_link_still_resolves_after_a_retag_changes_depth(
+    library: Library, tmp_path: Path
+) -> None:
+    # Links are relative, so a folder that moves to a different depth needs its
+    # link re-pointed rather than carried along as it was.
+    filing = library.file_paper(
+        _paper(["AI", "Vision", "Detection"]),
+        write_pdf(tmp_path / "src" / "raw.pdf", "text"),
+    )
+
+    updated = library.retag(filing.file_id, ["Systems"])
+
+    link = (
+        library.tree_dir
+        / "Systems"
+        / filing.link_path.parent.name
+        / filing.link_path.name
+    )
+    assert link.is_symlink()
+    assert link.resolve() == (library.store_dir / updated.store_name).resolve()
+
+
+def test_removing_leaves_a_folder_that_still_holds_something(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    note = filing.link_path.parent / "my-notes.md"
+    note.write_text("notes")
+
+    library.remove(filing.file_id)
+
+    assert not filing.link_path.exists(), "the link goes"
+    assert not filing.store_path.exists(), "the stored file goes"
+    assert note.is_file(), "someone else's file is not this command's to delete"
+
+
+def test_removing_takes_the_folder_when_it_is_empty(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+
+    library.remove(filing.file_id)
+
+    assert not filing.link_path.parent.exists()
+    assert not (library.tree_dir / "AI").exists()

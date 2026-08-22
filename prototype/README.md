@@ -44,8 +44,16 @@ library/
     5112ee75ddcf__Machine Learning__Deep Learning__Transformers.pdf
   tree/
     Machine Learning/Deep Learning/Transformers/
-      vaswani_2017_attention-is-all-you-need.pdf -> ../../../../store/5112ee75ddcf__...pdf
+      vaswani_2017_attention-is-all-you-need/
+        vaswani_2017_attention-is-all-you-need.pdf -> ../../../../../store/5112ee75ddcf__...pdf
+        notes.md                                   (yours; nothing here touches it)
 ```
+
+Each document gets its own folder, named after it, so notes, figures, and
+supplements have somewhere to live beside it. A rebuild removes only the links
+and the folders they leave empty — anything else in the tree was put there by
+you and is left alone. Re-tagging moves the whole folder, so what you filed
+beside a document follows it.
 
 The store filename is `<id>__<Tag>__<Tag>.pdf`. The id is permanent and the tags
 are not, so **re-tagging a paper is a rename plus a moved link** — no file is
@@ -59,9 +67,9 @@ author nor a title falls back to the store name, since a bare year names
 nothing. They are relative, so
 the whole library can be moved without breaking.
 
-**DuckDB is the source of truth.** Filenames and the tree are projections of it,
-which is why `sypy tree` can throw the tree away and rebuild it exactly, and why
-a tag list too long for a filename loses nothing. Papers are keyed by a hash of
+**DuckDB is the source of truth.** Filenames and the links are projections of
+it, which is why `sypy tree` can discard the links and rebuild them exactly, and
+why a tag list too long for a filename loses nothing. Papers are keyed by a hash of
 their contents, so re-running costs nothing and the same paper arriving twice
 under different names is recognised.
 
@@ -201,6 +209,8 @@ and the correct spelling wins when both are set.
   nearest thing present, where an unsteered run put it under
   `Medicine/Radiology`. `sypy retag` is the fix when it happens.
 - The service log has no timestamps, so restarts are hard to tell apart.
-- Editing the tree by hand does not work: links are relative, so moving one to a
-  different depth breaks it, and `sypy tree` reverts hand edits. A real file
-  placed in the tree is deleted by the next rebuild.
+- Moving a link by hand still does not re-tag anything: links are relative, so
+  moving one to a different depth breaks it, and a rebuild puts it back. Use
+  `sypy retag`. Files you add to a document's folder are safe either way.
+- `sypy remove` leaves a document's folder in place when it still holds
+  something of yours, so an emptied branch can outlive its document.

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Sequence
@@ -183,13 +183,19 @@ class Library:
         if new_path != old_path and new_path.exists():
             raise LibraryError(f"store already holds {new_name}")
 
-        self._unlink_existing(paper)
+        retagged = replace(paper, tags=tags, store_name=new_name)
+        self._move_document_dir(
+            self._document_dir(paper, taken=set()),
+            self._document_dir(retagged, taken=set()),
+        )
         if new_path != old_path:
             os.replace(old_path, new_path)
         self.db.set_tags(file_id, tags, new_name)
 
         updated = self.db.get(file_id)
         assert updated is not None  # just written
+        # Re-pointed rather than left as it was: the folder may have changed
+        # depth, and the link inside it is relative.
         self._link(updated)
         return updated
 
@@ -208,7 +214,13 @@ class Library:
         if paper is None:
             raise LibraryError(f"no document with id {file_id}")
 
-        self._unlink_existing(paper)
+        link = self._link_path(paper, taken=set())
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        # The folder goes only if it is empty. Anything still in it was put
+        # there by its owner and is not this command's to delete.
+        _prune_empty(link.parent, stop=self.tree_dir)
+
         (self.store_dir / paper.store_name).unlink(missing_ok=True)
         self.db.delete(file_id)
         return paper
@@ -262,11 +274,11 @@ class Library:
     def rebuild_tree(self) -> int:
         """Rebuild every symlink from the database, discarding the old tree.
 
-        The tree holds nothing but links, so throwing it away costs nothing and
-        is the simplest way to converge after edits made outside the tool.
+        Only the links are discarded. Anything else found in the tree — a note
+        filed beside a document, a folder someone made — is left alone, because
+        a rebuild converging the links is not a reason to delete work.
         """
-        if self.tree_dir.exists():
-            _remove_tree(self.tree_dir)
+        _clear_links(self.tree_dir)
 
         taken: set[Path] = set()
         linked = 0
@@ -287,8 +299,13 @@ class Library:
 
     # ---- links -------------------------------------------------------------
 
-    def _link_path(self, paper: Paper, taken: set[Path]) -> Path:
-        directory = self.tree_dir.joinpath(*paper.tags) if paper.tags else self.tree_dir
+    def _document_dir(self, paper: Paper, taken: set[Path]) -> Path:
+        """The document's own folder in the tree, named after its link.
+
+        Each document gets a folder rather than sitting loose in its category,
+        so notes, figures, and supplements have somewhere to live beside it.
+        """
+        parent = self.tree_dir.joinpath(*paper.tags) if paper.tags else self.tree_dir
         suffix = Path(paper.store_name).suffix or ".pdf"
         name = link_name(
             fallback=paper.store_name,
@@ -297,38 +314,68 @@ class Library:
             title=paper.title,
             suffix=suffix,
         )
-        candidate = directory / name
-        if candidate in taken or (candidate.exists() and not candidate.is_symlink()):
-            candidate = directory / disambiguate(name, paper.file_id)
+        stem = Path(name).stem
+        candidate = parent / stem
+        if candidate in taken:
+            candidate = parent / Path(disambiguate(name, paper.file_id)).stem
         return candidate
+
+    def _link_path(self, paper: Paper, taken: set[Path]) -> Path:
+        """Where the document's symlink belongs: inside its own folder."""
+        directory = self._document_dir(paper, taken)
+        suffix = Path(paper.store_name).suffix or ".pdf"
+        return directory / f"{directory.name}{suffix}"
 
     def _link(self, paper: Paper, taken: set[Path] | None = None) -> Path:
         taken = taken if taken is not None else set()
-        link = self._link_path(paper, taken)
-        link.parent.mkdir(parents=True, exist_ok=True)
+        directory = self._document_dir(paper, taken)
+        link = directory / f"{directory.name}{Path(paper.store_name).suffix or '.pdf'}"
+        directory.mkdir(parents=True, exist_ok=True)
         if link.is_symlink() or link.exists():
             link.unlink()
         target = self.store_dir / paper.store_name
         link.symlink_to(os.path.relpath(target, link.parent))
-        taken.add(link)
+        taken.add(directory)
         return link
 
-    def _unlink_existing(self, paper: Paper) -> None:
-        """Remove a paper's current link, and any folders it leaves empty."""
-        link = self._link_path(paper, taken=set())
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        _prune_empty(link.parent, stop=self.tree_dir)
+    def _move_document_dir(self, source: Path, destination: Path) -> None:
+        """Move a document's folder, keeping whatever the owner put in it.
+
+        Retagging moves the whole folder rather than just the link, so notes
+        filed beside a document follow it instead of being orphaned in the
+        branch it left.
+        """
+        if source == destination or not source.is_dir():
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            # Something already sits there; leave both rather than merging.
+            raise LibraryError(f"{destination} already exists")
+        os.replace(source, destination)
+        _prune_empty(source.parent, stop=self.tree_dir)
 
 
-def _remove_tree(root: Path) -> None:
-    """Delete a tree of symlinks and directories, never following the links."""
-    for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
-        if path.is_symlink() or path.is_file():
+def _clear_links(root: Path) -> None:
+    """Remove every symlink under `root`, and the folders left empty.
+
+    Regular files are left where they are. The tree is rebuildable precisely
+    because it holds nothing but links — anything else in it was put there by
+    its owner, and a rebuild is not a licence to delete it.
+    """
+    if not root.exists():
+        return
+    deepest_first = sorted(
+        root.rglob("*"), key=lambda item: len(item.parts), reverse=True
+    )
+    for path in deepest_first:
+        if path.is_symlink():
             path.unlink()
-        elif path.is_dir():
-            path.rmdir()
-    root.rmdir()
+    for path in deepest_first:
+        if path.is_dir() and not path.is_symlink():
+            try:
+                path.rmdir()
+            except OSError:
+                pass  # holds something that is not ours
 
 
 def _prune_empty(directory: Path, stop: Path) -> None:
