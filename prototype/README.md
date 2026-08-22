@@ -107,6 +107,11 @@ document's own words.
 Needs poppler (`brew install poppler`), the same dependency the Rust pipeline
 already has. Without it, a scan is reported as a failure naming what to install.
 
+launchd gives an agent a bare `PATH` that does not include Homebrew, so the
+service is installed with poppler's directory added explicitly. Without that,
+scans fail only under the service while working by hand — install warns if
+`pdftoppm` cannot be found.
+
 ## Notes
 
 ```bash

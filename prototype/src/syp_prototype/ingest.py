@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+
+import duckdb
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Sequence
@@ -207,10 +209,15 @@ def _reconcile_store(library: Library) -> RescanReport | None:
     A store that cannot be read is reported and stepped over rather than
     stopping the pass: failing to reconcile risks a duplicate, while refusing to
     run means nothing is filed at all.
+
+    That includes the database being busy. `duckdb.IOException` is not an
+    `OSError` — it derives from `OperationalError` — so catching `OSError`
+    alone let the most likely failure of all, a lock held past the wait, kill
+    the pass this docstring promises to survive.
     """
     try:
         return library.rescan()
-    except OSError as err:
+    except (OSError, duckdb.Error) as err:
         log.warning("could not reconcile the store: %s; continuing", err)
         return None
 

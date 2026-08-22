@@ -28,13 +28,25 @@ class PdfCandidate:
 
 
 def discover_pdfs(root: Path, recursive: bool = False) -> list[PdfCandidate]:
-    """List the PDFs under ``root``, sorted by path so batching is stable."""
+    """List the PDFs under ``root``, sorted by path so batching is stable.
+
+    A watched folder changes while it is being read: a download completes, a
+    file is renamed, something is deleted between listing and measuring. A file
+    that goes missing mid-scan is skipped rather than raised — the scan runs on
+    every pass of a long-lived watcher, so an exception here would take the
+    whole service down over an ordinary event.
+    """
     pattern = "**/*" if recursive else "*"
-    candidates = [
-        PdfCandidate(path=path, size_bytes=path.stat().st_size)
-        for path in sorted(root.glob(pattern))
-        if path.is_file() and path.suffix.lower() == ".pdf"
-    ]
+    candidates: list[PdfCandidate] = []
+    for path in sorted(root.glob(pattern)):
+        if path.suffix.lower() != ".pdf":
+            continue
+        try:
+            if not path.is_file():
+                continue
+            candidates.append(PdfCandidate(path=path, size_bytes=path.stat().st_size))
+        except OSError:
+            continue  # vanished, or briefly unreadable; the next pass will see it
     return candidates
 
 

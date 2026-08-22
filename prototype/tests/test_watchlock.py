@@ -160,3 +160,46 @@ def test_a_claim_left_by_a_dead_watcher_does_not_read_as_running(folders) -> Non
 
     assert _claimed_folders(locks_dir()) == {}
     held.release()
+
+
+def test_a_claim_is_never_visible_while_incomplete(folders) -> None:
+    """A half-written claim reads as nobody's, and would be taken over.
+
+    Creating the file and filling it afterwards leaves a window where a second
+    watcher sees an empty file, concludes the owner is unknown, and claims the
+    folder itself — so both run, which is what this module exists to prevent.
+    """
+    import json
+
+    inbox, library = folders
+    held = claim(inbox, library)
+    try:
+        for path in locks_dir().glob("*.json"):
+            body = path.read_text(encoding="utf-8")
+            assert body, f"{path.name} is empty"
+            assert json.loads(body)["pid"] == os.getpid()
+    finally:
+        held.release()
+
+
+def test_no_staging_files_are_left_behind(folders) -> None:
+    inbox, library = folders
+    held = claim(inbox, library)
+    held.release()
+
+    leftovers = [p.name for p in locks_dir().iterdir() if p.name.startswith(".")]
+    assert leftovers == [], f"temporary files left: {leftovers}"
+
+
+def test_an_empty_claim_file_is_treated_as_abandoned(folders) -> None:
+    # The recovery path that made the old window dangerous is still correct on
+    # its own terms: a claim nobody can be read out of is not worth respecting.
+    inbox, library = folders
+    held = claim(inbox, library)
+    for path in held.held:
+        path.write_text("", encoding="utf-8")
+
+    taken = claim(inbox, library)
+
+    assert taken.held
+    taken.release()

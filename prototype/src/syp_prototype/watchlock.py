@@ -11,9 +11,15 @@ Claims live outside the folders they cover — a lock file in someone's Download
 folder would be litter — and are keyed by the resolved path, so two watchers
 reaching the same folder by different routes still collide.
 
-Creation is atomic (`O_EXCL`), so two watchers starting at the same moment
-cannot both win. A claim whose owner is gone is taken over rather than
-respected, so a crash does not lock a folder out forever.
+A claim becomes visible only once it is complete: it is written to a temporary
+file and then hard-linked into place, and `os.link` fails if the name is taken.
+Creating it empty and filling it afterwards — which `O_EXCL` alone does — leaves
+a window where a second watcher reads an empty file, concludes the owner is
+unknown, and takes the claim over. Both would then be running, which is the one
+thing this module exists to prevent.
+
+A claim whose owner is gone is taken over rather than respected, so a crash does
+not lock a folder out forever.
 """
 
 from __future__ import annotations
@@ -82,10 +88,23 @@ def _acquire(directory: Path, kind: str, path: Path) -> Path:
     digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:16]
     lock_path = directory / f"{kind}-{digest}.json"
 
+    payload = json.dumps(
+        {
+            "pid": os.getpid(),
+            "kind": kind,
+            "path": str(resolved),
+            "claimed_at_ms": int(time.time() * 1000),
+        }
+    )
+
     # Two passes at most: the second is for a claim found to be abandoned.
     for _ in range(2):
+        staged = directory / f".{kind}-{digest}.{os.getpid()}.tmp"
+        staged.write_text(payload, encoding="utf-8")
         try:
-            handle = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            # Complete before it is visible, and atomic: link fails if taken.
+            os.link(staged, lock_path)
+            return lock_path
         except FileExistsError:
             holder = _read_holder(lock_path)
             if holder is not None and _alive(holder.get("pid")):
@@ -95,19 +114,8 @@ def _acquire(directory: Path, kind: str, path: Path) -> Path:
                 )
             # The owner is gone, so the claim is not worth respecting.
             lock_path.unlink(missing_ok=True)
-            continue
-
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(
-                {
-                    "pid": os.getpid(),
-                    "kind": kind,
-                    "path": str(resolved),
-                    "claimed_at_ms": int(time.time() * 1000),
-                },
-                stream,
-            )
-        return lock_path
+        finally:
+            staged.unlink(missing_ok=True)
 
     raise WatchConflict(f"could not claim {resolved} as {kind}")
 

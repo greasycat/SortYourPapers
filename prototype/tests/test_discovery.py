@@ -55,3 +55,26 @@ def test_file_id_is_content_addressed_not_path_addressed(tmp_path: Path) -> None
 
     assert file_id(original) == file_id(renamed)
     assert file_id(original) != file_id(different)
+
+
+def test_a_file_vanishing_mid_scan_does_not_raise(tmp_path: Path) -> None:
+    """A watched folder changes while it is read; that must not kill the scan.
+
+    `discover_pdfs` runs on every pass of a long-lived watcher, so an exception
+    here takes the whole service down over an ordinary download or rename.
+    """
+    from unittest import mock
+
+    write_pdf(tmp_path / "a.pdf", "one")
+    write_pdf(tmp_path / "b.pdf", "two")
+    real_stat = Path.stat
+
+    def vanish(self, *args, **kwargs):
+        if self.name == "a.pdf":
+            raise FileNotFoundError(self)
+        return real_stat(self, *args, **kwargs)
+
+    with mock.patch.object(Path, "stat", vanish):
+        found = discover_pdfs(tmp_path)
+
+    assert [p.path.name for p in found] == ["b.pdf"], "the survivor is still listed"

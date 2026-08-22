@@ -492,3 +492,24 @@ async def test_a_document_already_held_is_never_parsed(
 
     assert report.skipped_already_known == 1
     assert parsed == [], "an already-held document should not be parsed again"
+
+
+async def test_a_busy_database_does_not_stop_the_pass(
+    settings: Settings, library: Library
+) -> None:
+    # duckdb.IOException is not an OSError, so catching OSError alone let a
+    # lock held past the wait kill the pass this is meant to survive.
+    import duckdb
+
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+
+    def busy() -> None:
+        raise duckdb.IOException("Could not set lock on file")
+
+    with mock.patch.object(library, "rescan", busy):
+        report = await ingest_folder(
+            settings, FakeLlmClient(), library, mode=FilingMode.COPY
+        )
+
+    assert report.rescan is None
+    assert report.processed == 1, "the document should still have been filed"

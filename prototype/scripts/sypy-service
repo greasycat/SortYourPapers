@@ -80,6 +80,17 @@ install_service() {
 
   mkdir -p "$LOG_DIR" "$library" "$(dirname "$PLIST")"
 
+  # Carry the directory holding pdftoppm into the agent's environment; a bare
+  # launchd PATH would leave scanned PDFs failing silently.
+  local RUNTIME_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+  local poppler_bin
+  poppler_bin="$(dirname "$(command -v pdftoppm 2>/dev/null || echo /nonexistent/x)")"
+  if [ -d "$poppler_bin" ]; then
+    RUNTIME_PATH="$poppler_bin:$RUNTIME_PATH"
+  else
+    note "warning: pdftoppm not found; scanned PDFs will be reported as failures"
+  fi
+
   cat > "$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -95,6 +106,13 @@ install_service() {
         <string>--mode</string><string>$MODE</string>
     </array>
     <key>WorkingDirectory</key><string>$PROJECT_DIR</string>
+    <!-- launchd gives an agent a bare PATH, which does not include Homebrew.
+         Without this, pdftoppm is not found and every scanned PDF fails while
+         the same command works by hand. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>$RUNTIME_PATH</string>
+    </dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>ProcessType</key><string>Background</string>
