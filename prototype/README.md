@@ -366,8 +366,24 @@ proportional to the number of documents, not to the bytes being read. On twelve
 4MB documents the share of a pass with the lock unavailable is 3%, against 66%
 when the file work was done with the connection held.
 
-`wire` builds a virtualenv at `prototype/.venv`, installs the package into it in editable mode so source
+`wire` builds a virtualenv at `prototype/.venv`, installs the dependencies from
+`requirements.lock`, installs the package into it in editable mode so source
 edits take effect without reinstalling, and symlinks `sypy` into `~/.local/bin`.
+
+The lock is what stops two machines set up a week apart running different code,
+which is what makes a break arriving with a dependency indistinguishable from
+one arriving with a commit. Move it forward deliberately:
+
+```bash
+./prototype/scripts/sypy-path relock    # re-resolve, then review the diff
+```
+
+It resolves in a throwaway virtualenv, so the test dependencies and whatever a
+debugging session left behind stay out of it. Versions are pinned, not hashes:
+it says what is installed, and does not try to prove the index handed over the
+same bytes as last time. It refuses to replace a `sypy` it did not create,
+and `unwire` refuses to delete one, so an unrelated command of the same name
+survives both. Override the locations with `SYPY_VENV_DIR` and `SYPY_BIN_DIR`.
 
 Without wiring, run it through the project directly:
 
@@ -445,4 +461,5 @@ and the correct spelling wins when both are set.
   turns out to cost are recorded after, and can carry the day slightly past the
   token ceiling.
 - `sypy backup` copies; it does not rotate, prune, or verify old backups.
+- The lock pins versions, not hashes.
 - A library made before documents had folders needs `sypy migrate-store` once.

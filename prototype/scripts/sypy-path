@@ -4,10 +4,13 @@
 #
 #   ./prototype/scripts/sypy-path wire
 #   ./prototype/scripts/sypy-path unwire
+#   ./prototype/scripts/sypy-path relock
 #
 # `wire` builds a virtualenv beside the project, installs the package into it
 # in editable mode so edits take effect without reinstalling, and symlinks the
-# resulting `sypy` into a directory on PATH.
+# resulting `sypy` into a directory on PATH. Dependencies come from
+# requirements.lock, so two machines set up months apart get the same versions;
+# `relock` is how that file is deliberately moved forward.
 #
 # Uses python3 -m venv rather than `uv tool install --editable`, which would be
 # the one-liner, because uv is not required to be installed to use this.
@@ -17,6 +20,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="${SYPY_VENV_DIR:-$PROJECT_DIR/.venv}"
 BIN_DIR="${SYPY_BIN_DIR:-$HOME/.local/bin}"
 LINK="$BIN_DIR/sypy"
+LOCK_FILE="$PROJECT_DIR/requirements.lock"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 note() { printf '%s\n' "$1"; }
@@ -53,7 +57,18 @@ wire() {
 
   note "installing syp-prototype (editable) into $VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --quiet --upgrade pip
-  "$VENV_DIR/bin/python" -m pip install --quiet --editable "$PROJECT_DIR"
+  if [ -f "$LOCK_FILE" ]; then
+    # Pinned versions first, then the package itself with --no-deps, so pip has
+    # nothing left to resolve. Installing the package first and the lock after
+    # would let pip pick newest-of-the-day for every dependency and then quietly
+    # downgrade them, which is the same machine-to-machine drift the lock exists
+    # to stop.
+    "$VENV_DIR/bin/python" -m pip install --quiet --requirement "$LOCK_FILE"
+    "$VENV_DIR/bin/python" -m pip install --quiet --no-deps --editable "$PROJECT_DIR"
+  else
+    note "warning: no $LOCK_FILE; resolving whatever is newest today"
+    "$VENV_DIR/bin/python" -m pip install --quiet --editable "$PROJECT_DIR"
+  fi
 
   [ -x "$VENV_DIR/bin/sypy" ] || die "install finished but $VENV_DIR/bin/sypy is missing"
 
@@ -71,6 +86,34 @@ wire() {
   fi
 }
 
+relock() {
+  # Resolved in a throwaway virtualenv rather than from the working one, which
+  # also holds the test dependencies and whatever a debugging session left in
+  # it. The lock is meant to say what running the tool needs, and nothing else.
+  command -v python3 >/dev/null 2>&1 || die "python3 not found"
+  local scratch
+  scratch="$(mktemp -d)"
+  trap 'rm -rf "$scratch"' EXIT
+
+  note "resolving dependencies in a clean virtualenv"
+  python3 -m venv "$scratch/venv"
+  "$scratch/venv/bin/python" -m pip install --quiet --upgrade pip
+  "$scratch/venv/bin/python" -m pip install --quiet "$PROJECT_DIR"
+
+  {
+    sed -n '/^#/p' "$LOCK_FILE" 2>/dev/null || true
+    "$scratch/venv/bin/python" -m pip freeze --exclude-editable \
+      | grep -iv '^syp-prototype' | sort -f
+  } > "$scratch/lock"
+
+  if [ -f "$LOCK_FILE" ] && diff -q "$LOCK_FILE" "$scratch/lock" >/dev/null; then
+    note "no change; $LOCK_FILE already matches"
+    return 0
+  fi
+  mv "$scratch/lock" "$LOCK_FILE"
+  note "wrote $LOCK_FILE — review the diff before committing it"
+}
+
 unwire() {
   if [ ! -e "$LINK" ] && [ ! -L "$LINK" ]; then
     note "nothing to remove at $LINK"
@@ -86,10 +129,12 @@ unwire() {
 case "${1:-}" in
   wire) wire ;;
   unwire) unwire ;;
+  relock) relock ;;
   *)
-    printf 'usage: %s {wire|unwire}\n' "$(basename "$0")" >&2
+    printf 'usage: %s {wire|unwire|relock}\n' "$(basename "$0")" >&2
     printf '\n  wire    install into %s and link it into %s\n' "$VENV_DIR" "$BIN_DIR" >&2
     printf '  unwire  remove that link\n' >&2
+    printf '  relock  re-resolve dependencies and rewrite requirements.lock\n' >&2
     printf '\nOverride with SYPY_VENV_DIR / SYPY_BIN_DIR.\n' >&2
     exit 2
     ;;
