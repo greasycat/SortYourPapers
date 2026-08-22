@@ -8,7 +8,7 @@ import pytest
 from conftest import write_pdf
 
 from syp_prototype.db import Paper
-from syp_prototype.library import Library, LibraryError
+from syp_prototype.library import FilingMode, Library, LibraryError
 from syp_prototype.naming import link_name, new_paper_id, store_name
 
 
@@ -691,3 +691,77 @@ def test_retagging_one_of_two_look_alikes_moves_the_right_one(
     assert os.path.realpath(moved[0] / moved[0].name) == os.path.realpath(
         library.document_dir(library.db.get(second.file_id))
     )
+
+
+def test_a_crash_between_filing_and_recording_is_found_and_recovered(
+    library: Library, tmp_path: Path
+) -> None:
+    """The window filing is built around, made recoverable.
+
+    The file is put down before the row is written, on the reasoning that a
+    folder with no row is the better half to be left holding. That only holds if
+    something can find such a folder — otherwise the document is on disk and
+    invisible to every command, and in move mode it is the only copy.
+    """
+    paper = _paper(["AI", "Transformers"])
+    source = write_pdf(tmp_path / "src" / "raw.pdf", "text")
+
+    # Exactly the crash: the file lands, the row never does.
+    library.place_file(paper, source, FilingMode.MOVE)
+    assert not source.exists(), "move mode: the store copy is the only one"
+    assert library.db.count() == 0
+
+    assert library.db.all_papers() == []
+    assert [d.name for d in library.orphans()] == [paper.store_name]
+
+    adopted = library.adopt(library.document_dir(paper))
+
+    assert adopted.file_id == paper.file_id, "the id in the folder name is kept"
+    assert adopted.tags == ["AI", "Transformers"], "and so are the tags"
+    assert library.store_path(adopted).is_file()
+    assert library.db.find_by_content_hash(adopted.content_hash) == paper.file_id
+    assert library.orphans() == [], "nothing orphaned once adopted"
+
+
+def test_an_adopted_document_is_reachable_through_the_tree(
+    library: Library, tmp_path: Path
+) -> None:
+    paper = _paper(["AI"])
+    library.place_file(paper, write_pdf(tmp_path / "src" / "raw.pdf", "text"), FilingMode.MOVE)
+
+    adopted = library.adopt(library.document_dir(paper))
+
+    links = [p for p in library.tree_dir.rglob("*") if p.is_symlink()]
+    assert len(links) == 1
+    assert os.path.realpath(links[0]) == os.path.realpath(library.document_dir(adopted))
+
+
+def test_a_healthy_library_reports_no_orphans(library: Library, tmp_path: Path) -> None:
+    library.file_paper(_paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text"))
+
+    assert library.orphans() == []
+    assert library.missing_files() == []
+
+
+def test_a_folder_that_is_not_a_store_folder_is_refused(
+    library: Library, tmp_path: Path
+) -> None:
+    library.store_dir.mkdir(parents=True, exist_ok=True)
+    stray = library.store_dir / "notes-i-put-here"
+    stray.mkdir()
+
+    assert [d.name for d in library.orphans()] == ["notes-i-put-here"]
+    with pytest.raises(LibraryError, match="not a store folder"):
+        library.adopt(stray)
+
+
+def test_an_ambiguous_folder_is_refused_rather_than_guessed(
+    library: Library, tmp_path: Path
+) -> None:
+    paper = _paper(["AI"])
+    library.place_file(paper, write_pdf(tmp_path / "src" / "raw.pdf", "text"), FilingMode.MOVE)
+    # A second PDF beside it: which one is the document is not this tool's guess.
+    write_pdf(library.document_dir(paper) / "appendix.pdf", "extra")
+
+    with pytest.raises(LibraryError, match="expected exactly one"):
+        library.adopt(library.document_dir(paper))

@@ -127,6 +127,25 @@ supplements, a scanned appendix — gets the same treatment. All of it is backed
 up with the document, follows it through a re-tag, and is deleted with it, which
 is why `sypy remove` asks first.
 
+## When the two halves disagree
+
+```bash
+sypy fsck            # what is wrong
+sypy fsck --adopt    # bring orphaned folders back in
+```
+
+Filing puts a document's file down before writing its row, so that an
+interruption leaves a folder nothing points at rather than a row pointing at
+nothing. That is the better half to be left holding, but only because `fsck`
+can find it: an unclaimed folder is otherwise absent from `list`, from the tree,
+from de-duplication, and from `remove` — and under `--mode move` it is the only
+copy of the document.
+
+`--adopt` gives such a folder a row. The id and tags come back from its name and
+the hash from its bytes; title, authors, and year do not, because they only ever
+lived in the database. Re-ingesting does **not** heal an orphan — ids are minted
+fresh, so it just files a second copy.
+
 ## Editing a stored file
 
 Annotating or re-saving a file in the store keeps its name but changes its
@@ -163,6 +182,7 @@ sypy retag <id> "Systems/Databases"    # re-tag: renames the file, moves the lin
 sypy note <id>                         # open this document's notes ($EDITOR)
 sypy remove <id>                       # delete link, folder, and record (asks first)
 sypy scan                              # refresh hashes of files edited in place
+sypy fsck [--adopt]                    # check the store and database agree
 sypy tree                              # rebuild the symlink tree from the database
 
 ./prototype/scripts/sypy-path unwire   # remove the link

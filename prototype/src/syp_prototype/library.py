@@ -28,7 +28,7 @@ from typing import Sequence
 
 from .db import Paper, PaperDb
 from .discovery import file_id as hash_file
-from .naming import disambiguate, link_name, store_name
+from .naming import disambiguate, link_name, parse_store_name, store_name
 
 STORE_DIR = "store"
 NOTE_FILE = "notes.md"
@@ -169,8 +169,12 @@ class Library:
         database is only touched once the file work is done.
 
         The file lands before the database write, so a crash leaves a file in
-        the store with no row rather than a row pointing at nothing. The first
-        is repairable by re-ingesting; the second is a dangling reference.
+        the store with no row rather than a row pointing at nothing — a folder
+        that exists but is not claimed, rather than a claim on nothing.
+
+        Re-ingesting does not heal it: ids are minted fresh, so a second attempt
+        builds a second folder and the first is left behind. `sypy fsck` is what
+        finds those folders and adopts them.
         """
         target = self.place_file(paper, source, mode)
         self.record([paper])
@@ -405,6 +409,69 @@ class Library:
                 if not entry.is_symlink() and not name.startswith("."):
                     found.append(entry)
         return sorted(found)
+
+    def orphans(self) -> list[Path]:
+        """Store folders with no row — documents the library cannot see.
+
+        The counterpart to `missing_files`. Filing puts the file down before
+        recording it, so anything that interrupts the pass between the two
+        leaves a folder nothing points at: absent from `list`, from the tree,
+        from dedupe, and from `remove`. Without this it is found only by
+        looking in the store by hand.
+        """
+        if not self.store_dir.is_dir():
+            return []
+        known = {paper.store_name for paper in self.db.all_papers()}
+        return sorted(
+            entry
+            for entry in self.store_dir.iterdir()
+            if entry.is_dir() and not entry.is_symlink() and entry.name not in known
+        )
+
+    def adopt(self, directory: Path) -> Paper:
+        """Give an orphaned store folder a row, so the library can see it again.
+
+        Identity, tags, and the content hash come back — the folder name carries
+        the first two and the file carries the third. Title, authors, and year
+        do not: they only ever lived in the database. The document becomes
+        visible, de-duplicated, and re-taggable, named by its file.
+
+        Raises:
+            LibraryError: if the folder is not named like a store folder, or
+                does not hold exactly one document.
+        """
+        try:
+            file_id, tags = parse_store_name(directory.name)
+        except ValueError as err:
+            raise LibraryError(f"{directory.name} is not a store folder") from err
+
+        documents = [
+            entry
+            for entry in sorted(directory.iterdir())
+            if entry.is_file() and entry.suffix.lower() == ".pdf"
+        ]
+        if len(documents) != 1:
+            raise LibraryError(
+                f"{directory.name} holds {len(documents)} documents; "
+                "expected exactly one"
+            )
+
+        document = documents[0]
+        stat = document.stat()
+        paper = Paper(
+            file_id=file_id,
+            content_hash=hash_file(document),
+            store_name=directory.name,
+            document_name=document.name,
+            original_name=document.name,
+            source_path=str(document),
+            size_bytes=stat.st_size,
+            stored_mtime_ms=int(stat.st_mtime * 1000),
+            tags=tags,
+        )
+        self.db.upsert(paper)
+        self._link(paper)
+        return paper
 
     def missing_files(self) -> list[Paper]:
         """Papers the database knows about whose file is gone from the store."""

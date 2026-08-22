@@ -13,7 +13,7 @@ from .ingest import ingest_folder
 import os
 import subprocess
 
-from .library import FilingMode, Library
+from .library import FilingMode, Library, LibraryError
 from .llm import OpenAiClient
 from .naming import split_category
 from .registry import RegistryError, WatchEntry, load_registry, registry_path
@@ -230,6 +230,58 @@ def migrate_store(
         )
         library.rebuild_tree()
         typer.echo("tree rebuilt")
+
+
+@app.command()
+def fsck(
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    adopt: bool = typer.Option(
+        False, "--adopt", help="Give orphaned folders a row instead of only listing them."
+    ),
+) -> None:
+    """Check the store and the database against each other.
+
+    Reports documents whose file is gone, and folders the database does not know
+    about — which is what an interrupted pass leaves behind, and what nothing
+    else can find.
+    """
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        missing = library.missing_files()
+        orphans = library.orphans()
+
+        for paper in missing:
+            typer.echo(
+                f"  missing: {paper.file_id} -> {paper.store_name} is not in the store",
+                err=True,
+            )
+
+        for directory in orphans:
+            if not adopt:
+                typer.echo(f"  orphan : {directory.name}", err=True)
+                continue
+            try:
+                paper = library.adopt(directory)
+            except LibraryError as err:
+                typer.echo(f"  orphan : {directory.name} — {err}", err=True)
+                continue
+            typer.echo(f"  adopted: {paper.file_id}  {paper.document_name}")
+
+        if not missing and not orphans:
+            typer.echo(f"{library.db.count()} document(s); store and database agree")
+            return
+
+        typer.echo(
+            f"\n{library.db.count()} document(s); "
+            f"{len(missing)} missing, {len(orphans)} orphaned"
+        )
+        if orphans and not adopt:
+            typer.echo("re-run with --adopt to bring the orphaned folders back in.")
+            typer.echo(
+                "Their title, authors, and year are not recoverable — those "
+                "lived only in the database."
+            )
+        raise typer.Exit(code=1)
 
 
 @app.command()
