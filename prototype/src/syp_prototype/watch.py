@@ -106,6 +106,16 @@ async def watch(
                 continue
 
             reports.append(report)
+            if report.rescan and report.rescan.changed:
+                log.info(
+                    "%d stored file(s) changed on disk; hashes refreshed",
+                    len(report.rescan.changed),
+                )
+            if report.rescan and report.rescan.missing:
+                log.warning(
+                    "%d document(s) missing from the store",
+                    len(report.rescan.missing),
+                )
             log.info(
                 "%s %d document(s), %d already known, %d failed",
                 "filed" if mode.writes else "would file",

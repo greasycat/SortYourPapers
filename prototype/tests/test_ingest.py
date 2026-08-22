@@ -293,3 +293,57 @@ async def test_steering_is_read_once_so_concurrent_batches_see_the_same_library(
 
     assert len(client.seen_categories) == 2, "batch size 2 over 4 documents"
     assert all(seen == ["Medicine/Radiology"] for seen in client.seen_categories)
+
+
+async def test_an_edited_document_is_recognised_without_a_manual_scan(
+    settings: Settings, library: Library
+) -> None:
+    # The whole point of reconciling on the way in: nobody has to remember to
+    # run `sypy scan` for the library to recognise what it already holds.
+    source = write_pdf(settings.input_dir / "a.pdf", "attention")
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+    source.unlink()
+
+    stored = library.store_dir / library.db.all_papers()[0].store_name
+    stored.write_bytes(stored.read_bytes() + b"\n% annotated\n")
+    # The annotated copy comes back, as it would from a re-download.
+    (settings.input_dir / "annotated.pdf").write_bytes(stored.read_bytes())
+
+    client = FakeLlmClient()
+    report = await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert client.batches == [], "the edited copy should not reach the model"
+    assert report.skipped_already_known == 1
+    assert library.db.count() == 1, "no duplicate was created"
+    assert report.rescan is not None and len(report.rescan.changed) == 1
+
+
+async def test_reconciling_a_quiet_library_rereads_nothing(
+    settings: Settings, library: Library
+) -> None:
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+
+    write_pdf(settings.input_dir / "b.pdf", "second")
+    report = await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+
+    assert report.rescan is not None
+    assert report.rescan.checked == 1, "the one already-filed document"
+    assert report.rescan.rehashed == 0, "nothing changed, so nothing is reread"
+
+
+async def test_an_unreadable_store_does_not_stop_the_pass(
+    settings: Settings, library: Library, monkeypatch
+) -> None:
+    # Failing to reconcile risks a duplicate; refusing to run files nothing at
+    # all. The pass continues.
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+
+    def boom() -> None:
+        raise OSError("store is unreadable")
+
+    monkeypatch.setattr(library, "rescan", boom)
+    report = await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+
+    assert report.rescan is None
+    assert report.processed == 1, "the document should still have been filed"

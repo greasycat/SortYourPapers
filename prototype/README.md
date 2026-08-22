@@ -75,12 +75,17 @@ bytes, which makes the recorded hash stale. That matters because the hash is how
 the library recognises a document it already holds: left stale, the edited copy
 arriving in a watched folder later would be ingested a second time.
 
-`sypy scan` fixes that. It compares each stored file's size and mtime against
-what was recorded and only reads the ones that moved, so a quiet library costs
-one stat per document rather than a full re-read. Changed files get a fresh
-hash; a file that vanished is reported rather than silently dropped.
+Every ingest reconciles the store before deciding what is already known, so
+this is handled without anyone remembering to do it — including under the
+watcher. It compares each stored file's size and mtime against what was recorded
+and only reads the ones that moved, so a quiet library costs one stat per
+document rather than a full re-read. Changed files get a fresh hash; a file that
+vanished is reported rather than silently dropped. A store that cannot be read is
+reported and stepped over, because failing to reconcile risks a duplicate while
+refusing to run files nothing at all.
 
-It is not automatic — nothing runs it for you.
+`sypy scan` runs the same reconciliation on its own, for checking a library
+without ingesting into it.
 
 ## Usage
 
@@ -159,14 +164,18 @@ and the correct spelling wins when both are set.
 - Only OpenAI is wired up, because that is the key the repo carries.
 - No resumable run state beyond the database: an interrupted pass keeps the
   papers it filed and redoes the batch it was in the middle of.
-- A preview run still creates an empty `papers.duckdb`, though it writes no rows.
+- A preview moves no files, but it does reconcile: a stored file edited in
+  place has its hash refreshed even under `--mode preview`.
 - Preview and apply are separate model calls, so the categories a preview shows
   are not always the ones a later run produces.
 - `remove` deletes the stored file, which is the only copy when the document
   arrived by move. There is no unfile-but-keep option.
 - Category steering sends at most 200 existing paths; a larger library sends its
   alphabetically first.
-- `sypy scan` has to be run by hand; the watcher does not call it.
+- While the watcher is mid-pass it holds the database lock, so a `sypy`
+  command run at that moment fails rather than waiting. Between passes,
+  which is nearly always, it does not.
+- The service log has no timestamps, so restarts are hard to tell apart.
 - Editing the tree by hand does not work: links are relative, so moving one to a
   different depth breaks it, and `sypy tree` reverts hand edits. A real file
   placed in the tree is deleted by the next rebuild.

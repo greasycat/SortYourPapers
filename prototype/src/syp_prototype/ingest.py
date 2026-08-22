@@ -22,7 +22,7 @@ from .config import MAX_CONCURRENT_REQUESTS, MAX_STEERING_CATEGORIES, Settings
 from .db import Paper
 from .discovery import discover_pdfs, file_id as content_hash_of
 from .extract import ExtractionError, PaperText, extract_paper_text
-from .library import FilingMode, Library, LibraryError, PlannedFiling
+from .library import FilingMode, Library, LibraryError, PlannedFiling, RescanReport
 from .llm import KeywordPair, LlmClient, LlmError
 from .naming import new_paper_id, split_category, store_name
 
@@ -38,6 +38,8 @@ class IngestReport:
     skipped_already_known: int = 0
     skipped_oversized: list[Path] = field(default_factory=list)
     failed: list[tuple[Path, str]] = field(default_factory=list)
+    # What reconciling the store against the database found on the way in.
+    rescan: RescanReport | None = None
 
     @property
     def processed(self) -> int:
@@ -53,6 +55,7 @@ async def ingest_folder(
 ) -> IngestReport:
     """Ingest every not-yet-known document in the input folder."""
     report = IngestReport()
+    report.rescan = _reconcile_store(library)
     prepared = _prepare_papers(settings, library, report)
     if not prepared:
         return report
@@ -136,6 +139,25 @@ def _record(
         report.filed.append(library.file_paper(paper, paper_text.path, mode))
     except (LibraryError, OSError) as err:
         report.failed.append((paper_text.path, str(err)))
+
+
+def _reconcile_store(library: Library) -> RescanReport | None:
+    """Refresh recorded hashes before deciding what the library already holds.
+
+    Whether a document is already known is read from those hashes, and a file
+    edited in the store leaves its own stale — so without this an annotated copy
+    arriving later is ingested a second time. Size and mtime gate the work, so a
+    library nothing has touched costs one stat per document.
+
+    A store that cannot be read is reported and stepped over rather than
+    stopping the pass: failing to reconcile risks a duplicate, while refusing to
+    run means nothing is filed at all.
+    """
+    try:
+        return library.rescan()
+    except OSError as err:
+        log.warning("could not reconcile the store: %s; continuing", err)
+        return None
 
 
 def _prepare_papers(

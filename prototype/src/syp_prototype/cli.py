@@ -53,6 +53,11 @@ def ingest(
             f"{report.skipped_already_known} already known; "
             f"{len(report.skipped_oversized)} oversized; {len(report.failed)} failed"
         )
+        if report.rescan and report.rescan.changed:
+            typer.echo(
+                f"  ({len(report.rescan.changed)} stored file(s) changed on disk; "
+                "hashes refreshed)"
+            )
         for filing in report.filed or report.planned:
             typer.echo(f"  {filing.describe()}")
         for path, reason in report.failed:
