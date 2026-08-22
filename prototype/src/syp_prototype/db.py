@@ -89,6 +89,12 @@ _MIGRATIONS: list[tuple[str, str]] = [
         ALTER TABLE papers ADD COLUMN IF NOT EXISTS from_page_images BOOLEAN;
         """,
     ),
+    (
+        "0004_document_folder",
+        """
+        ALTER TABLE papers ADD COLUMN IF NOT EXISTS document_name TEXT;
+        """,
+    ),
 ]
 
 
@@ -98,7 +104,11 @@ class Paper:
 
     file_id: str
     content_hash: str
+    # The document's folder in the store, `<id>__<Tag>__<Tag>`. It holds the
+    # document and anything its owner keeps beside it.
     store_name: str
+    # The document file inside that folder.
+    document_name: str = ""
     original_name: str | None = None
     source_path: str | None = None
     # Size and mtime of the file in the store, as last observed. Together they
@@ -228,7 +238,7 @@ class PaperDb:
             """
             SELECT file_id, content_hash, store_name, original_name, source_path,
                    size_bytes, pages_read, title, year, stored_mtime_ms,
-                   from_page_images
+                   from_page_images, document_name
             FROM papers WHERE file_id = ?
             """,
             [file_id],
@@ -242,7 +252,7 @@ class PaperDb:
             """
             SELECT file_id, content_hash, store_name, original_name, source_path,
                    size_bytes, pages_read, title, year, stored_mtime_ms,
-                   from_page_images
+                   from_page_images, document_name
             FROM papers ORDER BY file_id
             """
         ).fetchall()
@@ -318,6 +328,7 @@ class PaperDb:
             year=row[8],
             stored_mtime_ms=row[9],
             from_page_images=bool(row[10]),
+            document_name=row[11] or "",
             tags=self._ordered(file_id, "paper_tags", "tag"),
             authors=self._ordered(file_id, "paper_authors", "name"),
             keywords=[
@@ -350,15 +361,17 @@ class PaperDb:
             self._conn.execute(
                 """
                 INSERT INTO papers (
-                    file_id, content_hash, store_name, original_name, source_path,
-                    size_bytes, stored_mtime_ms, pages_read, title, year,
-                    from_page_images, created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    file_id, content_hash, store_name, document_name,
+                    original_name, source_path, size_bytes, stored_mtime_ms,
+                    pages_read, title, year, from_page_images,
+                    created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     paper.file_id,
                     paper.content_hash,
                     paper.store_name,
+                    paper.document_name,
                     paper.original_name,
                     paper.source_path,
                     paper.size_bytes,
@@ -414,7 +427,7 @@ class PaperDb:
                 )
 
     def set_tags(self, file_id: str, tags: list[str], store_name: str) -> None:
-        """Re-tag a paper and record its new store name."""
+        """Re-tag a document and record the new name of its store folder."""
         with self._transaction():
             self._replace_ordered(file_id, "paper_tags", "tag", tags)
             self._conn.execute(
@@ -439,6 +452,20 @@ class PaperDb:
                 WHERE file_id = ?
                 """,
                 [content_hash, size_bytes, mtime_ms, now_ms(), file_id],
+            )
+
+    def set_store_layout(
+        self, file_id: str, store_name: str, document_name: str
+    ) -> None:
+        """Record where a document's folder and file now are."""
+        with self._transaction():
+            self._conn.execute(
+                """
+                UPDATE papers
+                SET store_name = ?, document_name = ?, updated_at_ms = ?
+                WHERE file_id = ?
+                """,
+                [store_name, document_name, now_ms(), file_id],
             )
 
     def set_attribute(self, file_id: str, key: str, value: str | None) -> None:

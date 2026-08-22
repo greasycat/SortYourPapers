@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ from conftest import write_pdf
 
 from syp_prototype.db import Paper
 from syp_prototype.library import Library, LibraryError
-from syp_prototype.naming import new_paper_id, store_name
+from syp_prototype.naming import link_name, new_paper_id, store_name
 
 
 def _paper(tags: list[str], **overrides) -> Paper:
@@ -15,17 +16,28 @@ def _paper(tags: list[str], **overrides) -> Paper:
     fields = {
         "file_id": paper_id,
         "content_hash": "hash-" + paper_id,
-        "store_name": store_name(paper_id, tags),
+        # The folder carries id and tags; the file inside carries the readable
+        # name, exactly as ingest builds them.
+        "store_name": store_name(paper_id, tags, suffix=""),
         "title": "Attention Is All You Need",
         "authors": ["Ashish Vaswani"],
         "year": 2017,
         "tags": tags,
     }
     fields.update(overrides)
+    fields.setdefault(
+        "document_name",
+        link_name(
+            fallback=f"{fields['store_name']}.pdf",
+            authors=fields.get("authors") or [],
+            year=fields.get("year"),
+            title=fields.get("title"),
+        ),
+    )
     return Paper(**fields)
 
 
-def test_filing_moves_the_file_into_one_flat_store(
+def test_filing_gives_the_document_its_own_folder_in_the_store(
     library: Library, tmp_path: Path
 ) -> None:
     source = write_pdf(tmp_path / "src" / "raw.pdf", "text")
@@ -34,9 +46,12 @@ def test_filing_moves_the_file_into_one_flat_store(
     filing = library.file_paper(paper, source)
 
     assert not source.exists(), "the source should have been moved, not copied"
-    assert filing.store_path.parent == library.store_dir
-    assert filing.store_path.name == paper.store_name
+    # The folder is the document's home; the file sits inside it.
+    assert filing.store_path.parent == library.store_dir / paper.store_name
+    assert filing.store_path.name == paper.document_name
     assert filing.store_path.is_file()
+    assert paper.store_name.startswith(paper.file_id)
+    assert paper.store_name.endswith("__AI__Transformers")
 
 
 def test_the_tree_is_symlinks_pointing_back_into_the_store(
@@ -48,17 +63,13 @@ def test_the_tree_is_symlinks_pointing_back_into_the_store(
     filing = library.file_paper(paper, source)
 
     link = filing.link_path
+    # One link per document, pointing at its folder — so opening it shows the
+    # document together with anything kept beside it.
     assert link.is_symlink()
-    # Each document sits in its own folder, named after it, so notes and
-    # supplements have somewhere to live beside it.
-    assert link.parent == (
-        library.tree_dir
-        / "AI"
-        / "Transformers"
-        / "vaswani_2017_attention-is-all-you-need"
-    )
-    assert link.name == "vaswani_2017_attention-is-all-you-need.pdf"
-    assert link.resolve() == filing.store_path.resolve()
+    assert link.parent == library.tree_dir / "AI" / "Transformers"
+    assert link.name == "vaswani_2017_attention-is-all-you-need"
+    assert link.resolve() == library.document_dir(paper).resolve()
+    assert (link / paper.document_name).is_file()
 
 
 def test_links_are_relative_so_the_library_can_be_moved(
@@ -73,7 +84,8 @@ def test_links_are_relative_so_the_library_can_be_moved(
     relocated = moved / filing.link_path.relative_to(library.root)
 
     assert relocated.is_symlink()
-    assert relocated.resolve().is_file(), "relative link should survive the move"
+    assert relocated.resolve().is_dir(), "relative link should survive the move"
+    assert any(relocated.iterdir()), "and still lead to the document"
 
 
 def test_a_paper_with_no_usable_metadata_links_under_its_store_name(
@@ -92,27 +104,22 @@ def test_retagging_renames_the_file_and_moves_the_link(
 ) -> None:
     source = write_pdf(tmp_path / "src" / "raw.pdf", "text")
     filing = library.file_paper(_paper(["AI", "Transformers"]), source)
-    old_store_path = filing.store_path
+    old_store_path = filing.store_path.parent
 
     updated = library.retag(filing.file_id, ["Systems", "Databases"])
 
     assert not old_store_path.exists()
-    assert (library.store_dir / updated.store_name).is_file()
-    assert updated.store_name.endswith("__Systems__Databases.pdf")
+    assert (library.store_dir / updated.store_name).is_dir()
+    assert (library.store_dir / updated.store_name / updated.document_name).is_file()
+    assert updated.store_name.endswith("__Systems__Databases")
     assert updated.store_name.startswith(filing.file_id), "the id must not change"
-    new_link = (
-        library.tree_dir
-        / "Systems"
-        / "Databases"
-        / filing.link_path.parent.name
-        / filing.link_path.name
-    )
+    new_link = library.tree_dir / "Systems" / "Databases" / filing.link_path.name
     assert new_link.is_symlink()
     assert not (library.tree_dir / "AI").exists(), "the emptied branch should be pruned"
 
 
 def test_retagging_an_unknown_paper_is_refused(library: Library) -> None:
-    with pytest.raises(LibraryError, match="no paper"):
+    with pytest.raises(LibraryError, match="no document"):
         library.retag("ffffffffffff", ["AI"])
 
 
@@ -146,7 +153,7 @@ def test_rebuilding_the_tree_restores_it_after_deletion(
     assert linked == 3
     links = [p for p in library.tree_dir.rglob("*") if p.is_symlink()]
     assert len(links) == 3
-    assert all(link.resolve().is_file() for link in links)
+    assert all(link.resolve().is_dir() for link in links)
 
 
 def test_rebuilding_disambiguates_two_papers_that_want_the_same_link_name(
@@ -359,18 +366,14 @@ def test_a_note_follows_its_document_when_it_is_retagged(
     filing = library.file_paper(
         _paper(["AI", "Transformers"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
     )
-    (filing.link_path.parent / "my-notes.md").write_text("notes")
+    (filing.link_path / "my-notes.md").write_text("notes")
 
     library.retag(filing.file_id, ["Systems", "Databases"])
 
     moved = (
-        library.tree_dir
-        / "Systems"
-        / "Databases"
-        / filing.link_path.parent.name
-        / "my-notes.md"
+        library.tree_dir / "Systems" / "Databases" / filing.link_path.name / "my-notes.md"
     )
-    assert moved.is_file(), "the whole folder should move, not just the link"
+    assert moved.is_file(), "the note lives in the store folder and moves with it"
     assert moved.read_text() == "notes"
     assert not (library.tree_dir / "AI").exists(), "the emptied branch is pruned"
 
@@ -387,14 +390,10 @@ def test_the_link_still_resolves_after_a_retag_changes_depth(
 
     updated = library.retag(filing.file_id, ["Systems"])
 
-    link = (
-        library.tree_dir
-        / "Systems"
-        / filing.link_path.parent.name
-        / filing.link_path.name
-    )
+    link = library.tree_dir / "Systems" / filing.link_path.name
     assert link.is_symlink()
     assert link.resolve() == (library.store_dir / updated.store_name).resolve()
+    assert (link / updated.document_name).is_file(), "and still reaches the document"
 
 
 def test_removing_leaves_a_folder_that_still_holds_something(
@@ -424,3 +423,77 @@ def test_removing_takes_the_folder_when_it_is_empty(
 
     assert not filing.link_path.parent.exists()
     assert not (library.tree_dir / "AI").exists()
+
+
+def test_migrating_a_flat_store_gives_each_document_a_folder(
+    library: Library, tmp_path: Path
+) -> None:
+    """A library written before documents had folders is moved into them."""
+    paper = _paper(["AI", "Transformers"])
+    # Recreate the old layout: the document loose in the store, no inner name.
+    flat_name = f"{paper.store_name}.pdf"
+    library.store_dir.mkdir(parents=True, exist_ok=True)
+    write_pdf(library.store_dir / flat_name, "text")
+    library.db.upsert(replace(paper, store_name=flat_name, document_name=""))
+
+    moved = library.migrate_store_layout()
+
+    assert moved == [paper.file_id]
+    migrated = library.db.get(paper.file_id)
+    assert migrated.store_name == paper.store_name, "the folder keeps id and tags"
+    assert migrated.document_name == "vaswani_2017_attention-is-all-you-need.pdf"
+    assert library.store_path(migrated).is_file()
+    assert not (library.store_dir / flat_name).exists(), "the flat file is gone"
+
+
+def test_migrating_twice_changes_nothing_the_second_time(
+    library: Library, tmp_path: Path
+) -> None:
+    # Idempotent, so an interrupted migration is finished by running it again.
+    paper = _paper(["AI"])
+    flat_name = f"{paper.store_name}.pdf"
+    library.store_dir.mkdir(parents=True, exist_ok=True)
+    write_pdf(library.store_dir / flat_name, "text")
+    library.db.upsert(replace(paper, store_name=flat_name, document_name=""))
+
+    first = library.migrate_store_layout()
+    second = library.migrate_store_layout()
+
+    assert first == [paper.file_id]
+    assert second == [], "a document already in a folder is left alone"
+
+
+def test_migration_leaves_an_already_foldered_document_untouched(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    note = filing.store_path.parent / "notes.md"
+    note.write_text("keep me")
+
+    assert library.migrate_store_layout() == []
+    assert note.read_text() == "keep me"
+
+
+def test_a_note_lives_in_the_store_so_it_outlives_the_tree(
+    library: Library, tmp_path: Path
+) -> None:
+    """The reason the folder moved into the store.
+
+    A note kept only in the tree is lost when the tree is deleted, and the tree
+    is disposable by design.
+    """
+    import shutil as _shutil
+
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    paper = library.db.get(filing.file_id)
+    library.note_path(paper).write_text("why I saved this")
+
+    _shutil.rmtree(library.tree_dir)
+    library.rebuild_tree()
+
+    assert library.note_path(paper).read_text() == "why I saved this"
+    assert (filing.link_path / "notes.md").is_file(), "and is reachable through the tree"

@@ -240,10 +240,12 @@ async def test_filed_papers_land_in_the_store_and_the_tree(
     report = await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.MOVE)
 
     filing = report.filed[0]
-    assert filing.store_path.parent == library.store_dir
-    assert "__AI__Transformers.pdf" in filing.store_path.name
+    # The document lands in its own folder, and the tree links to the folder.
+    assert filing.store_path.parent.name.endswith("__AI__Transformers")
+    assert filing.store_path.parent.parent == library.store_dir
     assert filing.link_path.is_symlink()
-    assert filing.link_path.resolve() == filing.store_path.resolve()
+    assert filing.link_path.resolve() == filing.store_path.parent.resolve()
+    assert (filing.link_path / filing.store_path.name).is_file()
 
 
 async def test_copy_mode_leaves_the_source_folder_untouched(
@@ -375,7 +377,8 @@ async def test_an_edited_document_is_recognised_without_a_manual_scan(
     await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
     source.unlink()
 
-    stored = library.store_dir / library.db.all_papers()[0].store_name
+    paper = library.db.all_papers()[0]
+    stored = library.store_path(paper)
     stored.write_bytes(stored.read_bytes() + b"\n% annotated\n")
     # The annotated copy comes back, as it would from a re-download.
     (settings.input_dir / "annotated.pdf").write_bytes(stored.read_bytes())

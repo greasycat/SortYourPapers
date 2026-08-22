@@ -41,19 +41,23 @@ folder tree is made only of symlinks over it:
 library/
   papers.duckdb
   store/
-    5112ee75ddcf__Machine Learning__Deep Learning__Transformers.pdf
+    5112ee75ddcf__Machine Learning__Deep Learning__Transformers/
+      vaswani_2017_attention-is-all-you-need.pdf
+      notes.md              <- yours, and as durable as the document
+      figure-3.png          <- likewise
   tree/
     Machine Learning/Deep Learning/Transformers/
-      vaswani_2017_attention-is-all-you-need/
-        vaswani_2017_attention-is-all-you-need.pdf -> ../../../../../store/5112ee75ddcf__...pdf
-        notes.md                                   (yours; nothing here touches it)
+      vaswani_2017_attention-is-all-you-need -> ../../../store/5112ee75ddcf__...
 ```
 
-Each document gets its own folder, named after it, so notes, figures, and
-supplements have somewhere to live beside it. A rebuild removes only the links
-and the folders they leave empty — anything else in the tree was put there by
-you and is left alone. Re-tagging moves the whole folder, so what you filed
-beside a document follows it.
+Every document has one home: a folder in the store holding the document and
+whatever you keep beside it. **That folder is the durable thing** — it is what
+gets backed up, what re-tagging renames, and what removal deletes.
+
+`tree/` is one symlink per document, pointing at that folder. It is a view and
+nothing else: delete it and `sypy tree` rebuilds it exactly, and because nothing
+lives there, a rebuild cannot lose anything. Opening a link in the tree opens the
+document together with its notes.
 
 The store filename is `<id>__<Tag>__<Tag>.pdf`. The id is permanent and the tags
 are not, so **re-tagging a paper is a rename plus a moved link** — no file is
@@ -92,6 +96,21 @@ document's own words.
 Needs poppler (`brew install poppler`), the same dependency the Rust pipeline
 already has. Without it, a scan is reported as a failure naming what to install.
 
+## Notes
+
+```bash
+sypy note <id>
+```
+
+Opens `notes.md` in the document's folder, creating it with the title as a
+heading. With no `$EDITOR` set it prints the path instead, so
+`$(sypy note <id>)` composes.
+
+Notes are just files in the folder, so anything else you put there — figures,
+supplements, a scanned appendix — gets the same treatment. All of it is backed
+up with the document, follows it through a re-tag, and is deleted with it, which
+is why `sypy remove` asks first.
+
 ## Editing a stored file
 
 Annotating or re-saving a file in the store keeps its name but changes its
@@ -125,7 +144,8 @@ sypy watch  --input ./inbox --mode copy     # keep doing it as documents arrive
 
 sypy list                              # what the library holds
 sypy retag <id> "Systems/Databases"    # re-tag: renames the file, moves the link
-sypy remove <id>                       # delete link, file, and record (asks first)
+sypy note <id>                         # open this document's notes ($EDITOR)
+sypy remove <id>                       # delete link, folder, and record (asks first)
 sypy scan                              # refresh hashes of files edited in place
 sypy tree                              # rebuild the symlink tree from the database
 
@@ -212,5 +232,6 @@ and the correct spelling wins when both are set.
 - Moving a link by hand still does not re-tag anything: links are relative, so
   moving one to a different depth breaks it, and a rebuild puts it back. Use
   `sypy retag`. Files you add to a document's folder are safe either way.
-- `sypy remove` leaves a document's folder in place when it still holds
-  something of yours, so an emptied branch can outlive its document.
+- `sypy remove` deletes the document's whole folder, including notes and
+  anything else kept in it. It confirms first.
+- A library made before documents had folders needs `sypy migrate-store` once.

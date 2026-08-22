@@ -1,11 +1,15 @@
-"""The library on disk: one flat store of files, and a symlink tree over it.
+"""The library on disk: a folder per document, and a symlink tree over them.
 
-Every PDF lives in exactly one place, `store/<id>__<Tag>__<Tag>.pdf`. The folder
-tree under `tree/` is made only of symlinks, so a paper can be re-tagged by
-renaming one file and moving one link, and the tree can be thrown away and
-rebuilt from the database whenever it drifts.
+Every document has exactly one home, `store/<id>__<Tag>__<Tag>/`, holding the
+document itself and whatever its owner keeps beside it — notes, figures,
+supplements. That folder is the durable thing.
 
-Links are relative, so the whole library can be moved without breaking.
+`tree/` is one symlink per document, pointing at that folder. It is a view and
+nothing else: it can be deleted and rebuilt at any time, and because nothing
+lives there, a rebuild cannot lose anything.
+
+Re-tagging renames the store folder, which carries its contents along, and the
+link is re-pointed. Links are relative, so the whole library can be moved.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from .discovery import file_id as hash_file
 from .naming import disambiguate, link_name, store_name
 
 STORE_DIR = "store"
+NOTE_FILE = "notes.md"
 TREE_DIR = "tree"
 DB_FILE = "papers.duckdb"
 
@@ -91,38 +96,43 @@ class Library:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    def store_path(self, paper: Paper) -> Path:
+    def document_dir(self, paper: Paper) -> Path:
+        """The document's folder in the store: its home, and its owner's."""
         return self.store_dir / paper.store_name
+
+    def store_path(self, paper: Paper) -> Path:
+        """The document file itself, inside its folder."""
+        return self.document_dir(paper) / paper.document_name
 
     def plan_filing(self, paper: Paper, source: Path) -> PlannedFiling:
         """Where a paper would land, without touching the filesystem."""
-        target = self.store_dir / paper.store_name
         return PlannedFiling(
             file_id=paper.file_id,
             source=source,
-            store_path=target,
+            store_path=self.store_path(paper),
             link_path=self._link_path(paper, taken=set()),
         )
 
     def place_file(
         self, paper: Paper, source: Path, mode: FilingMode = FilingMode.MOVE
     ) -> Path:
-        """Put a document's file into the store and stamp its observed stat.
+        """Create the document's folder and put its file inside.
 
-        Touches no database, so a pass can copy every file of a batch before
+        Touches no database, so a pass can place every file of a batch before
         taking the write lock once for all of them.
 
         Raises:
-            LibraryError: in preview mode, or if the store already holds the name.
+            LibraryError: in preview mode, or if the folder already exists.
         """
         if mode is FilingMode.PREVIEW:
             raise LibraryError("place_file called in preview mode")
 
-        target = self.store_dir / paper.store_name
-        self.store_dir.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            raise LibraryError(f"store already holds {target.name}")
+        directory = self.document_dir(paper)
+        if directory.exists():
+            raise LibraryError(f"store already holds {directory.name}")
+        directory.mkdir(parents=True)
 
+        target = directory / paper.document_name
         # `shutil` rather than `os.replace` because the source folder is often
         # on a different filesystem than the library, which `os.replace`
         # refuses.
@@ -165,46 +175,44 @@ class Library:
         )
 
     def retag(self, file_id: str, tags: list[str]) -> Paper:
-        """Give a paper new tags: rename it in the store and move its link.
+        """Give a document new tags.
+
+        Renames its folder in the store, so notes and supplements kept beside it
+        travel with it, and re-points the link. Nothing is copied and nothing in
+        the folder is touched.
 
         Raises:
-            LibraryError: if the paper is unknown or its file is missing.
+            LibraryError: if the document is unknown or its folder is missing.
         """
         paper = self.db.get(file_id)
         if paper is None:
-            raise LibraryError(f"no paper with id {file_id}")
+            raise LibraryError(f"no document with id {file_id}")
 
-        old_path = self.store_dir / paper.store_name
-        new_name = store_name(paper.file_id, tags, suffix=old_path.suffix or ".pdf")
-        new_path = self.store_dir / new_name
+        old_dir = self.document_dir(paper)
+        new_name = store_name(paper.file_id, tags, suffix="")
+        new_dir = self.store_dir / new_name
 
-        if not old_path.exists():
+        if not old_dir.is_dir():
             raise LibraryError(f"store is missing {paper.store_name}")
-        if new_path != old_path and new_path.exists():
+        if new_dir != old_dir and new_dir.exists():
             raise LibraryError(f"store already holds {new_name}")
 
-        retagged = replace(paper, tags=tags, store_name=new_name)
-        self._move_document_dir(
-            self._document_dir(paper, taken=set()),
-            self._document_dir(retagged, taken=set()),
-        )
-        if new_path != old_path:
-            os.replace(old_path, new_path)
+        self._unlink(paper)
+        if new_dir != old_dir:
+            os.replace(old_dir, new_dir)
         self.db.set_tags(file_id, tags, new_name)
 
         updated = self.db.get(file_id)
         assert updated is not None  # just written
-        # Re-pointed rather than left as it was: the folder may have changed
-        # depth, and the link inside it is relative.
         self._link(updated)
         return updated
 
     def remove(self, file_id: str) -> Paper:
-        """Take a document out of the library: link, stored file, and rows.
+        """Take a document out of the library: link, folder, and rows.
 
         The link goes first and the rows last, so an interruption leaves the
         library holding less than it claims rather than claiming more than it
-        holds. A stale row pointing at a deleted file is the harder state to
+        holds. A stale row pointing at a deleted folder is the harder state to
         notice.
 
         Raises:
@@ -214,14 +222,10 @@ class Library:
         if paper is None:
             raise LibraryError(f"no document with id {file_id}")
 
-        link = self._link_path(paper, taken=set())
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        # The folder goes only if it is empty. Anything still in it was put
-        # there by its owner and is not this command's to delete.
-        _prune_empty(link.parent, stop=self.tree_dir)
-
-        (self.store_dir / paper.store_name).unlink(missing_ok=True)
+        self._unlink(paper)
+        # The whole folder goes, including anything kept beside the document.
+        # That is why removal asks first.
+        shutil.rmtree(self.document_dir(paper), ignore_errors=True)
         self.db.delete(file_id)
         return paper
 
@@ -243,7 +247,7 @@ class Library:
 
         updates: list[tuple[str, str, int, int]] = []
         for paper in papers:
-            path = self.store_dir / paper.store_name
+            path = self.store_path(paper)
             if not path.exists():
                 report.missing.append(paper)
                 continue
@@ -267,6 +271,46 @@ class Library:
         self.db.set_stored_file_states(updates)
         return report
 
+    def note_path(self, paper: Paper) -> Path:
+        """Where a document's notes live: in its folder, beside it."""
+        return self.document_dir(paper) / NOTE_FILE
+
+    def migrate_store_layout(self) -> list[str]:
+        """Move documents from the old flat store into a folder each.
+
+        Libraries written before documents had folders hold
+        `store/<id>__<Tag>.pdf`. Each becomes `store/<id>__<Tag>/<name>.pdf`, so
+        the document has somewhere to keep notes beside it.
+
+        Idempotent and resumable: a document already in a folder is left alone,
+        so an interrupted run is finished by running it again. Returns the ids
+        it moved.
+        """
+        moved: list[str] = []
+        for paper in self.db.all_papers():
+            if paper.document_name and self.store_path(paper).is_file():
+                continue
+
+            flat = self.store_dir / paper.store_name
+            if not flat.is_file():
+                continue  # already a folder, or genuinely missing
+
+            folder_name = Path(paper.store_name).stem
+            suffix = Path(paper.store_name).suffix or ".pdf"
+            document_name = link_name(
+                fallback=f"{folder_name}{suffix}",
+                authors=paper.authors,
+                year=paper.year,
+                title=paper.title,
+                suffix=suffix,
+            )
+            folder = self.store_dir / folder_name
+            folder.mkdir(parents=True, exist_ok=True)
+            os.replace(flat, folder / document_name)
+            self.db.set_store_layout(paper.file_id, folder_name, document_name)
+            moved.append(paper.file_id)
+        return moved
+
     def existing_categories(self, limit: int | None = None) -> list[str]:
         """Category paths already in use, for steering a new document."""
         return self.db.tag_paths(limit=limit)
@@ -283,7 +327,7 @@ class Library:
         taken: set[Path] = set()
         linked = 0
         for paper in self.db.all_papers():
-            if not (self.store_dir / paper.store_name).exists():
+            if not self.store_path(paper).exists():
                 continue
             self._link(paper, taken=taken)
             linked += 1
@@ -294,88 +338,81 @@ class Library:
         return [
             paper
             for paper in self.db.all_papers()
-            if not (self.store_dir / paper.store_name).exists()
+            if not self.store_path(paper).exists()
         ]
 
     # ---- links -------------------------------------------------------------
 
-    def _document_dir(self, paper: Paper, taken: set[Path]) -> Path:
-        """The document's own folder in the tree, named after its link.
+    def _link_path(self, paper: Paper, taken: set[Path]) -> Path:
+        """Where this document's link belongs in the tree.
 
-        Each document gets a folder rather than sitting loose in its category,
-        so notes, figures, and supplements have somewhere to live beside it.
+        One link per document, named for the document and pointing at its folder
+        in the store — so opening it in the tree opens the document together
+        with everything kept beside it.
         """
         parent = self.tree_dir.joinpath(*paper.tags) if paper.tags else self.tree_dir
-        suffix = Path(paper.store_name).suffix or ".pdf"
         name = link_name(
             fallback=paper.store_name,
             authors=paper.authors,
             year=paper.year,
             title=paper.title,
-            suffix=suffix,
+            suffix="",
         )
-        stem = Path(name).stem
-        candidate = parent / stem
+        candidate = parent / name
         if candidate in taken:
-            candidate = parent / Path(disambiguate(name, paper.file_id)).stem
+            candidate = parent / disambiguate(name, paper.file_id)
         return candidate
-
-    def _link_path(self, paper: Paper, taken: set[Path]) -> Path:
-        """Where the document's symlink belongs: inside its own folder."""
-        directory = self._document_dir(paper, taken)
-        suffix = Path(paper.store_name).suffix or ".pdf"
-        return directory / f"{directory.name}{suffix}"
 
     def _link(self, paper: Paper, taken: set[Path] | None = None) -> Path:
         taken = taken if taken is not None else set()
-        directory = self._document_dir(paper, taken)
-        link = directory / f"{directory.name}{Path(paper.store_name).suffix or '.pdf'}"
-        directory.mkdir(parents=True, exist_ok=True)
+        link = self._link_path(paper, taken)
+        link.parent.mkdir(parents=True, exist_ok=True)
         if link.is_symlink() or link.exists():
             link.unlink()
-        target = self.store_dir / paper.store_name
-        link.symlink_to(os.path.relpath(target, link.parent))
-        taken.add(directory)
+        link.symlink_to(
+            os.path.relpath(self.document_dir(paper), link.parent),
+            target_is_directory=True,
+        )
+        taken.add(link)
         return link
 
-    def _move_document_dir(self, source: Path, destination: Path) -> None:
-        """Move a document's folder, keeping whatever the owner put in it.
-
-        Retagging moves the whole folder rather than just the link, so notes
-        filed beside a document follow it instead of being orphaned in the
-        branch it left.
-        """
-        if source == destination or not source.is_dir():
-            return
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
-            # Something already sits there; leave both rather than merging.
-            raise LibraryError(f"{destination} already exists")
-        os.replace(source, destination)
-        _prune_empty(source.parent, stop=self.tree_dir)
+    def _unlink(self, paper: Paper) -> None:
+        """Remove a document's link, and any branches it leaves empty."""
+        link = self._link_path(paper, taken=set())
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        _prune_empty(link.parent, stop=self.tree_dir)
 
 
 def _clear_links(root: Path) -> None:
     """Remove every symlink under `root`, and the folders left empty.
 
-    Regular files are left where they are. The tree is rebuildable precisely
-    because it holds nothing but links — anything else in it was put there by
-    its owner, and a rebuild is not a licence to delete it.
+    Never descends into a link: they point at store folders, and walking into
+    one would mean walking the library's real contents.
     """
     if not root.exists():
         return
-    deepest_first = sorted(
-        root.rglob("*"), key=lambda item: len(item.parts), reverse=True
-    )
-    for path in deepest_first:
-        if path.is_symlink():
-            path.unlink()
-    for path in deepest_first:
-        if path.is_dir() and not path.is_symlink():
-            try:
-                path.rmdir()
-            except OSError:
-                pass  # holds something that is not ours
+    directories: list[Path] = []
+    for parent, dirnames, filenames in os.walk(root, followlinks=False):
+        here = Path(parent)
+        directories.append(here)
+        for name in list(dirnames):
+            entry = here / name
+            if entry.is_symlink():
+                entry.unlink()
+                dirnames.remove(name)
+        for name in filenames:
+            entry = here / name
+            if entry.is_symlink():
+                entry.unlink()
+
+    for directory in sorted(directories, key=lambda item: len(item.parts), reverse=True):
+        if directory == root:
+            continue
+        try:
+            directory.rmdir()
+        except OSError:
+            pass  # holds something that is not ours
 
 
 def _prune_empty(directory: Path, stop: Path) -> None:

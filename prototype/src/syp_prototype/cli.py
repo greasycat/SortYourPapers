@@ -10,6 +10,9 @@ import typer
 
 from .config import ConfigError, resolve_api_key, resolve_settings
 from .ingest import ingest_folder
+import os
+import subprocess
+
 from .library import FilingMode, Library
 from .llm import OpenAiClient
 from .naming import split_category
@@ -130,6 +133,59 @@ def retag(
             typer.echo(f"error: {err}", err=True)
             raise typer.Exit(code=1) from err
         typer.echo(f"{paper.store_name}  [{' / '.join(paper.tags)}]")
+
+
+@app.command()
+def note(
+    file_id: str = typer.Argument(..., help="Document id, from `sypy list`."),
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+) -> None:
+    """Open a document's notes, creating them if they do not exist yet.
+
+    Notes live in the document's folder in the store, so they are backed up with
+    it, follow it when it is re-tagged, and are reachable through the tree.
+    """
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        paper = library.db.get(file_id)
+        if paper is None:
+            typer.echo(f"error: no document with id {file_id}", err=True)
+            raise typer.Exit(code=1)
+        if not library.document_dir(paper).is_dir():
+            typer.echo(f"error: {paper.store_name} is missing from the store", err=True)
+            raise typer.Exit(code=1)
+
+        path = library.note_path(paper)
+        if not path.exists():
+            title = paper.title or paper.original_name or paper.store_name
+            path.write_text(f"# {title}\n\n", encoding="utf-8")
+
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if editor:
+        # Split so EDITOR="code -w" works, and let the editor own the terminal.
+        subprocess.call([*editor.split(), str(path)])
+    else:
+        # No editor configured, so print the path for the caller to use.
+        typer.echo(path)
+
+
+@app.command("migrate-store")
+def migrate_store(
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+) -> None:
+    """Move a pre-folder library into a folder per document."""
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        moved = library.migrate_store_layout()
+        if not moved:
+            typer.echo("nothing to migrate; every document already has a folder")
+            return
+        for file_id in moved:
+            paper = library.db.get(file_id)
+            typer.echo(f"  {file_id} -> {paper.store_name}/{paper.document_name}")
+        typer.echo(f"moved {len(moved)} document(s) into folders")
+        library.rebuild_tree()
+        typer.echo("tree rebuilt")
 
 
 @app.command()

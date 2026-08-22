@@ -38,7 +38,7 @@ from .extract import ExtractionError, PaperText, extract_paper_text
 from .library import FilingMode, Library, LibraryError, PlannedFiling, RescanReport
 from .llm import KeywordPair, LlmClient, LlmError
 from .render import RenderError, render_pages
-from .naming import new_paper_id, split_category, store_name
+from .naming import link_name, new_paper_id, split_category, store_name
 
 log = logging.getLogger(__name__)
 
@@ -182,8 +182,16 @@ def _describe_paper(
         authors=pair.authors,
         keywords=pair.keywords,
     )
-    paper.store_name = store_name(
-        paper.file_id, tags, suffix=paper_text.path.suffix or ".pdf"
+    # The folder carries the id and tags; the file inside carries the readable
+    # name, so opening the folder shows something a person recognises.
+    suffix = paper_text.path.suffix or ".pdf"
+    paper.store_name = store_name(paper.file_id, tags, suffix="")
+    paper.document_name = link_name(
+        fallback=f"{paper.store_name}{suffix}",
+        authors=paper.authors,
+        year=paper.year,
+        title=paper.title,
+        suffix=suffix,
     )
     return paper
 
