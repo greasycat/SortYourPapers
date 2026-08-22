@@ -25,6 +25,20 @@ note() { printf '%s\n' "$1"; }
 
 is_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
 
+# The folder the installed agent watches, read back from its own plist so it
+# reflects what is actually running rather than what this invocation was asked
+# for.
+watched_folder_of_running_service() {
+  [ -f "$PLIST" ] || return 0
+  /usr/bin/python3 - "$PLIST" <<'PY' 2>/dev/null || true
+import plistlib, sys
+with open(sys.argv[1], "rb") as handle:
+    args = plistlib.load(handle).get("ProgramArguments", [])
+if "--input" in args:
+    print(args[args.index("--input") + 1])
+PY
+}
+
 install_service() {
   local watched="${1:-$HOME/Downloads}"
   local library="${2:-$HOME/Documents/sypy-library}"
@@ -36,8 +50,16 @@ install_service() {
     *) die "SYPY_MODE must be copy or move, got '$MODE'" ;;
   esac
 
-  # Reinstalling should replace cleanly rather than fail on the existing job.
+  # One agent, one label: installing for a different folder would replace the
+  # running service without saying so, leaving the user believing both folders
+  # were watched. Reinstalling the same folder is how config changes are picked
+  # up, so that stays allowed.
   if is_loaded; then
+    running_watched="$(watched_folder_of_running_service)"
+    if [ -n "$running_watched" ] && [ "$running_watched" != "$watched" ]; then
+      die "a service is already watching $running_watched
+  installing this one would silently replace it. Run '$(basename "$0") uninstall' first."
+    fi
     note "replacing the running service"
     launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
   fi

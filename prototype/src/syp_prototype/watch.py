@@ -19,6 +19,7 @@ from .discovery import Snapshot, snapshot_input
 from .ingest import IngestReport, ingest_folder
 from .library import FilingMode, Library
 from .llm import LlmClient
+from .watchlock import claim as claim_folders
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,11 @@ async def watch(
         raise NotADirectoryError(
             f"watch input folder does not exist: {settings.input_dir}"
         )
+
+    # Claimed before anything else happens. Two watchers sharing either folder
+    # file the same document twice, because each decides what is new before
+    # either writes.
+    claim = claim_folders(settings.input_dir, library.root)
 
     wake = asyncio.Event()
     observer = _start_observer(settings, wake)
@@ -126,6 +132,7 @@ async def watch(
     finally:
         observer.stop()
         observer.join(timeout=5)
+        claim.release()
 
     return reports
 

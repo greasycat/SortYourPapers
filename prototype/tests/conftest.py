@@ -117,6 +117,12 @@ def write_scanned_pdf(path: Path) -> Path:
     return path
 
 
+@pytest.fixture(autouse=True)
+def _isolated_watch_locks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep watcher claims out of the real state directory during tests."""
+    monkeypatch.setenv("SYPY_STATE_DIR", str(tmp_path / "state"))
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     inbox = tmp_path / "inbox"

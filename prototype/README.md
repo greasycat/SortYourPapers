@@ -167,6 +167,29 @@ Nothing is written without `--mode`. Use `copy` for a folder you did not create
 — a Downloads folder keeps its files and the library gets copies. Re-run `wire`
 after changing dependencies.
 
+## One watcher per folder
+
+A watcher claims its input folder and its library before it starts, and refuses
+if either is already claimed:
+
+```
+error: ~/Documents/sypy-library is already being watched as the library of a
+       watcher running as pid 63643
+```
+
+Two watchers sharing either folder would file the same document twice: each
+decides what the library already holds before either writes, and the database
+lock is not held across that gap. Claims are kept in `~/.local/state/sypy`, not
+in the folders themselves, so they work across libraries and leave no litter.
+
+A claim whose owner is gone is taken over rather than respected, so a crash does
+not lock a folder out. That is also what cleans up after `sypy-service
+uninstall`: stopping the agent sends `SIGTERM`, which does not run the release,
+so the claims are left behind until the next watcher takes them over.
+
+`sypy ingest` is not covered by this. Running one by hand while a watcher is
+going can still file a document twice, because both check before either writes.
+
 ## Running it as a service
 
 ```bash
@@ -179,6 +202,10 @@ after changing dependencies.
 Installs a launchd agent that watches in copy mode, so the watched folder is
 indexed but never rearranged. `SYPY_MODE=move` overrides that. Logs go to
 `~/Library/Logs/sypy/sypy.log`.
+
+There is one agent, so installing for a different folder is refused rather than
+silently replacing the running one; `uninstall` first. Reinstalling the same
+folder is how configuration changes are picked up.
 
 DuckDB allows one writing process at a time, so a running service could shut
 every other command out. Three things stop it.
@@ -235,6 +262,8 @@ and the correct spelling wins when both are set.
   arrived by move. There is no unfile-but-keep option.
 - Category steering sends at most 200 existing paths; a larger library sends its
   alphabetically first.
+- Only watchers claim folders. A hand-run `sypy ingest` racing a watcher can
+  still file the same document twice.
 - Steering can also mislead. A 1990 radiology paper joined an existing
   `Machine Learning/Explainable AI/Medical Imaging` branch because it was the
   nearest thing present, where an unsteered run put it under

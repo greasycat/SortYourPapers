@@ -17,6 +17,7 @@ from .library import FilingMode, Library
 from .llm import OpenAiClient
 from .naming import split_category
 from .watch import watch as watch_loop
+from .watchlock import WatchConflict
 
 app = typer.Typer(help="SortYourPapers Python prototype: LLM ingest and folder watcher.")
 
@@ -93,6 +94,14 @@ def watch(
     try:
         with Library(settings.output_dir) as library:
             asyncio.run(watch_loop(settings, client, library, mode=mode))
+    except WatchConflict as err:
+        typer.echo(f"error: {err}", err=True)
+        typer.echo(
+            "  two watchers sharing a folder file the same document twice; "
+            "stop the other one first.",
+            err=True,
+        )
+        raise typer.Exit(code=2) from err
     except KeyboardInterrupt:
         typer.echo("stopped")
 

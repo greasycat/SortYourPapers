@@ -178,3 +178,70 @@ async def test_an_idle_watcher_does_not_hold_the_database_lock(
         f"{probe.stderr}"
     )
     assert probe.stdout.strip() == "1", probe.stdout
+
+
+async def test_a_second_watcher_on_the_same_library_is_refused(
+    settings: Settings, library: Library, tmp_path: Path
+) -> None:
+    """Two watchers on one library file the same document twice.
+
+    Each decides what the library already holds before either writes, so the
+    database lock does not catch it. The folders are claimed instead.
+    """
+    from syp_prototype.config import Settings as S
+    from syp_prototype.library import Library as L
+    from syp_prototype.watchlock import WatchConflict, locks_dir
+
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    first = asyncio.create_task(
+        watch(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+    )
+    try:
+        # Wait for the claim itself rather than guessing at a delay, so a loaded
+        # machine cannot make this look like a pass.
+        for _ in range(200):
+            if list(locks_dir().glob("*.json")):
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("the first watcher never claimed its folders")
+        assert not first.done()
+
+        other_inbox = tmp_path / "other-inbox"
+        other_inbox.mkdir()
+        rival_settings = S(input_dir=other_inbox, output_dir=settings.output_dir)
+        with L(settings.output_dir) as rival_library:
+            # Bounded, so that a watcher which is *not* refused fails this test
+            # by timing out rather than idling here forever.
+            with pytest.raises(WatchConflict, match="library"):
+                await asyncio.wait_for(
+                    watch(
+                        rival_settings,
+                        FakeLlmClient(),
+                        rival_library,
+                        mode=FilingMode.COPY,
+                        max_passes=1,
+                    ),
+                    timeout=5,
+                )
+    finally:
+        first.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await first
+
+
+async def test_the_claim_is_given_back_when_the_watcher_stops(
+    settings: Settings, library: Library
+) -> None:
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    await asyncio.wait_for(
+        watch(settings, FakeLlmClient(), library, mode=FilingMode.COPY, max_passes=1),
+        timeout=10,
+    )
+
+    # A second run over the same folders now starts, rather than being refused
+    # by the claim the first one left.
+    await asyncio.wait_for(
+        watch(settings, FakeLlmClient(), library, mode=FilingMode.COPY, max_passes=1),
+        timeout=10,
+    )
