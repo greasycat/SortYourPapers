@@ -72,6 +72,11 @@ async def ingest_folder(
     # can still invent parallel branches. Arriving one at a time, which is the
     # watcher's case, they cannot.
     existing = library.existing_categories(limit=MAX_STEERING_CATEGORIES)
+
+    # Everything the model calls need has been read. They take seconds and touch
+    # no database, so holding its lock across them would shut every other `sypy`
+    # command out for the length of the pass. Recording below reconnects.
+    library.release()
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
     async def run_batch(batch: Sequence[PaperText]):

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from syp_prototype.db import Paper, PaperDb
 
 
@@ -98,3 +100,59 @@ def test_migrations_are_applied_once_and_reopening_is_safe(tmp_path: Path) -> No
         assert db.count() == 1, "reopening must not wipe anything"
 
     assert first == second
+
+
+def test_a_lock_held_by_another_process_is_waited_out(tmp_path: Path) -> None:
+    """A command run while the watcher is mid-pass should pause, not fail."""
+    import subprocess
+    import sys
+    import time
+
+    path = tmp_path / "papers.duckdb"
+    with PaperDb(path) as db:
+        db.upsert(_paper())
+
+    # A stand-in for a watcher holding the write lock for a moment.
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            f"import duckdb,time;c=duckdb.connect({str(path)!r});"
+            "c.execute('SELECT count(*) FROM papers').fetchone();"
+            "print('held',flush=True);time.sleep(1.5);c.close()",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        started = time.monotonic()
+        with PaperDb(path) as db:
+            assert db.count() == 1
+        waited = time.monotonic() - started
+    finally:
+        holder.wait(timeout=10)
+
+    assert waited >= 0.5, "it should have waited for the holder, not raced past"
+
+
+def test_a_failure_that_is_not_contention_is_raised_at_once(tmp_path: Path) -> None:
+    # Waiting 30s on a permission error would help nobody.
+    import time
+
+    import duckdb
+
+    db = PaperDb(tmp_path / "papers.duckdb")
+    original = duckdb.connect
+
+    def refuse(*args, **kwargs):
+        raise duckdb.IOException("Permission denied")
+
+    duckdb.connect = refuse
+    try:
+        started = time.monotonic()
+        with pytest.raises(duckdb.IOException, match="Permission denied"):
+            db.count()
+        assert time.monotonic() - started < 1.0, "should not have waited"
+    finally:
+        duckdb.connect = original

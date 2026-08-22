@@ -125,9 +125,12 @@ Installs a launchd agent that watches in copy mode, so the watched folder is
 indexed but never rearranged. `SYPY_MODE=move` overrides that. Logs go to
 `~/Library/Logs/sypy/sypy.log`.
 
-The watcher drops its database lock whenever it is idle, so `sypy list`, `tree`,
-and `retag` all work while the service is running. DuckDB locks per process, so
-without that a running service would block every other command.
+DuckDB allows one writing process at a time, so a running service could shut
+every other command out. Two things stop it. The watcher drops its lock whenever
+it is idle, and again for the length of the model calls, which is the slow part
+of a pass and needs no database. What is left is short, and a command that does
+collide with it waits rather than failing — up to 30 seconds, past which the
+problem is a stuck process rather than contention.
 
 `wire` builds a virtualenv at `prototype/.venv`, installs the package into it in
 editable mode so source edits take effect without reinstalling, and symlinks
@@ -172,9 +175,6 @@ and the correct spelling wins when both are set.
   arrived by move. There is no unfile-but-keep option.
 - Category steering sends at most 200 existing paths; a larger library sends its
   alphabetically first.
-- While the watcher is mid-pass it holds the database lock, so a `sypy`
-  command run at that moment fails rather than waiting. Between passes,
-  which is nearly always, it does not.
 - The service log has no timestamps, so restarts are hard to tell apart.
 - Editing the tree by hand does not work: links are relative, so moving one to a
   different depth breaks it, and `sypy tree` reverts hand edits. A real file

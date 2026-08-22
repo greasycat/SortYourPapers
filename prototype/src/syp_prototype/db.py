@@ -22,6 +22,13 @@ from typing import Iterator
 
 import duckdb
 
+# DuckDB allows one writing process at a time, so a command run while the
+# watcher is mid-pass finds the file locked. Waiting briefly turns that from an
+# error into a pause; past this the lock is not contention but a stuck process,
+# and saying so is more use than waiting longer.
+LOCK_WAIT_SECONDS = 30.0
+_LOCK_POLL_SECONDS = 0.25
+
 # Applied in order, each exactly once. Append to expand the schema; never edit
 # or reorder an entry that has shipped.
 _MIGRATIONS: list[tuple[str, str]] = [
@@ -122,9 +129,25 @@ class PaperDb:
         `release` — and pick it up again for the next pass.
         """
         if self._connection is None:
-            self._connection = duckdb.connect(str(self.path))
+            self._connection = self._connect()
             self._migrate()
         return self._connection
+
+    def _connect(self) -> duckdb.DuckDBPyConnection:
+        """Open the database, waiting out a lock another process is holding.
+
+        Only lock contention is waited on. Any other IO failure — a missing
+        directory, a permission problem, a corrupt file — is raised at once,
+        because no amount of waiting fixes it.
+        """
+        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+        while True:
+            try:
+                return duckdb.connect(str(self.path))
+            except duckdb.IOException as err:
+                if "lock" not in str(err).lower() or time.monotonic() >= deadline:
+                    raise
+                time.sleep(_LOCK_POLL_SECONDS)
 
     def release(self) -> None:
         """Drop the connection, and the file lock with it.
