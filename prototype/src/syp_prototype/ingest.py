@@ -78,7 +78,7 @@ async def ingest_folder(
     file work would shut every other `sypy` command out for the length of it.
     """
     report = IngestReport()
-    report.rescan = _reconcile_store(library)
+    report.rescan = _reconcile_store(library, write=mode.writes)
 
     # Phase 1 — hash every candidate. No database.
     candidates = _hash_candidates(settings, library, report)
@@ -88,6 +88,11 @@ async def ingest_folder(
     # Phase 2 — the read burst: what is already held, and how the library is
     # currently organised.
     known = library.db.known_content_hashes([digest for _, digest in candidates])
+    if report.rescan is not None:
+        # What the reconciliation found, whether or not it was allowed to write
+        # it down. In a preview it was not, and without this the preview would
+        # call an edited copy new while the apply that follows recognises it.
+        known |= {digest for _, _, digest in report.rescan.changed}
     existing = library.existing_categories(limit=MAX_STEERING_CATEGORIES)
     library.release()
 
@@ -153,12 +158,22 @@ async def ingest_folder(
     # Phase 7 — link them into the tree. No database.
     taken: set[Path] = set()
     for paper, source, target in placed:
+        try:
+            link = library.link_paper(paper, taken)
+        except LibraryError as err:
+            # The document is in the library — placed and recorded — and only
+            # its link could not be made, so this is not a failed filing. Say
+            # so and move on; `sypy tree` puts the link in once what is sitting
+            # in its place has been moved.
+            log.warning("%s", err)
+            report.failed.append((source, str(err)))
+            continue
         report.filed.append(
             PlannedFiling(
                 file_id=paper.file_id,
                 source=source,
                 store_path=target,
-                link_path=library.link_paper(paper, taken),
+                link_path=link,
             )
         )
 
@@ -198,13 +213,18 @@ def _describe_paper(
     return paper
 
 
-def _reconcile_store(library: Library) -> RescanReport | None:
+def _reconcile_store(library: Library, *, write: bool = True) -> RescanReport | None:
     """Refresh recorded hashes before deciding what the library already holds.
 
     Whether a document is already known is read from those hashes, and a file
     edited in the store leaves its own stale — so without this an annotated copy
     arriving later is ingested a second time. Size and mtime gate the work, so a
     library nothing has touched costs one stat per document.
+
+    A preview asks for the same reading without the write. Rearranging nothing
+    is what `--mode preview` promises, and a refreshed hash is a row rewritten;
+    the pass uses the report in memory instead, so it still reaches the same
+    answer as the apply.
 
     A store that cannot be read is reported and stepped over rather than
     stopping the pass: failing to reconcile risks a duplicate, while refusing to
@@ -216,7 +236,7 @@ def _reconcile_store(library: Library) -> RescanReport | None:
     the pass this docstring promises to survive.
     """
     try:
-        return library.rescan()
+        return library.rescan(write=write)
     except (OSError, duckdb.Error) as err:
         log.warning("could not reconcile the store: %s; continuing", err)
         return None

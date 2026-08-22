@@ -413,7 +413,7 @@ async def test_an_unreadable_store_does_not_stop_the_pass(
     # all. The pass continues.
     write_pdf(settings.input_dir / "a.pdf", "attention")
 
-    def boom() -> None:
+    def boom(**_kwargs) -> None:
         raise OSError("store is unreadable")
 
     monkeypatch.setattr(library, "rescan", boom)
@@ -503,7 +503,7 @@ async def test_a_busy_database_does_not_stop_the_pass(
 
     write_pdf(settings.input_dir / "a.pdf", "attention")
 
-    def busy() -> None:
+    def busy(**_kwargs) -> None:
         raise duckdb.IOException("Could not set lock on file")
 
     with mock.patch.object(library, "rescan", busy):
@@ -513,3 +513,70 @@ async def test_a_busy_database_does_not_stop_the_pass(
 
     assert report.rescan is None
     assert report.processed == 1, "the document should still have been filed"
+
+
+async def test_a_preview_writes_nothing_to_the_database(
+    settings: Settings, library: Library, tmp_path: Path
+) -> None:
+    """`--mode preview` promises to leave the library as it found it.
+
+    A hash refreshed on the way in is a row rewritten, which is a real change to
+    a library the caller asked not to touch.
+    """
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+    paper = library.db.all_papers()[0]
+    stored = library.store_path(paper)
+    stored.write_bytes(stored.read_bytes() + b"% annotated\n")
+    before = library.db.get(paper.file_id)
+
+    write_pdf(settings.input_dir / "b.pdf", "another")
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.PREVIEW)
+
+    after = library.db.get(paper.file_id)
+    assert after.content_hash == before.content_hash, "a preview rewrote a row"
+    assert after.stored_mtime_ms == before.stored_mtime_ms
+
+
+async def test_a_preview_still_sees_what_the_reconciliation_found(
+    settings: Settings, library: Library, tmp_path: Path
+) -> None:
+    """A preview that cannot record still has to agree with the apply.
+
+    Otherwise it calls an edited copy new, and the apply that follows recognises
+    it — the preview would be showing filing that is never going to happen.
+    """
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    # Moved in, so the only thing left in the watched folder is what arrives next.
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.MOVE)
+    paper = library.db.all_papers()[0]
+    stored = library.store_path(paper)
+    edited = stored.read_bytes() + b"% annotated\n"
+    stored.write_bytes(edited)
+
+    # The same edited bytes come back in the watched folder.
+    (settings.input_dir / "annotated.pdf").write_bytes(edited)
+    report = await ingest_folder(
+        settings, FakeLlmClient(), library, mode=FilingMode.PREVIEW
+    )
+
+    assert report.planned == [], "the edited copy is already in the library"
+    assert report.skipped_already_known == 1
+
+
+async def test_an_apply_does_record_what_it_found(
+    settings: Settings, library: Library
+) -> None:
+    # The counterpart: outside preview the refreshed hash is written down, so
+    # the next pass does not have to read the file again.
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+    paper = library.db.all_papers()[0]
+    stored = library.store_path(paper)
+    before = library.db.get(paper.file_id).content_hash
+    stored.write_bytes(stored.read_bytes() + b"% annotated\n")
+
+    write_pdf(settings.input_dir / "b.pdf", "another")
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+
+    assert library.db.get(paper.file_id).content_hash != before

@@ -429,28 +429,10 @@ def watches() -> None:
 
 
 def _claimed_folders(directory: Path) -> dict[Path, int]:
-    """Folders claimed by a watcher that is still running, by path.
+    """Folders claimed by a watcher that is still running, by path."""
+    from .watchlock import live_claims
 
-    Liveness is checked rather than assumed: a claim outlives the watcher that
-    took it — stopping the service sends `SIGTERM`, which does not run the
-    release — so presence alone would report a stopped watch as running.
-    """
-    import json
-
-    from .watchlock import _alive
-
-    held: dict[Path, int] = {}
-    if not directory.is_dir():
-        return held
-    for path in directory.glob("*.json"):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            pid = int(payload["pid"])
-        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
-            continue
-        if _alive(pid):
-            held[Path(payload["path"])] = pid
-    return held
+    return live_claims(directory)
 
 
 @app.command("list")

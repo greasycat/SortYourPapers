@@ -292,6 +292,14 @@ not lock a folder out. That is also what cleans up after `sypy-service
 uninstall`: stopping the agent sends `SIGTERM`, which does not run the release,
 so the claims are left behind until the next watcher takes them over.
 
+Who owns a claim is decided by an `flock` on the claim file, not by the pid
+written inside it. A pid is not an identity — it gets reused — so a claim left by
+a crashed watcher would otherwise name whatever process was handed that number
+next, and reading liveness off it locks the folder out for as long as that
+stranger lives. The kernel drops an `flock` when the holder dies, however it
+dies. The pid is still recorded, because "already watched by pid 63643" is what
+makes the refusal actionable, but nothing is decided from it.
+
 `sypy ingest` is not covered by this. Running one by hand while a watcher is
 going can still file a document twice, because both check before either writes.
 
@@ -367,8 +375,6 @@ What the prototype may spend, and how hard it tries:
 ## Known gaps
 
 - Only OpenAI is wired up, because that is the key the repo carries.
-- A preview moves no files, but it does reconcile: a stored file edited in
-  place has its hash refreshed even under `--mode preview`.
 - No resumable run state beyond the database: an interrupted pass keeps the
   papers it filed and redoes the batch it was in the middle of.
 - Preview and apply are separate model calls, so the categories a preview shows
@@ -390,7 +396,9 @@ What the prototype may spend, and how hard it tries:
 - `sypy remove` deletes the document's whole store folder, including notes and
   anything else kept in it. It confirms first.
 - A file written into the tree rather than the document's folder is reported by
-  `sypy tree`, not moved or deleted. It is not durable where it sits.
+  `sypy tree`, not moved or deleted. It is not durable where it sits. If it is
+  sitting exactly where a document's link belongs, that document is linked into
+  an id-decorated folder beside it instead; the file is never replaced.
 - The spend ceiling counts requests and tokens, not money. It bounds the damage
   from a restart loop; it does not know what the model costs.
 - Four batches run at once and each reserves its request before sending, so the

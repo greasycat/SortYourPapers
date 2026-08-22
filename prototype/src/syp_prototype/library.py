@@ -19,6 +19,7 @@ link is re-pointed. Links are relative, so the whole library can be moved.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from dataclasses import dataclass, field, replace
@@ -29,6 +30,8 @@ from typing import Sequence
 from .db import Paper, PaperDb
 from .discovery import file_id as hash_file
 from .naming import disambiguate, link_name, parse_store_name, store_name
+
+log = logging.getLogger(__name__)
 
 STORE_DIR = "store"
 NOTE_FILE = "notes.md"
@@ -251,7 +254,7 @@ class Library:
         self.db.delete(file_id)
         return paper
 
-    def rescan(self) -> RescanReport:
+    def rescan(self, *, write: bool = True) -> RescanReport:
         """Bring the recorded content hashes back in line with the store.
 
         A file edited in place — annotated, re-saved — keeps its name but no
@@ -262,6 +265,13 @@ class Library:
         Runs in phases: read the rows, drop the lock, stat and hash, then write
         once. The file work is the slow part and holds no lock while it happens.
         Size and mtime are checked first, so an unchanged library reads nothing.
+
+        Args:
+            write: record what was found. A preview is supposed to leave the
+                library exactly as it found it, and a refreshed hash is a real
+                change to it, so preview asks for the report without the write.
+                The report is the same either way, which is what lets a preview
+                still agree with the apply that follows it.
         """
         report = RescanReport()
         papers = self.db.all_papers()
@@ -290,7 +300,8 @@ class Library:
             # not be re-read on every future scan.
             updates.append((paper.file_id, digest, size, mtime_ms))
 
-        self.db.set_stored_file_states(updates)
+        if write:
+            self.db.set_stored_file_states(updates)
         return report
 
     def note_path(self, paper: Paper) -> Path:
@@ -384,7 +395,14 @@ class Library:
         for paper in self.db.all_papers():
             if not self.store_path(paper).exists():
                 continue
-            self._link(paper, taken=taken)
+            try:
+                self._link(paper, taken=taken)
+            except LibraryError as err:
+                # One document whose place in the tree is occupied must not
+                # cost the rest of the library its links. `tree_litter` names
+                # what is in the way.
+                log.warning("%s", err)
+                continue
             linked += 1
         return linked
 
@@ -508,17 +526,45 @@ class Library:
         return directory / directory.name
 
     def _link(self, paper: Paper, taken: set[Path] | None = None) -> Path:
+        """Point this document's link at its store folder.
+
+        Only ever replaces a symlink. A real file or folder sitting where the
+        link belongs is somebody's work — `tree_litter` reports it and tells
+        them to move it — and unlinking whatever is in the way would delete it
+        to make room for something rebuildable. So the document takes its
+        id-decorated folder instead, which no other document can want.
+
+        Raises:
+            LibraryError: if that folder is occupied by something real too. The
+                link is not placed rather than a file being destroyed for it.
+        """
         taken = taken if taken is not None else set()
         directory = self._document_dir_in_tree(paper, taken)
+        link = self._place_link(paper, directory)
+        if link is None:
+            directory = directory.parent / disambiguate(directory.name, paper.file_id)
+            link = self._place_link(paper, directory)
+        if link is None:
+            raise LibraryError(
+                f"cannot link {paper.file_id}: {directory / directory.name} "
+                "is a real file, not a link. Move it into the document's "
+                "folder in the store to keep it."
+            )
+        taken.add(directory)
+        return link
+
+    def _place_link(self, paper: Paper, directory: Path) -> Path | None:
+        """Put the link in `directory`, or None if something real is in its place."""
         directory.mkdir(parents=True, exist_ok=True)
         link = directory / directory.name
-        if link.is_symlink() or link.exists():
-            link.unlink()
+        if link.is_symlink():
+            link.unlink()  # ours, and pointing at a previous answer
+        elif link.exists():
+            return None
         link.symlink_to(
             os.path.relpath(self.document_dir(paper), link.parent),
             target_is_directory=True,
         )
-        taken.add(directory)
         return link
 
     def _unlink(self, paper: Paper) -> None:

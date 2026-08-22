@@ -765,3 +765,62 @@ def test_an_ambiguous_folder_is_refused_rather_than_guessed(
 
     with pytest.raises(LibraryError, match="expected exactly one"):
         library.adopt(library.document_dir(paper))
+
+
+# ---- a real file where a link belongs --------------------------------------
+
+
+def test_a_real_file_in_the_tree_is_not_deleted_to_make_room_for_a_link(
+    library: Library, tmp_path: Path
+) -> None:
+    """The tree holds links, but the folders in it are real and can be written to.
+
+    Replacing whatever sits at the link path would delete somebody's work to
+    make room for something the database can rebuild in a second.
+    """
+    source = write_pdf(tmp_path / "raw" / "a.pdf", "attention")
+    paper = _paper(["AI"])
+    filing = library.file_paper(paper, source)
+    link = filing.link_path
+    link.unlink()
+    link.write_text("a draft that is not a link", encoding="utf-8")
+
+    library.rebuild_tree()
+
+    assert link.read_text() == "a draft that is not a link"
+
+
+def test_the_document_is_still_linked_beside_the_file_that_blocked_it(
+    library: Library, tmp_path: Path
+) -> None:
+    # Refusing to delete the file must not mean the document silently loses its
+    # place in the tree.
+    source = write_pdf(tmp_path / "raw" / "a.pdf", "attention")
+    paper = _paper(["AI"])
+    filing = library.file_paper(paper, source)
+    filing.link_path.unlink()
+    filing.link_path.write_text("not a link", encoding="utf-8")
+
+    library.rebuild_tree()
+
+    links = [
+        entry
+        for entry in (library.tree_dir / "AI").rglob("*")
+        if entry.is_symlink()
+    ]
+    assert len(links) == 1
+    assert os.path.realpath(links[0]) == str(library.document_dir(paper).resolve())
+    assert paper.file_id in links[0].parent.name, "the id-decorated folder"
+
+
+def test_a_stale_link_is_still_replaced(library: Library, tmp_path: Path) -> None:
+    # Only real files are protected: a link left pointing at an old answer is
+    # this tool's to fix, and a rebuild that could not would never converge.
+    source = write_pdf(tmp_path / "raw" / "a.pdf", "attention")
+    filing = library.file_paper(_paper(["AI"]), source)
+    filing.link_path.unlink()
+    filing.link_path.symlink_to(tmp_path / "somewhere-else")
+
+    library.rebuild_tree()
+
+    assert os.path.realpath(filing.link_path) != str(tmp_path / "somewhere-else")
