@@ -32,6 +32,53 @@ coalesced, missed, or caused by its own writes. A folder must stop changing for
 three seconds before a pass starts, so a PDF still being copied in is never read
 half-written.
 
+## What leaves your machine
+
+**Every document you file is sent to OpenAI.** There is no local model and no
+offline mode: labelling a document means uploading the text of its first page
+(or, for a scan, an image of it) to `api.openai.com`, under the key in your
+`.env`. Bills, contracts, medical letters, and anything else that lands in a
+watched folder go the same way as a paper does — the watcher does not ask, and
+under the service it happens without anyone at the keyboard.
+
+Concretely, each request carries:
+
+- up to 4,000 characters of the document's text, or the first page rendered as
+  an image when it carries no text layer
+- the filename
+- the list of category paths your library already uses, which describes the
+  shape of your whole collection
+
+The file itself is never uploaded, and nothing is sent for a document the
+library already holds. What OpenAI does with the rest is between you and their
+terms; this tool cannot promise anything about it. If that is not acceptable for
+a folder, do not point a watch at it.
+
+## What it costs
+
+The watcher runs unattended under `KeepAlive`, which means the thing that
+reliably restarts it is failure — and a pass that dies partway through comes
+back, re-reads the same folder, and pays again. So spending is capped:
+
+```bash
+sypy budget           # what the last 24 hours cost, against the ceiling
+sypy budget --reset   # start the window over
+```
+
+Requests and tokens are counted in a rolling 24-hour window, machine-wide rather
+than per-library, in `~/.local/state/sypy/spend.json`. A request that would start
+past the ceiling is refused before it is sent, because a limit checked afterwards
+has already been paid. Defaults are 500 requests and 1,000,000 tokens a day;
+raise them with `SYP_MAX_REQUESTS_PER_DAY` and `SYP_MAX_TOKENS_PER_DAY`, or set
+either to `0` to turn that ceiling off.
+
+Each request also has a retry ceiling and a timeout (`SYP_LLM_MAX_RETRIES`,
+default 2; `SYP_LLM_TIMEOUT_SECONDS`, default 120), so one failing or hanging
+request gives up instead of holding a pass open and billing for every attempt.
+
+The ceilings bound the damage; they do not price it. This tool does not know
+what the model costs, and does not try to guess.
+
 ## How the library is laid out
 
 Every PDF lives in exactly one place — a single flat folder — and the browsable
@@ -184,6 +231,7 @@ sypy remove <id>                       # delete link, folder, and record (asks f
 sypy scan                              # refresh hashes of files edited in place
 sypy fsck [--adopt]                    # check the store and database agree
 sypy tree                              # rebuild the symlink tree from the database
+sypy budget                            # what the last 24 hours cost at the API
 
 ./prototype/scripts/sypy-path unwire   # remove the link
 ```
@@ -279,11 +327,8 @@ proportional to the number of documents, not to the bytes being read. On twelve
 4MB documents the share of a pass with the lock unavailable is 3%, against 66%
 when the file work was done with the connection held.
 
-`wire` builds a virtualenv at `prototype/.venv`, installs the package into it in
-editable mode so source edits take effect without reinstalling, and symlinks
-`sypy` into `~/.local/bin`. It refuses to replace a `sypy` it did not create,
-and `unwire` refuses to delete one, so an unrelated command of the same name
-survives both. Override the locations with `SYPY_VENV_DIR` and `SYPY_BIN_DIR`.
+`wire` builds a virtualenv at `prototype/.venv`, installs the package into it in editable mode so source
+edits take effect without reinstalling, and symlinks `sypy` into `~/.local/bin`.
 
 Without wiring, run it through the project directly:
 
@@ -314,18 +359,18 @@ Settings resolve CLI > environment > defaults, reusing the Rust pipeline's
 `SYP_INPUT`, `SYP_OUTPUT`, `SYP_RECURSIVE`, `SYP_MAX_FILE_SIZE_MB`,
 `SYP_PAGE_CUTOFF`, `SYP_KEYWORD_BATCH_SIZE`, `SYP_LLM_MODEL`.
 
-The API key is read from `OPENAI_API_KEY`, `SYP_API_KEY`, or `OEPNAI_API_KEY`,
-including from the repository-root `.env`. The third spelling is a typo this
-repo's `.env` currently carries; it is accepted so the prototype works as-is,
-and the correct spelling wins when both are set.
+What the prototype may spend, and how hard it tries:
+`SYP_MAX_REQUESTS_PER_DAY`, `SYP_MAX_TOKENS_PER_DAY`, `SYP_LLM_MAX_RETRIES`,
+`SYP_LLM_TIMEOUT_SECONDS`.
+
 
 ## Known gaps
 
 - Only OpenAI is wired up, because that is the key the repo carries.
-- No resumable run state beyond the database: an interrupted pass keeps the
-  papers it filed and redoes the batch it was in the middle of.
 - A preview moves no files, but it does reconcile: a stored file edited in
   place has its hash refreshed even under `--mode preview`.
+- No resumable run state beyond the database: an interrupted pass keeps the
+  papers it filed and redoes the batch it was in the middle of.
 - Preview and apply are separate model calls, so the categories a preview shows
   are not always the ones a later run produces.
 - `remove` deletes the stored file, which is the only copy when the document
@@ -346,4 +391,10 @@ and the correct spelling wins when both are set.
   anything else kept in it. It confirms first.
 - A file written into the tree rather than the document's folder is reported by
   `sypy tree`, not moved or deleted. It is not durable where it sits.
+- The spend ceiling counts requests and tokens, not money. It bounds the damage
+  from a restart loop; it does not know what the model costs.
+- Four batches run at once and each reserves its request before sending, so the
+  ceiling is enforced at the request that crosses it — the tokens that request
+  turns out to cost are recorded after, and can carry the day slightly past the
+  token ceiling.
 - A library made before documents had folders needs `sypy migrate-store` once.

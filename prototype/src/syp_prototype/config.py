@@ -34,6 +34,26 @@ MAX_CONCURRENT_REQUESTS = 4
 # request; a library past this many branches sends its alphabetically first.
 MAX_STEERING_CATEGORIES = 200
 
+# What the prototype is allowed to spend at the API in a rolling day, and how
+# hard it tries before giving a request up. The watcher runs unattended under
+# `KeepAlive`, so nothing else in the process would ever stop it paying.
+DEFAULT_MAX_REQUESTS_PER_DAY = 500
+DEFAULT_MAX_TOKENS_PER_DAY = 1_000_000
+DEFAULT_LLM_MAX_RETRIES = 2
+DEFAULT_LLM_TIMEOUT_SECONDS = 120.0
+
+
+def state_dir() -> Path:
+    """Where this machine keeps what one `sypy` invocation leaves for the next.
+
+    Watch claims and the spend ledger, neither of which belongs to any one
+    library. `SYPY_STATE_DIR` overrides it, which is how the tests keep out of
+    the real user directories.
+    """
+    state = os.environ.get("SYPY_STATE_DIR") or os.environ.get("XDG_STATE_HOME")
+    base = Path(state) if state else Path.home() / ".local" / "state"
+    return Path(base) / "sypy"
+
 
 class ConfigError(RuntimeError):
     """Raised when the resolved configuration cannot be used."""
@@ -115,6 +135,28 @@ def resolve_api_key() -> str:
 def _repo_dotenv() -> Path:
     """The repository-root ``.env``, which is where this repo keeps its key."""
     return Path(__file__).resolve().parents[3] / ".env"
+
+
+def env_int(name: str, default: int) -> int:
+    """An integer read from the environment, or `default` when it is not set."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as err:
+        raise ConfigError(f"{name} must be an integer, got {raw!r}") from err
+
+
+def env_float(name: str, default: float) -> float:
+    """A number read from the environment, or `default` when it is not set."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError as err:
+        raise ConfigError(f"{name} must be a number, got {raw!r}") from err
 
 
 def _first_path(*candidates: Path | str | None) -> Path:

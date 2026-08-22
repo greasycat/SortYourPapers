@@ -11,7 +11,13 @@ import json
 from dataclasses import dataclass, field
 from typing import Protocol, Sequence
 
-from .config import MAX_TEXT_CHARS_PER_FILE, MAX_TOTAL_BATCH_TEXT_CHARS
+from .budget import Budget
+from .config import (
+    DEFAULT_LLM_MAX_RETRIES,
+    DEFAULT_LLM_TIMEOUT_SECONDS,
+    MAX_TEXT_CHARS_PER_FILE,
+    MAX_TOTAL_BATCH_TEXT_CHARS,
+)
 from .extract import PaperText
 from .render import PageImage
 
@@ -229,13 +235,57 @@ class OpenAiClient:
 
     The same model is used for text and for images; the OpenAI default this
     prototype ships with reads both.
+
+    Every request is bounded twice over. A `Budget` is consulted before the
+    request is sent and refuses it once the rolling day is spent, which is what
+    stops an unattended watcher restarting into the same folder forever. And the
+    SDK is given an explicit retry count and timeout, so a request that is
+    failing or hanging gives up instead of holding a pass open indefinitely.
     """
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        *,
+        budget: Budget | None = None,
+        max_retries: int = DEFAULT_LLM_MAX_RETRIES,
+        timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS,
+    ) -> None:
         from openai import AsyncOpenAI
 
-        self._client = AsyncOpenAI(api_key=api_key)
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            # Left to itself the SDK retries on its own schedule; saying it
+            # here means the ceiling is one number, in one place, that the
+            # ledger's request count can be reasoned about against.
+            max_retries=max_retries,
+            timeout=timeout_seconds,
+        )
         self._model = model
+        self._budget = budget if budget is not None else Budget()
+
+    def _spend(self, what: str) -> None:
+        """Take one request out of the day's allowance before making it.
+
+        Reserved rather than counted afterwards: four batches run at once, and
+        a ceiling each of them checks before any of them records would let all
+        four through on the last unit of allowance.
+        """
+        self._budget.check(what)
+        self._budget.record(requests=1)
+
+    def _record_tokens(self, response: object) -> None:
+        """Add what the request actually cost, once it is known.
+
+        One record covers the SDK's retries of the same request, which is what
+        the retry ceiling is for: without it a single failing request could
+        cost several times what the ledger was told.
+        """
+        usage = getattr(response, "usage", None)
+        total = getattr(usage, "total_tokens", None)
+        if isinstance(total, int) and total > 0:
+            self._budget.record(requests=0, tokens=total)
 
     async def extract_keywords(
         self,
@@ -244,6 +294,7 @@ class OpenAiClient:
     ) -> list[KeywordPair]:
         if not batch:
             return []
+        self._spend(f"request for {len(batch)} document(s)")
         try:
             response = await self._client.chat.completions.create(
                 model=self._model,
@@ -266,6 +317,7 @@ class OpenAiClient:
         except Exception as err:  # surface SDK/transport failures uniformly
             raise LlmError(f"model request failed: {err}") from err
 
+        self._record_tokens(response)
         content = response.choices[0].message.content or ""
         return parse_response(content, batch)
 
@@ -277,6 +329,7 @@ class OpenAiClient:
         """
         if not images:
             raise LlmError("no rendered pages to read")
+        self._spend(f"page-reading request for {len(images)} page(s)")
 
         content: list[dict] = [{"type": "text", "text": _VISION_PROMPT}]
         for image in images:
@@ -301,6 +354,7 @@ class OpenAiClient:
         except Exception as err:  # surface SDK/transport failures uniformly
             raise LlmError(f"page-reading request failed: {err}") from err
 
+        self._record_tokens(response)
         text = (response.choices[0].message.content or "").strip()
         if not text:
             raise LlmError("the model returned no text for the rendered pages")

@@ -8,7 +8,16 @@ from pathlib import Path
 
 import typer
 
-from .config import ConfigError, resolve_api_key, resolve_settings
+from .budget import Budget
+from .config import (
+    DEFAULT_LLM_MAX_RETRIES,
+    DEFAULT_LLM_TIMEOUT_SECONDS,
+    ConfigError,
+    env_float,
+    env_int,
+    resolve_api_key,
+    resolve_settings,
+)
 from .ingest import ingest_folder
 import os
 import subprocess
@@ -331,6 +340,38 @@ def remove(
         typer.echo(f"removed {file_id}")
 
 
+@app.command()
+def budget(
+    reset: bool = typer.Option(False, "--reset", help="Forget the recorded spend."),
+) -> None:
+    """Show what the last 24 hours have cost at the API, against the ceiling."""
+    ledger = Budget()
+    if reset:
+        ledger.reset()
+        typer.echo("spend record cleared")
+        return
+
+    used = ledger.usage()
+    limits = ledger.limits
+    typer.echo(f"last 24 hours, from {ledger.path}")
+    typer.echo(f"  requests  {used.requests:>8} / {_ceiling(limits.requests_per_day)}")
+    typer.echo(f"  tokens    {used.tokens:>8} / {_ceiling(limits.tokens_per_day)}")
+    if limits.unlimited:
+        typer.echo(
+            "\nboth ceilings are off. The watcher restarts on failure, so "
+            "nothing here would stop a loop paying for the same folder."
+        )
+    else:
+        typer.echo(
+            "\nraise with SYP_MAX_REQUESTS_PER_DAY / SYP_MAX_TOKENS_PER_DAY; "
+            "0 turns a ceiling off."
+        )
+
+
+def _ceiling(limit: int) -> str:
+    return "unlimited" if limit <= 0 else str(limit)
+
+
 @app.command("watch-target", hidden=True)
 def watch_target(
     name: str = typer.Argument(None, help="Watch name; omit for the default."),
@@ -476,7 +517,15 @@ def _build(
             keyword_batch_size=batch_size,
             model=model,
         )
-        return settings, OpenAiClient(resolve_api_key(), settings.model)
+        return settings, OpenAiClient(
+            resolve_api_key(),
+            settings.model,
+            budget=Budget(),
+            max_retries=env_int("SYP_LLM_MAX_RETRIES", DEFAULT_LLM_MAX_RETRIES),
+            timeout_seconds=env_float(
+                "SYP_LLM_TIMEOUT_SECONDS", DEFAULT_LLM_TIMEOUT_SECONDS
+            ),
+        )
     except ConfigError as err:
         typer.echo(f"error: {err}", err=True)
         raise typer.Exit(code=2) from err
