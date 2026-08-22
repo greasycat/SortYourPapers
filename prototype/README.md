@@ -167,6 +167,38 @@ Nothing is written without `--mode`. Use `copy` for a folder you did not create
 — a Downloads folder keeps its files and the library gets copies. Re-run `wire`
 after changing dependencies.
 
+## The registry
+
+One file says what this machine watches, at
+`~/.config/sypy/config.toml`:
+
+```toml
+default = "downloads"
+
+[watch.downloads]
+input   = "~/Downloads"
+library = "~/Documents/sypy-library"
+mode    = "copy"
+```
+
+```bash
+sypy watches        # what is declared, and which are running
+sypy watch          # run the default watch
+sypy watch papers   # run a named one
+```
+
+With a registry, the other commands stop needing `--library`: it resolves
+CLI > `SYP_OUTPUT` > the registry's default watch > `./sorted`. A single
+declared watch is the default without saying so; past that, `default` has to
+name one, because picking would be a guess.
+
+Two watches sharing an input folder or a library are refused when the file is
+read, naming both — so the mistake surfaces while it is being made rather than
+hours later when the second watcher will not start.
+
+Nothing needs the registry. Passing `--input` and `--library` still works, and a
+missing file is an empty registry rather than an error.
+
 ## One watcher per folder
 
 A watcher claims its input folder and its library before it starts, and refuses
@@ -193,7 +225,8 @@ going can still file a document twice, because both check before either writes.
 ## Running it as a service
 
 ```bash
-./prototype/scripts/sypy-service install ~/Downloads ~/Documents/sypy-library
+./prototype/scripts/sypy-service install            # the registry's default watch
+./prototype/scripts/sypy-service install papers     # a named watch
 ./prototype/scripts/sypy-service status
 ./prototype/scripts/sypy-service logs
 ./prototype/scripts/sypy-service uninstall

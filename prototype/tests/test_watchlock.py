@@ -137,3 +137,26 @@ def test_claims_are_kept_out_of_the_watched_folders(folders) -> None:
         assert list(locks_dir().glob("*.json"))
     finally:
         held.release()
+
+
+def test_a_claim_left_by_a_dead_watcher_does_not_read_as_running(folders) -> None:
+    """Stopping a service leaves its claims behind: SIGTERM skips the release.
+
+    So anything reporting what is running has to check the owner is alive, not
+    just that a claim exists.
+    """
+    import json
+
+    from syp_prototype.cli import _claimed_folders
+
+    inbox, library = folders
+    held = claim(inbox, library)
+    assert set(_claimed_folders(locks_dir())) == {inbox.resolve(), library.resolve()}
+
+    for path in held.held:
+        payload = json.loads(path.read_text())
+        payload["pid"] = 2**22
+        path.write_text(json.dumps(payload))
+
+    assert _claimed_folders(locks_dir()) == {}
+    held.release()

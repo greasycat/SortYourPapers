@@ -2,13 +2,16 @@
 #
 # Run the watcher as a background service via launchd.
 #
+#   ./prototype/scripts/sypy-service install [watch-name]
 #   ./prototype/scripts/sypy-service install [watched-folder] [library-folder]
 #   ./prototype/scripts/sypy-service status
 #   ./prototype/scripts/sypy-service logs
 #   ./prototype/scripts/sypy-service uninstall
 #
-# Defaults to watching ~/Downloads in copy mode, so the watched folder is
-# indexed but never rearranged. Override the mode with SYPY_MODE=move.
+# With no arguments it runs the registry's default watch, so the folders and the
+# mode are declared in one place (`sypy watches`) rather than repeated here.
+# Given a name it runs that watch. Given two paths it runs them directly,
+# without the registry. Override the mode with SYPY_MODE=move.
 set -euo pipefail
 
 LABEL="com.sortyourpapers.sypy"
@@ -40,10 +43,21 @@ PY
 }
 
 install_service() {
-  local watched="${1:-$HOME/Downloads}"
-  local library="${2:-$HOME/Documents/sypy-library}"
-
   [ -x "$VENV_DIR/bin/sypy" ] || die "sypy is not installed; run scripts/sypy-path wire first"
+
+  local watched library
+  if [ "$#" -le 1 ]; then
+    # No paths given, so the registry is the authority on what to watch.
+    local declared
+    declared="$("$VENV_DIR/bin/sypy" watch-target ${1:+"$1"} 2>&1)" || die "$declared"
+    watched="${declared%%$'\n'*}"
+    library="${declared##*$'\n'}"
+    [ -n "$watched" ] && [ -n "$library" ] || die "could not resolve a watch to install"
+  else
+    watched="$1"
+    library="$2"
+  fi
+
   [ -d "$watched" ] || die "watched folder does not exist: $watched"
   case "$MODE" in
     copy|move) ;;

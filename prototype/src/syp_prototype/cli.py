@@ -16,6 +16,7 @@ import subprocess
 from .library import FilingMode, Library
 from .llm import OpenAiClient
 from .naming import split_category
+from .registry import RegistryError, WatchEntry, load_registry, registry_path
 from .watch import watch as watch_loop
 from .watchlock import WatchConflict
 
@@ -75,6 +76,9 @@ def ingest(
 
 @app.command()
 def watch(
+    name: str = typer.Argument(
+        None, help="A watch declared in the registry. Omit to use the default."
+    ),
     input_dir: Path = typer.Option(None, "--input", "-i", help="Folder to watch."),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
     recursive: bool = typer.Option(None, "--recursive", "-r"),
@@ -88,6 +92,16 @@ def watch(
     ),
 ) -> None:
     """File new documents into the library whenever they settle in the input folder."""
+    entry = _watch_entry(name) if (name or not input_dir) else None
+    if entry is not None:
+        input_dir = input_dir or entry.input_dir
+        library_dir = library_dir or entry.library_dir
+        if mode is FilingMode.PREVIEW:
+            mode = entry.mode
+    elif name:
+        typer.echo(f"error: no watch named {name!r}", err=True)
+        raise typer.Exit(code=2)
+
     settings, client = _build(
         input_dir, library_dir, recursive, page_cutoff, batch_size, model
     )
@@ -265,6 +279,87 @@ def remove(
         typer.echo(f"removed {file_id}")
 
 
+@app.command("watch-target", hidden=True)
+def watch_target(
+    name: str = typer.Argument(None, help="Watch name; omit for the default."),
+) -> None:
+    """Print a watch's input and library, one per line.
+
+    For the service script, so it reads the registry through the same code the
+    rest of the tool does instead of parsing TOML in shell.
+    """
+    entry = _watch_entry(name)
+    if entry is None:
+        typer.echo(
+            "no watch to install: declare one in "
+            f"{registry_path()} (see `sypy watches`), or pass the folders",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    typer.echo(entry.input_dir)
+    typer.echo(entry.library_dir)
+
+
+@app.command()
+def watches() -> None:
+    """Show the declared watches, and which are running."""
+    from .watchlock import locks_dir
+
+    try:
+        registry = load_registry()
+    except RegistryError as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(code=2) from err
+
+    if not registry.watches:
+        typer.echo(f"no watches declared in {registry.path}\n")
+        typer.echo("Declare one:\n")
+        typer.echo('  [watch.downloads]')
+        typer.echo('  input   = "~/Downloads"')
+        typer.echo('  library = "~/Documents/sypy-library"')
+        typer.echo('  mode    = "copy"')
+        return
+
+    claimed = _claimed_folders(locks_dir())
+    default = registry.default()
+    for entry in registry.watches.values():
+        marks = []
+        if default is not None and entry.name == default.name:
+            marks.append("default")
+        holder = claimed.get(entry.input_dir) or claimed.get(entry.library_dir)
+        marks.append(f"running pid {holder}" if holder else "stopped")
+        typer.echo(f"{entry.name}  [{', '.join(marks)}]")
+        typer.echo(f"    input   {entry.input_dir}")
+        typer.echo(f"    library {entry.library_dir}")
+        typer.echo(f"    mode    {entry.mode.value}")
+    typer.echo(f"\n{registry.path}")
+
+
+def _claimed_folders(directory: Path) -> dict[Path, int]:
+    """Folders claimed by a watcher that is still running, by path.
+
+    Liveness is checked rather than assumed: a claim outlives the watcher that
+    took it — stopping the service sends `SIGTERM`, which does not run the
+    release — so presence alone would report a stopped watch as running.
+    """
+    import json
+
+    from .watchlock import _alive
+
+    held: dict[Path, int] = {}
+    if not directory.is_dir():
+        return held
+    for path in directory.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            pid = int(payload["pid"])
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+        if _alive(pid):
+            held[Path(payload["path"])] = pid
+    return held
+
+
 @app.command("list")
 def list_papers(
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
@@ -279,9 +374,34 @@ def list_papers(
         typer.echo(f"\n{len(papers)} document(s) in {library.root}")
 
 
-def _settings(input_dir: Path | None, library_dir: Path | None):
+def _watch_entry(name: str | None) -> WatchEntry | None:
+    """The declared watch a command should act on, if the registry names one."""
     try:
-        return resolve_settings(input_dir, library_dir)
+        registry = load_registry()
+    except RegistryError as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(code=2) from err
+    return registry.get(name) if name else registry.default()
+
+
+def _resolved_library(library_dir: Path | None, watch_name: str | None = None) -> Path | None:
+    """Where a command should look, when it was not told.
+
+    CLI beats the environment beats the registry, which is the order the rest of
+    the settings already resolve in.
+    """
+    if library_dir is not None or os.environ.get("SYP_OUTPUT"):
+        return library_dir
+    try:
+        entry = _watch_entry(watch_name)
+    except typer.Exit:
+        raise
+    return entry.library_dir if entry else None
+
+
+def _settings(input_dir: Path | None, library_dir: Path | None, watch_name: str | None = None):
+    try:
+        return resolve_settings(input_dir, _resolved_library(library_dir, watch_name))
     except ConfigError as err:
         typer.echo(f"error: {err}", err=True)
         raise typer.Exit(code=2) from err
@@ -298,7 +418,7 @@ def _build(
     try:
         settings = resolve_settings(
             input_dir,
-            library_dir,
+            _resolved_library(library_dir),
             recursive=recursive,
             page_cutoff=page_cutoff,
             keyword_batch_size=batch_size,

@@ -119,8 +119,10 @@ def write_scanned_pdf(path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _isolated_watch_locks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep watcher claims out of the real state directory during tests."""
+    """Keep watcher claims and the registry out of the real user directories."""
     monkeypatch.setenv("SYPY_STATE_DIR", str(tmp_path / "state"))
+    # And the registry, so a real one on this machine cannot steer a test.
+    monkeypatch.setenv("SYPY_CONFIG_DIR", str(tmp_path / "config"))
 
 
 @pytest.fixture
