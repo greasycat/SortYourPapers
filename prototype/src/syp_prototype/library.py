@@ -15,6 +15,7 @@ import shutil
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Sequence
 
 from .db import Paper, PaperDb
 from .discovery import file_id as hash_file
@@ -103,38 +104,62 @@ class Library:
             link_path=self._link_path(paper, taken=set()),
         )
 
-    def file_paper(
+    def place_file(
         self, paper: Paper, source: Path, mode: FilingMode = FilingMode.MOVE
-    ) -> PlannedFiling:
-        """Put a paper into the store, record it, and link it into the tree.
+    ) -> Path:
+        """Put a document's file into the store and stamp its observed stat.
 
-        The file lands before the database write, so a crash leaves a file in
-        the store with no row rather than a row pointing at nothing. The first
-        is repairable by re-ingesting; the second is a dangling reference.
+        Touches no database, so a pass can copy every file of a batch before
+        taking the write lock once for all of them.
 
-        `shutil` rather than `os.replace` because the source folder is often on
-        a different filesystem than the library, which `os.replace` refuses.
+        Raises:
+            LibraryError: in preview mode, or if the store already holds the name.
         """
         if mode is FilingMode.PREVIEW:
-            raise LibraryError("file_paper called in preview mode")
+            raise LibraryError("place_file called in preview mode")
 
         target = self.store_dir / paper.store_name
         self.store_dir.mkdir(parents=True, exist_ok=True)
         if target.exists():
             raise LibraryError(f"store already holds {target.name}")
 
+        # `shutil` rather than `os.replace` because the source folder is often
+        # on a different filesystem than the library, which `os.replace`
+        # refuses.
         if mode is FilingMode.COPY:
             shutil.copy2(source, target)
         else:
             shutil.move(str(source), str(target))
 
-        # The stat of the file that is now in the store, which is what a later
-        # rescan compares against.
         stat = target.stat()
         paper.size_bytes = stat.st_size
         paper.stored_mtime_ms = int(stat.st_mtime * 1000)
-        self.db.upsert(paper)
-        link = self._link(paper)
+        return target
+
+    def record(self, papers: Sequence[Paper]) -> None:
+        """Write documents to the database, in one transaction."""
+        self.db.upsert_many(papers)
+
+    def link_paper(self, paper: Paper, taken: set[Path] | None = None) -> Path:
+        """Link a document into the tree. Touches no database."""
+        return self._link(paper, taken)
+
+    def file_paper(
+        self, paper: Paper, source: Path, mode: FilingMode = FilingMode.MOVE
+    ) -> PlannedFiling:
+        """Place, record, and link one document.
+
+        The three steps in sequence, for a caller handling a single document.
+        Ingest drives the same steps in phases across a whole batch so the
+        database is only touched once the file work is done.
+
+        The file lands before the database write, so a crash leaves a file in
+        the store with no row rather than a row pointing at nothing. The first
+        is repairable by re-ingesting; the second is a dangling reference.
+        """
+        target = self.place_file(paper, source, mode)
+        self.record([paper])
+        link = self.link_paper(paper)
         return PlannedFiling(
             file_id=paper.file_id, source=source, store_path=target, link_path=link
         )
@@ -196,11 +221,16 @@ class Library:
         since it is the key that recognises a document the library already has,
         the edited copy arriving later would be ingested a second time.
 
-        Size and mtime are checked first so an unchanged library costs one stat
-        per document rather than a full read.
+        Runs in phases: read the rows, drop the lock, stat and hash, then write
+        once. The file work is the slow part and holds no lock while it happens.
+        Size and mtime are checked first, so an unchanged library reads nothing.
         """
         report = RescanReport()
-        for paper in self.db.all_papers():
+        papers = self.db.all_papers()
+        self.db.release()
+
+        updates: list[tuple[str, str, int, int]] = []
+        for paper in papers:
             path = self.store_dir / paper.store_name
             if not path.exists():
                 report.missing.append(paper)
@@ -220,7 +250,9 @@ class Library:
                 report.changed.append((paper.file_id, paper.content_hash, digest))
             # Recorded even when the hash is unchanged — a touched file should
             # not be re-read on every future scan.
-            self.db.set_stored_file_state(paper.file_id, digest, size, mtime_ms)
+            updates.append((paper.file_id, digest, size, mtime_ms))
+
+        self.db.set_stored_file_states(updates)
         return report
 
     def existing_categories(self, limit: int | None = None) -> list[str]:

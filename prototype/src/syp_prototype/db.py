@@ -18,7 +18,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Sequence
 
 import duckdb
 
@@ -256,6 +256,22 @@ class PaperDb:
         paths = sorted({path for (path,) in rows if path})
         return paths[:limit] if limit else paths
 
+    def known_content_hashes(self, digests: Sequence[str]) -> set[str]:
+        """Which of these contents the library already holds.
+
+        One query rather than one per candidate, so the whole already-known
+        check is a single short visit to the database.
+        """
+        if not digests:
+            return set()
+        unique = list(dict.fromkeys(digests))
+        placeholders = ", ".join("?" for _ in unique)
+        rows = self._conn.execute(
+            f"SELECT content_hash FROM papers WHERE content_hash IN ({placeholders})",  # noqa: S608
+            unique,
+        ).fetchall()
+        return {row[0] for row in rows}
+
     def delete(self, file_id: str) -> None:
         """Forget a document entirely."""
         with self._transaction():
@@ -350,6 +366,38 @@ class PaperDb:
             for keyword in dict.fromkeys(paper.keywords):
                 self._conn.execute(
                     "INSERT INTO paper_keywords VALUES (?, ?)", [paper.file_id, keyword]
+                )
+
+    def upsert_many(self, papers: Sequence[Paper]) -> None:
+        """Write several documents in one transaction.
+
+        Filing writes every document of a pass at once so the lock is taken
+        once, after the copying is finished, rather than once per document
+        while it is still going on.
+        """
+        for paper in papers:
+            self.upsert(paper)
+
+    def set_stored_file_states(
+        self, states: Sequence[tuple[str, str, int, int]]
+    ) -> None:
+        """Record what several stored files look like now, in one transaction.
+
+        Each entry is ``(file_id, content_hash, size_bytes, mtime_ms)``.
+        """
+        if not states:
+            return
+        timestamp = now_ms()
+        with self._transaction():
+            for file_id, content_hash, size_bytes, mtime_ms in states:
+                self._conn.execute(
+                    """
+                    UPDATE papers
+                    SET content_hash = ?, size_bytes = ?, stored_mtime_ms = ?,
+                        updated_at_ms = ?
+                    WHERE file_id = ?
+                    """,
+                    [content_hash, size_bytes, mtime_ms, timestamp, file_id],
                 )
 
     def set_tags(self, file_id: str, tags: list[str], store_name: str) -> None:

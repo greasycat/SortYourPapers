@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+from unittest import mock
 
 from conftest import FailingLlmClient, FakeLlmClient, write_pdf, write_scanned_pdf
 
 from syp_prototype.config import Settings
+import syp_prototype.ingest as ingest_module
 from syp_prototype.ingest import ingest_folder
 from syp_prototype.library import FilingMode, Library
 
@@ -347,3 +350,74 @@ async def test_an_unreadable_store_does_not_stop_the_pass(
 
     assert report.rescan is None
     assert report.processed == 1, "the document should still have been filed"
+
+
+async def test_no_database_connection_is_held_during_the_model_calls(
+    settings: Settings, library: Library
+) -> None:
+    """The model calls are the slow part of a pass and need no database.
+
+    DuckDB allows one writing process, so a connection left open across them
+    would shut every other `sypy` command out for the length of the pass.
+    """
+    observed: list[bool] = []
+
+    class WatchingClient(FakeLlmClient):
+        async def extract_keywords(self, batch, existing_categories=()):
+            observed.append(library.db._connection is not None)
+            return await super().extract_keywords(batch, existing_categories)
+
+    for index in range(3):
+        write_pdf(settings.input_dir / f"p{index}.pdf", f"document {index}")
+
+    await ingest_folder(settings, WatchingClient(), library, mode=FilingMode.COPY)
+
+    assert observed, "the model should have been called"
+    assert not any(observed), "a connection was open while the model was working"
+
+
+async def test_no_database_connection_is_held_while_files_are_copied(
+    settings: Settings, library: Library
+) -> None:
+    # Copying is the other slow phase: it runs after the model returns and
+    # before the single write burst that records the whole batch.
+    observed: list[bool] = []
+    real_copy = shutil.copy2
+
+    def watching_copy(src, dst, *args, **kwargs):
+        observed.append(library.db._connection is not None)
+        return real_copy(src, dst, *args, **kwargs)
+
+    for index in range(3):
+        write_pdf(settings.input_dir / f"p{index}.pdf", f"document {index}")
+
+    with mock.patch.object(shutil, "copy2", watching_copy):
+        await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+
+    assert len(observed) == 3, "every document should have been copied"
+    assert not any(observed), "a connection was open while files were being copied"
+
+
+async def test_a_document_already_held_is_never_parsed(
+    settings: Settings, library: Library
+) -> None:
+    # Parsing is expensive and pointless for a document the library has. In copy
+    # mode the source never drains, so every later pass would pay for it again.
+    source = write_pdf(settings.input_dir / "a.pdf", "attention")
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+    assert source.exists(), "copy mode leaves the source in place"
+
+    parsed: list[str] = []
+    real_extract = ingest_module.extract_paper_text
+
+    def watching_extract(path, file_id, page_cutoff):
+        parsed.append(path.name)
+        return real_extract(path, file_id, page_cutoff)
+
+    with mock.patch.object(ingest_module, "extract_paper_text", watching_extract):
+        report = await ingest_folder(
+            settings, FakeLlmClient(), library, mode=FilingMode.COPY
+        )
+
+    assert report.skipped_already_known == 1
+    assert parsed == [], "an already-held document should not be parsed again"

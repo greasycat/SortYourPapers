@@ -126,11 +126,18 @@ indexed but never rearranged. `SYPY_MODE=move` overrides that. Logs go to
 `~/Library/Logs/sypy/sypy.log`.
 
 DuckDB allows one writing process at a time, so a running service could shut
-every other command out. Two things stop it. The watcher drops its lock whenever
-it is idle, and again for the length of the model calls, which is the slow part
-of a pass and needs no database. What is left is short, and a command that does
-collide with it waits rather than failing — up to 30 seconds, past which the
-problem is a stuck process rather than contention.
+every other command out. Three things stop it.
+
+The watcher drops its lock whenever it is idle. A pass runs in phases, so
+hashing, parsing, calling the model, and copying all happen with no connection
+open and the database is visited in three short bursts between them. And a
+command that still collides waits rather than failing, up to 30 seconds, past
+which the problem is a stuck process rather than contention.
+
+The phases are what keep this true as the library grows: the bursts are
+proportional to the number of documents, not to the bytes being read. On twelve
+4MB documents the share of a pass with the lock unavailable is 3%, against 66%
+when the file work was done with the connection held.
 
 `wire` builds a virtualenv at `prototype/.venv`, installs the package into it in
 editable mode so source edits take effect without reinstalling, and symlinks
