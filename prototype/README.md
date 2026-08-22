@@ -68,6 +68,22 @@ under different names is recognised.
 Expanding the schema means appending to `_MIGRATIONS` in `db.py`; anything not
 worth a column yet goes in `paper_attributes` as a key/value pair.
 
+## Scanned documents
+
+A PDF with no text layer opens fine and yields nothing to read. Its pages are
+rendered with `pdftoppm` and handed to the model, which writes plain text
+standing in for the text the document does not carry — the title, the authors,
+the date, and a short description of what it covers.
+
+That text then goes through the ordinary labelling call, so a scan is batched,
+steered, and named exactly like any other document. It costs one extra request
+per scanned document, and `from_page_images` records which documents were read
+this way, since their metadata is a model's reading of a picture rather than the
+document's own words.
+
+Needs poppler (`brew install poppler`), the same dependency the Rust pipeline
+already has. Without it, a scan is reported as a failure naming what to install.
+
 ## Editing a stored file
 
 Annotating or re-saving a file in the store keeps its name but changes its
@@ -169,8 +185,6 @@ and the correct spelling wins when both are set.
 
 ## Known gaps
 
-- Scanned PDFs with no text layer are reported as failures. The Rust pipeline
-  renders their pages and asks a vision model; this does not.
 - Only OpenAI is wired up, because that is the key the repo carries.
 - No resumable run state beyond the database: an interrupted pass keeps the
   papers it filed and redoes the batch it was in the middle of.
@@ -182,6 +196,10 @@ and the correct spelling wins when both are set.
   arrived by move. There is no unfile-but-keep option.
 - Category steering sends at most 200 existing paths; a larger library sends its
   alphabetically first.
+- Steering can also mislead. A 1990 radiology paper joined an existing
+  `Machine Learning/Explainable AI/Medical Imaging` branch because it was the
+  nearest thing present, where an unsteered run put it under
+  `Medicine/Radiology`. `sypy retag` is the fix when it happens.
 - The service log has no timestamps, so restarts are hard to tell apart.
 - Editing the tree by hand does not work: links are relative, so moving one to a
   different depth breaks it, and `sypy tree` reverts hand edits. A real file

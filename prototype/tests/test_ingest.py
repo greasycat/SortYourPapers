@@ -6,6 +6,15 @@ from unittest import mock
 
 from conftest import FailingLlmClient, FakeLlmClient, write_pdf, write_scanned_pdf
 
+from syp_prototype.llm import LlmError
+from syp_prototype.render import PageImage, RenderError
+
+
+def _fake_render(path, page_cutoff):
+    """Stand in for pdftoppm, so the suite does not need poppler."""
+    return [PageImage(data=b"\x89PNG fake")]
+
+
 from syp_prototype.config import Settings
 import syp_prototype.ingest as ingest_module
 from syp_prototype.ingest import ingest_folder
@@ -95,17 +104,76 @@ async def test_the_library_is_never_reingested(settings: Settings, library: Libr
     assert [filing.source.name for filing in report.filed] == ["pending.pdf"]
 
 
-async def test_a_scanned_pdf_is_reported_not_sent_to_the_model(
+async def test_a_scanned_pdf_is_read_from_its_pages_and_filed(
     settings: Settings, library: Library
 ) -> None:
+    # A scan opens fine and yields nothing, so its pages are rendered and read;
+    # the text that comes back stands in for the text it does not carry.
     write_scanned_pdf(settings.input_dir / "scan.pdf")
     client = FakeLlmClient()
 
-    report = await ingest_folder(settings, client, library, mode=FilingMode.MOVE)
+    with mock.patch.object(ingest_module, "render_pages", _fake_render):
+        report = await ingest_folder(settings, client, library, mode=FilingMode.COPY)
 
-    assert client.batches == []
-    assert len(report.failed) == 1
-    assert "no text layer" in report.failed[0][1]
+    assert client.pages_read == [1], "the pages should have been read once"
+    assert report.failed == []
+    assert report.processed == 1
+    paper = library.db.all_papers()[0]
+    assert paper.from_page_images is True, "provenance should be recorded"
+    assert paper.title, "the stand-in text should have produced a title"
+
+
+async def test_a_scanned_pdf_is_labelled_by_the_same_batched_call(
+    settings: Settings, library: Library
+) -> None:
+    # Reading the pages only supplies text; labelling stays one path, so a scan
+    # and an ordinary document travel together and are steered the same way.
+    write_scanned_pdf(settings.input_dir / "scan.pdf")
+    write_pdf(settings.input_dir / "text.pdf", "An ordinary paper with a text layer")
+    client = FakeLlmClient()
+
+    with mock.patch.object(ingest_module, "render_pages", _fake_render):
+        await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert len(client.batches) == 1, "both documents in one labelling batch"
+    assert len(client.batches[0]) == 2
+
+
+async def test_a_scan_whose_pages_will_not_render_is_reported(
+    settings: Settings, library: Library
+) -> None:
+    write_scanned_pdf(settings.input_dir / "scan.pdf")
+    write_pdf(settings.input_dir / "fine.pdf", "a readable document")
+
+    def refuse(path, page_cutoff):
+        raise RenderError("pdftoppm failed")
+
+    with mock.patch.object(ingest_module, "render_pages", refuse):
+        report = await ingest_folder(
+            settings, FakeLlmClient(), library, mode=FilingMode.COPY
+        )
+
+    assert [p.name for p, _ in report.failed] == ["scan.pdf"]
+    assert "pdftoppm failed" in report.failed[0][1]
+    assert report.processed == 1, "the readable document should still be filed"
+
+
+async def test_a_scan_the_model_cannot_read_is_reported(
+    settings: Settings, library: Library
+) -> None:
+    write_scanned_pdf(settings.input_dir / "scan.pdf")
+
+    class RefusingClient(FakeLlmClient):
+        async def describe_pages(self, images):
+            raise LlmError("could not read the pages")
+
+    with mock.patch.object(ingest_module, "render_pages", _fake_render):
+        report = await ingest_folder(
+            settings, RefusingClient(), library, mode=FilingMode.COPY
+        )
+
+    assert report.processed == 0
+    assert "could not read the pages" in report.failed[0][1]
 
 
 async def test_oversized_files_are_skipped_not_failed(settings: Settings, library: Library) -> None:

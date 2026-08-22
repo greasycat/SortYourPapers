@@ -83,6 +83,12 @@ _MIGRATIONS: list[tuple[str, str]] = [
         ALTER TABLE papers ADD COLUMN IF NOT EXISTS stored_mtime_ms BIGINT;
         """,
     ),
+    (
+        "0003_page_image_provenance",
+        """
+        ALTER TABLE papers ADD COLUMN IF NOT EXISTS from_page_images BOOLEAN;
+        """,
+    ),
 ]
 
 
@@ -100,6 +106,9 @@ class Paper:
     size_bytes: int | None = None
     stored_mtime_ms: int | None = None
     pages_read: int | None = None
+    # True when the text behind this document's labels was read off rendered
+    # page images rather than a text layer.
+    from_page_images: bool = False
     title: str | None = None
     year: int | None = None
     tags: list[str] = field(default_factory=list)
@@ -218,7 +227,8 @@ class PaperDb:
         row = self._conn.execute(
             """
             SELECT file_id, content_hash, store_name, original_name, source_path,
-                   size_bytes, pages_read, title, year, stored_mtime_ms
+                   size_bytes, pages_read, title, year, stored_mtime_ms,
+                   from_page_images
             FROM papers WHERE file_id = ?
             """,
             [file_id],
@@ -231,7 +241,8 @@ class PaperDb:
         rows = self._conn.execute(
             """
             SELECT file_id, content_hash, store_name, original_name, source_path,
-                   size_bytes, pages_read, title, year, stored_mtime_ms
+                   size_bytes, pages_read, title, year, stored_mtime_ms,
+                   from_page_images
             FROM papers ORDER BY file_id
             """
         ).fetchall()
@@ -306,6 +317,7 @@ class PaperDb:
             title=row[7],
             year=row[8],
             stored_mtime_ms=row[9],
+            from_page_images=bool(row[10]),
             tags=self._ordered(file_id, "paper_tags", "tag"),
             authors=self._ordered(file_id, "paper_authors", "name"),
             keywords=[
@@ -340,8 +352,8 @@ class PaperDb:
                 INSERT INTO papers (
                     file_id, content_hash, store_name, original_name, source_path,
                     size_bytes, stored_mtime_ms, pages_read, title, year,
-                    created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    from_page_images, created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     paper.file_id,
@@ -354,6 +366,7 @@ class PaperDb:
                     paper.pages_read,
                     paper.title,
                     paper.year,
+                    paper.from_page_images,
                     created_at,
                     timestamp,
                 ],

@@ -9,6 +9,7 @@ from pypdf import PdfWriter
 from syp_prototype.config import Settings
 from syp_prototype.extract import PaperText
 from syp_prototype.llm import KeywordPair, LlmError
+from syp_prototype.render import PageImage
 
 
 class FakeLlmClient:
@@ -28,6 +29,7 @@ class FakeLlmClient:
         self.year = year
         self.batches: list[list[str]] = []
         self.seen_categories: list[list[str]] = []
+        self.pages_read: list[int] = []
 
     async def extract_keywords(
         self, batch: Sequence[PaperText], existing_categories: Sequence[str] = ()
@@ -47,6 +49,11 @@ class FakeLlmClient:
         ]
 
 
+    async def describe_pages(self, images: Sequence[PageImage]) -> str:
+        self.pages_read.append(len(images))
+        return "A Scanned Report\nJane Doe\n2024\nA report about scanned things."
+
+
 class FailingLlmClient:
     """Fails every batch, to exercise the error path."""
 
@@ -57,6 +64,10 @@ class FailingLlmClient:
     async def extract_keywords(
         self, batch: Sequence[PaperText], existing_categories: Sequence[str] = ()
     ) -> list[KeywordPair]:
+        self.calls += 1
+        raise LlmError(self.message)
+
+    async def describe_pages(self, images: Sequence[PageImage]) -> str:
         self.calls += 1
         raise LlmError(self.message)
 

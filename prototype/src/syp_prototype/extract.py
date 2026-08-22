@@ -23,6 +23,10 @@ class PaperText:
     path: Path
     text: str
     pages_read: int
+    # Whether the text was read off rendered page images rather than a text
+    # layer. Worth carrying: everything downstream is then a model's reading of
+    # a picture, not the document's own words.
+    from_page_images: bool = False
 
     @property
     def has_text_layer(self) -> bool:

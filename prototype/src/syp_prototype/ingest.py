@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Sequence
 
@@ -37,6 +37,7 @@ from .discovery import discover_pdfs, file_id as content_hash_of
 from .extract import ExtractionError, PaperText, extract_paper_text
 from .library import FilingMode, Library, LibraryError, PlannedFiling, RescanReport
 from .llm import KeywordPair, LlmClient, LlmError
+from .render import RenderError, render_pages
 from .naming import new_paper_id, split_category, store_name
 
 log = logging.getLogger(__name__)
@@ -88,9 +89,10 @@ async def ingest_folder(
     existing = library.existing_categories(limit=MAX_STEERING_CATEGORIES)
     library.release()
 
-    # Phase 3 — parse only what is new. No database, and no wasted parsing of
-    # documents the library already has.
-    prepared = _extract_new(candidates, known, settings, report)
+    # Phase 3 — read only what is new. No database, and no wasted parsing of
+    # documents the library already has. Scanned pages are read here too, so
+    # by phase 4 every document has text regardless of where it came from.
+    prepared = await _extract_new(candidates, known, settings, report, client)
     if not prepared:
         return report
 
@@ -173,6 +175,7 @@ def _describe_paper(
         original_name=paper_text.path.name,
         source_path=str(paper_text.path),
         pages_read=paper_text.pages_read,
+        from_page_images=paper_text.from_page_images,
         title=pair.title or None,
         year=pair.year,
         tags=tags,
@@ -230,14 +233,23 @@ def _hash_candidates(
     return candidates
 
 
-def _extract_new(
+async def _extract_new(
     candidates: list[tuple[Path, str]],
     known: set[str],
     settings: Settings,
     report: IngestReport,
+    client: LlmClient,
 ) -> list[tuple[PaperText, str]]:
-    """Parse the candidates the library does not already hold. No database."""
+    """Read the candidates the library does not already hold. No database.
+
+    A PDF with no text layer is a scan: it opens fine and yields nothing. Rather
+    than reporting it as a failure, its pages are rendered and read, and the
+    text that comes back stands in for the text it does not carry. From here on
+    it is an ordinary document — labelled by the same batched call, steered by
+    the same categories.
+    """
     prepared: list[tuple[PaperText, str]] = []
+    scanned: list[tuple[PaperText, str]] = []
 
     for path, digest in candidates:
         if digest in known:
@@ -250,15 +262,50 @@ def _extract_new(
             report.failed.append((path, str(err)))
             continue
 
-        if not paper.has_text_layer:
-            # Scanned PDFs need an image-reading path the prototype does not
-            # have; report them rather than sending an empty prompt.
-            report.failed.append((path, "no text layer (scanned PDF?)"))
-            continue
+        (prepared if paper.has_text_layer else scanned).append((paper, digest))
 
-        prepared.append((paper, digest))
-
+    if scanned:
+        prepared.extend(await _read_scanned(scanned, settings, report, client))
     return prepared
+
+
+async def _read_scanned(
+    scanned: list[tuple[PaperText, str]],
+    settings: Settings,
+    report: IngestReport,
+    client: LlmClient,
+) -> list[tuple[PaperText, str]]:
+    """Render and read documents that carry no text layer.
+
+    One extra request per scanned document, capped like every other stage. A
+    document whose pages will not render, or that the model cannot read, is
+    reported and skipped rather than sent on with nothing to label.
+    """
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+    async def read(paper: PaperText) -> PaperText:
+        images = await asyncio.to_thread(
+            render_pages, paper.path, settings.page_cutoff
+        )
+        async with semaphore:
+            text = await client.describe_pages(images)
+        return replace(paper, text=text, from_page_images=True)
+
+    log.info("reading %d scanned document(s) from rendered pages", len(scanned))
+    results = await asyncio.gather(
+        *(read(paper) for paper, _ in scanned), return_exceptions=True
+    )
+
+    read_papers: list[tuple[PaperText, str]] = []
+    for (paper, digest), result in zip(scanned, results):
+        if isinstance(result, (RenderError, LlmError)):
+            report.failed.append((paper.path, f"scanned PDF: {result}"))
+            continue
+        if isinstance(result, BaseException):
+            report.failed.append((paper.path, f"scanned PDF: {_describe(result)}"))
+            continue
+        read_papers.append((result, digest))
+    return read_papers
 
 
 def _describe(err: BaseException) -> str:
