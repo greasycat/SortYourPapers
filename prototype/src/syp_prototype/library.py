@@ -228,9 +228,22 @@ class Library:
             raise LibraryError(f"no document with id {file_id}")
 
         self._unlink(paper)
+
         # The whole folder goes, including anything kept beside the document.
         # That is why removal asks first.
-        shutil.rmtree(self.document_dir(paper), ignore_errors=True)
+        directory = self.document_dir(paper)
+        try:
+            shutil.rmtree(directory)
+        except FileNotFoundError:
+            pass  # already gone; the row is still worth clearing
+        except OSError as err:
+            # The row is the only thing that says this folder belongs to a
+            # document. Dropping it here would leave the folder on disk with
+            # nothing pointing at it and no command able to find it, so the
+            # document stays in the library and the failure is reported. The
+            # link is restored by `sypy tree`.
+            raise LibraryError(f"could not remove {directory}: {err}") from err
+
         self.db.delete(file_id)
         return paper
 
@@ -442,11 +455,25 @@ class Library:
         return link
 
     def _unlink(self, paper: Paper) -> None:
-        """Remove a document's link, and any branches it leaves empty."""
-        link = self._link_path(paper, taken=set())
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        _prune_empty(link.parent, stop=self.tree_dir)
+        """Remove this document's link, and any branches it leaves empty.
+
+        Found by where it points, not by what it is called. Two documents whose
+        author, year, and title agree want the same name, so one of them gets an
+        id appended — and computing the undecorated name here would delete the
+        *other* document's link and leave this one dangling.
+        """
+        parent = self.tree_dir.joinpath(*paper.tags) if paper.tags else self.tree_dir
+        if not parent.is_dir():
+            return
+
+        target = os.path.realpath(self.document_dir(paper))
+        for entry in list(parent.iterdir()):
+            if entry.is_symlink() or not entry.is_dir():
+                continue
+            link = entry / entry.name
+            if link.is_symlink() and os.path.realpath(link) == target:
+                link.unlink()
+                _prune_empty(entry, stop=self.tree_dir)
 
 
 def _clear_links(root: Path) -> None:

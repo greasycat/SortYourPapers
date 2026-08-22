@@ -156,3 +156,17 @@ def test_a_failure_that_is_not_contention_is_raised_at_once(tmp_path: Path) -> N
         assert time.monotonic() - started < 1.0, "should not have waited"
     finally:
         duckdb.connect = original
+
+
+def test_a_failed_batch_write_records_none_of_it(tmp_path: Path) -> None:
+    # One transaction for the batch, so a failure part-way leaves the library
+    # unchanged rather than holding an arbitrary prefix of the pass.
+    db = PaperDb(tmp_path / "papers.duckdb")
+    good = _paper(file_id="aaaaaaaaaaaa")
+    bad = _paper(file_id="bbbbbbbbbbbb", tags=None)  # tags=None breaks the write
+
+    with pytest.raises(Exception):
+        db.upsert_many([good, bad])
+
+    assert db.count() == 0, "the first document must not survive the batch failing"
+    db.close()

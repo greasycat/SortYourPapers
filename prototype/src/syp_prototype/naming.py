@@ -118,7 +118,10 @@ def link_name(
         return fallback
 
     parts = [part for part in (author, str(year) if year else "", slug) if part]
-    return f"{'_'.join(parts)}{suffix}"[:MAX_NAME_CHARS]
+    # Trim the stem, not the finished name: capping afterwards can cut the
+    # suffix off a very long author and leave a file with no extension.
+    stem = "_".join(parts)[: MAX_NAME_CHARS - len(suffix)]
+    return f"{stem}{suffix}"
 
 
 def disambiguate(name: str, paper_id: str) -> str:

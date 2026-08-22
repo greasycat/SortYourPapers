@@ -351,58 +351,143 @@ class PaperDb:
 
     def upsert(self, paper: Paper) -> None:
         """Write a paper and its multi-valued fields as one atomic change."""
-        timestamp = now_ms()
         with self._transaction():
-            existing = self._conn.execute(
-                "SELECT created_at_ms FROM papers WHERE file_id = ?", [paper.file_id]
-            ).fetchone()
-            created_at = existing[0] if existing else timestamp
-            self._conn.execute("DELETE FROM papers WHERE file_id = ?", [paper.file_id])
-            self._conn.execute(
-                """
-                INSERT INTO papers (
-                    file_id, content_hash, store_name, document_name,
-                    original_name, source_path, size_bytes, stored_mtime_ms,
-                    pages_read, title, year, from_page_images,
-                    created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    paper.file_id,
-                    paper.content_hash,
-                    paper.store_name,
-                    paper.document_name,
-                    paper.original_name,
-                    paper.source_path,
-                    paper.size_bytes,
-                    paper.stored_mtime_ms,
-                    paper.pages_read,
-                    paper.title,
-                    paper.year,
-                    paper.from_page_images,
-                    created_at,
-                    timestamp,
-                ],
-            )
-            self._replace_ordered(paper.file_id, "paper_tags", "tag", paper.tags)
-            self._replace_ordered(paper.file_id, "paper_authors", "name", paper.authors)
-            self._conn.execute(
-                "DELETE FROM paper_keywords WHERE file_id = ?", [paper.file_id]
-            )
-            for keyword in dict.fromkeys(paper.keywords):
+            self._write(paper)
+
+    def known_content_hashes(self, digests: Sequence[str]) -> set[str]:
+        """Which of these contents the library already holds.
+
+        One query rather than one per candidate, so the whole already-known
+        check is a single short visit to the database.
+        """
+        if not digests:
+            return set()
+        unique = list(dict.fromkeys(digests))
+        placeholders = ", ".join("?" for _ in unique)
+        rows = self._conn.execute(
+            f"SELECT content_hash FROM papers WHERE content_hash IN ({placeholders})",  # noqa: S608
+            unique,
+        ).fetchall()
+        return {row[0] for row in rows}
+
+    def delete(self, file_id: str) -> None:
+        """Forget a document entirely."""
+        with self._transaction():
+            for table in (
+                "paper_tags",
+                "paper_authors",
+                "paper_keywords",
+                "paper_attributes",
+                "papers",
+            ):
                 self._conn.execute(
-                    "INSERT INTO paper_keywords VALUES (?, ?)", [paper.file_id, keyword]
+                    f"DELETE FROM {table} WHERE file_id = ?", [file_id]  # noqa: S608
                 )
+
+    def attributes(self, file_id: str) -> dict[str, str | None]:
+        rows = self._conn.execute(
+            "SELECT key, value FROM paper_attributes WHERE file_id = ? ORDER BY key",
+            [file_id],
+        ).fetchall()
+        return {key: value for key, value in rows}
+
+    def _hydrate(self, row: tuple) -> Paper:
+        file_id = row[0]
+        return Paper(
+            file_id=file_id,
+            content_hash=row[1],
+            store_name=row[2],
+            original_name=row[3],
+            source_path=row[4],
+            size_bytes=row[5],
+            pages_read=row[6],
+            title=row[7],
+            year=row[8],
+            stored_mtime_ms=row[9],
+            from_page_images=bool(row[10]),
+            document_name=row[11] or "",
+            tags=self._ordered(file_id, "paper_tags", "tag"),
+            authors=self._ordered(file_id, "paper_authors", "name"),
+            keywords=[
+                value
+                for (value,) in self._conn.execute(
+                    "SELECT keyword FROM paper_keywords WHERE file_id = ? ORDER BY keyword",
+                    [file_id],
+                ).fetchall()
+            ],
+        )
+
+    def _ordered(self, file_id: str, table: str, column: str) -> list[str]:
+        rows = self._conn.execute(
+            f"SELECT {column} FROM {table} WHERE file_id = ? ORDER BY position",  # noqa: S608
+            [file_id],
+        ).fetchall()
+        return [value for (value,) in rows]
+
+    # ---- writes ------------------------------------------------------------
+
+    def upsert(self, paper: Paper) -> None:
+        """Write a paper and its multi-valued fields as one atomic change."""
+        with self._transaction():
+            self._write(paper)
+
+    def _write(self, paper: Paper) -> None:
+        """Write one paper. Caller owns the transaction."""
+        timestamp = now_ms()
+        existing = self._conn.execute(
+            "SELECT created_at_ms FROM papers WHERE file_id = ?", [paper.file_id]
+        ).fetchone()
+        created_at = existing[0] if existing else timestamp
+        self._conn.execute("DELETE FROM papers WHERE file_id = ?", [paper.file_id])
+        self._conn.execute(
+            """
+            INSERT INTO papers (
+                file_id, content_hash, store_name, document_name,
+                original_name, source_path, size_bytes, stored_mtime_ms,
+                pages_read, title, year, from_page_images,
+                created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                paper.file_id,
+                paper.content_hash,
+                paper.store_name,
+                paper.document_name,
+                paper.original_name,
+                paper.source_path,
+                paper.size_bytes,
+                paper.stored_mtime_ms,
+                paper.pages_read,
+                paper.title,
+                paper.year,
+                paper.from_page_images,
+                created_at,
+                timestamp,
+            ],
+        )
+        self._replace_ordered(paper.file_id, "paper_tags", "tag", paper.tags)
+        self._replace_ordered(paper.file_id, "paper_authors", "name", paper.authors)
+        self._conn.execute(
+            "DELETE FROM paper_keywords WHERE file_id = ?", [paper.file_id]
+        )
+        for keyword in dict.fromkeys(paper.keywords):
+            self._conn.execute(
+                "INSERT INTO paper_keywords VALUES (?, ?)", [paper.file_id, keyword]
+            )
 
     def upsert_many(self, papers: Sequence[Paper]) -> None:
         """Write several documents in one transaction.
 
         Filing writes every document of a pass at once so the lock is taken
         once, after the copying is finished, rather than once per document
-        while it is still going on.
+        while it is still going on — and so a failure part-way leaves none of
+        them recorded rather than an arbitrary prefix.
         """
-        for paper in papers:
-            self.upsert(paper)
+        if not papers:
+            return
+        with self._transaction():
+            for paper in papers:
+                self._write(paper)
 
     def set_stored_file_states(
         self, states: Sequence[tuple[str, str, int, int]]

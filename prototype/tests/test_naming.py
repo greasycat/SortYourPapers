@@ -159,3 +159,12 @@ def test_a_cut_title_never_ends_in_a_dash() -> None:
             title=" ".join(["word"] * words),
         )
         assert not name.removesuffix(".pdf").endswith("-"), name
+
+
+def test_a_very_long_name_keeps_its_extension() -> None:
+    # The cap trims the stem, not the finished name: capping afterwards can cut
+    # the suffix off and leave a file with no extension at all.
+    name = link_name(fallback="x.pdf", authors=["A" * 260], year=2020, title="T")
+
+    assert name.endswith(".pdf"), name
+    assert len(name) <= MAX_NAME_CHARS

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -605,3 +606,88 @@ def test_a_file_left_in_the_tree_survives_a_rebuild(
 
     assert stray.read_text() == "keep me"
     assert library.tree_litter() == [stray]
+
+
+def test_a_failed_folder_delete_keeps_the_document(
+    library: Library, tmp_path: Path
+) -> None:
+    """A document whose folder cannot be deleted must stay in the library.
+
+    Dropping the row would leave the folder on disk with nothing pointing at
+    it — invisible to every command, including the one that would delete it.
+    """
+    import os
+    import stat
+
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    directory = filing.store_path.parent
+    os.chmod(directory, stat.S_IRUSR | stat.S_IXUSR)  # deletion will fail
+    try:
+        with pytest.raises(LibraryError, match="could not remove"):
+            library.remove(filing.file_id)
+    finally:
+        os.chmod(directory, 0o755)
+
+    assert library.db.get(filing.file_id) is not None, "the row must survive"
+    assert filing.store_path.is_file(), "and so must the document"
+
+
+def test_removing_one_of_two_look_alikes_keeps_the_other_linked(
+    library: Library, tmp_path: Path
+) -> None:
+    # Same author, year and title, so they compete for one link name and the
+    # loser gets an id appended. `rebuild_tree` names in file_id order, so the
+    # ids are pinned: `first` takes the plain name, `second` the decorated one.
+    # Removing `second` must not delete the plain link, which is `first`'s.
+    first = library.file_paper(
+        _paper(["AI"], file_id="aaaaaaaaaaaa"),
+        write_pdf(tmp_path / "a" / "raw.pdf", "one"),
+    )
+    second = library.file_paper(
+        _paper(["AI"], file_id="bbbbbbbbbbbb"),
+        write_pdf(tmp_path / "b" / "raw.pdf", "two"),
+    )
+    library.rebuild_tree()
+    assert len(list((library.tree_dir / "AI").iterdir())) == 2
+
+    library.remove(second.file_id)
+
+    survivors = list((library.tree_dir / "AI").iterdir())
+    assert len(survivors) == 1, f"expected one link left, got {survivors}"
+    link = survivors[0] / survivors[0].name
+    assert link.is_symlink()
+    assert os.path.realpath(link) == os.path.realpath(
+        library.document_dir(library.db.get(first.file_id))
+    ), "the surviving link must point at the document that was kept"
+
+
+def test_retagging_one_of_two_look_alikes_moves_the_right_one(
+    library: Library, tmp_path: Path
+) -> None:
+    first = library.file_paper(
+        _paper(["AI"], file_id="aaaaaaaaaaaa"),
+        write_pdf(tmp_path / "a" / "raw.pdf", "one"),
+    )
+    second = library.file_paper(
+        _paper(["AI"], file_id="bbbbbbbbbbbb"),
+        write_pdf(tmp_path / "b" / "raw.pdf", "two"),
+    )
+    library.rebuild_tree()
+
+    library.retag(second.file_id, ["Systems"])
+
+    remaining = list((library.tree_dir / "AI").iterdir())
+    assert len(remaining) == 1, f"first should stay put, found {remaining}"
+    # Counting is not enough: the entry left behind must be the document that
+    # was not re-tagged, still pointing at its own folder.
+    assert os.path.realpath(remaining[0] / remaining[0].name) == os.path.realpath(
+        library.document_dir(library.db.get(first.file_id))
+    ), "the entry left in AI must be the untouched document's"
+
+    moved = list((library.tree_dir / "Systems").iterdir())
+    assert len(moved) == 1
+    assert os.path.realpath(moved[0] / moved[0].name) == os.path.realpath(
+        library.document_dir(library.db.get(second.file_id))
+    )
