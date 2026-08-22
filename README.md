@@ -25,7 +25,7 @@ are categorized on their own terms.
 ## Quick start
 
 ```bash
-./prototype/scripts/sypy-path wire        # install `sypy` and put it on PATH
+./install.sh                              # macOS or Linux; installs `sypy`
 
 sypy ingest --input ./inbox               # preview: nothing is written
 sypy ingest --input ./inbox --mode copy   # copy in, leave the source alone

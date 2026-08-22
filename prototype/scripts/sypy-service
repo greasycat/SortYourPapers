@@ -1,54 +1,130 @@
 #!/usr/bin/env bash
 #
-# Run the watcher as a background service via launchd.
+# Run the watcher as a background service.
 #
 #   ./prototype/scripts/sypy-service install [watch-name]
 #   ./prototype/scripts/sypy-service install [watched-folder] [library-folder]
 #   ./prototype/scripts/sypy-service status
-#   ./prototype/scripts/sypy-service logs
+#   ./prototype/scripts/sypy-service logs [n]
 #   ./prototype/scripts/sypy-service uninstall
 #
 # With no arguments it runs the registry's default watch, so the folders and the
 # mode are declared in one place (`sypy watches`) rather than repeated here.
 # Given a name it runs that watch. Given two paths it runs them directly,
 # without the registry. Override the mode with SYPY_MODE=move.
+#
+# launchd on macOS, systemd --user on Linux. The two differ in more than syntax
+# — where the unit lives, how it is loaded, what happens to its output, and
+# whether it survives logout — so each is written the way that platform expects
+# rather than one being emulated on the other. `SYPY_INIT_SYSTEM` forces a
+# choice, which is how the tests exercise both from one machine.
 set -euo pipefail
 
 LABEL="com.sortyourpapers.sypy"
+UNIT_NAME="sypy.service"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="${SYPY_VENV_DIR:-$PROJECT_DIR/.venv}"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-LOG_DIR="${SYPY_LOG_DIR:-$HOME/Library/Logs/sypy}"
-# The watcher's own log, written through a rotating handler so a service left
-# running for months cannot fill the disk.
-LOG_FILE="$LOG_DIR/sypy.log"
-# What launchd captures from the process: a traceback if it dies, and nothing
-# else, because the log itself goes to $LOG_FILE. Small enough to leave alone.
-CRASH_FILE="$LOG_DIR/sypy.crash.log"
 MODE="${SYPY_MODE:-copy}"
-DOMAIN="gui/$(id -u)"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 note() { printf '%s\n' "$1"; }
 
-is_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+detect_init_system() {
+  if [ -n "${SYPY_INIT_SYSTEM:-}" ]; then
+    printf '%s\n' "$SYPY_INIT_SYSTEM"
+    return 0
+  fi
+  case "$(uname -s)" in
+    Darwin) printf 'launchd\n' ;;
+    Linux)
+      command -v systemctl >/dev/null 2>&1 || die \
+        "no systemctl found. This installs a systemd --user service; without
+  systemd, run 'sypy watch' under whatever supervisor you use."
+      printf 'systemd\n'
+      ;;
+    *) die "unsupported platform: $(uname -s). Run 'sypy watch' directly." ;;
+  esac
+}
 
-# The folder the installed agent watches, read back from its own plist so it
+INIT_SYSTEM="$(detect_init_system)"
+
+case "$INIT_SYSTEM" in
+  launchd)
+    DOMAIN="gui/$(id -u)"
+    PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+    LOG_DIR="${SYPY_LOG_DIR:-$HOME/Library/Logs/sypy}"
+    ;;
+  systemd)
+    UNIT_DIR="${SYPY_UNIT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
+    UNIT="$UNIT_DIR/$UNIT_NAME"
+    LOG_DIR="${SYPY_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/sypy/logs}"
+    ;;
+  *) die "SYPY_INIT_SYSTEM must be launchd or systemd, got '$INIT_SYSTEM'" ;;
+esac
+
+# The watcher's own log, written through a rotating handler so a service left
+# running for months cannot fill the disk.
+LOG_FILE="$LOG_DIR/sypy.log"
+# What the supervisor captures from the process: a traceback if it dies, and
+# nothing else, because the log itself goes to $LOG_FILE.
+CRASH_FILE="$LOG_DIR/sypy.crash.log"
+
+is_loaded() {
+  case "$INIT_SYSTEM" in
+    launchd) launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 ;;
+    systemd) systemctl --user is-enabled "$UNIT_NAME" >/dev/null 2>&1 ;;
+  esac
+}
+
+# The folder the installed service watches, read back from its own unit so it
 # reflects what is actually running rather than what this invocation was asked
 # for.
 watched_folder_of_running_service() {
-  [ -f "$PLIST" ] || return 0
-  /usr/bin/python3 - "$PLIST" <<'PY' 2>/dev/null || true
+  case "$INIT_SYSTEM" in
+    launchd)
+      [ -f "$PLIST" ] || return 0
+      /usr/bin/python3 - "$PLIST" <<'PY' 2>/dev/null || true
 import plistlib, sys
 with open(sys.argv[1], "rb") as handle:
     args = plistlib.load(handle).get("ProgramArguments", [])
 if "--input" in args:
     print(args[args.index("--input") + 1])
 PY
+      ;;
+    systemd)
+      [ -f "$UNIT" ] || return 0
+      # Parsed with shlex rather than cut: a watched folder may contain spaces,
+      # and it is written quoted for exactly that reason.
+      python3 - "$UNIT" <<'PY' 2>/dev/null || true
+import shlex, sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    if line.startswith("ExecStart="):
+        args = shlex.split(line.split("=", 1)[1])
+        if "--input" in args:
+            print(args[args.index("--input") + 1])
+        break
+PY
+      ;;
+  esac
+}
+
+# The directory holding pdftoppm, carried into the service's environment. Both
+# supervisors give a service a bare PATH that does not include Homebrew or
+# /usr/local, and without this every scanned PDF fails under the service while
+# the same command works by hand.
+runtime_path() {
+  local base="/usr/bin:/bin:/usr/sbin:/sbin" poppler_bin
+  poppler_bin="$(dirname "$(command -v pdftoppm 2>/dev/null || echo /nonexistent/x)")"
+  if [ -d "$poppler_bin" ]; then
+    printf '%s:%s\n' "$poppler_bin" "$base"
+  else
+    note "warning: pdftoppm not found; scanned PDFs will be reported as failures" >&2
+    printf '%s\n' "$base"
+  fi
 }
 
 install_service() {
-  [ -x "$VENV_DIR/bin/sypy" ] || die "sypy is not installed; run scripts/sypy-path wire first"
+  [ -x "$VENV_DIR/bin/sypy" ] || die "sypy is not installed; run ./install.sh first"
 
   local watched library
   if [ "$#" -le 1 ]; then
@@ -69,33 +145,46 @@ install_service() {
     *) die "SYPY_MODE must be copy or move, got '$MODE'" ;;
   esac
 
-  # One agent, one label: installing for a different folder would replace the
-  # running service without saying so, leaving the user believing both folders
-  # were watched. Reinstalling the same folder is how config changes are picked
-  # up, so that stays allowed.
+  # One service, one name: installing for a different folder would replace the
+  # running one without saying so, leaving the user believing both folders were
+  # watched. Reinstalling the same folder is how config changes are picked up,
+  # so that stays allowed.
   if is_loaded; then
+    local running_watched
     running_watched="$(watched_folder_of_running_service)"
     if [ -n "$running_watched" ] && [ "$running_watched" != "$watched" ]; then
       die "a service is already watching $running_watched
   installing this one would silently replace it. Run '$(basename "$0") uninstall' first."
     fi
     note "replacing the running service"
-    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+    stop_service
   fi
 
-  mkdir -p "$LOG_DIR" "$library" "$(dirname "$PLIST")"
+  mkdir -p "$LOG_DIR" "$library"
+  local RUNTIME_PATH
+  RUNTIME_PATH="$(runtime_path)"
 
-  # Carry the directory holding pdftoppm into the agent's environment; a bare
-  # launchd PATH would leave scanned PDFs failing silently.
-  local RUNTIME_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-  local poppler_bin
-  poppler_bin="$(dirname "$(command -v pdftoppm 2>/dev/null || echo /nonexistent/x)")"
-  if [ -d "$poppler_bin" ]; then
-    RUNTIME_PATH="$poppler_bin:$RUNTIME_PATH"
-  else
-    note "warning: pdftoppm not found; scanned PDFs will be reported as failures"
+  case "$INIT_SYSTEM" in
+    launchd) write_plist "$watched" "$library" "$RUNTIME_PATH" ;;
+    systemd) write_unit "$watched" "$library" "$RUNTIME_PATH" ;;
+  esac
+
+  note "installed $INIT_SYSTEM service"
+  note "  watching : $watched"
+  note "  library  : $library"
+  note "  mode     : $MODE"
+  note "  logs     : $LOG_FILE"
+  note "  crashes  : $CRASH_FILE"
+  if [ "$INIT_SYSTEM" = systemd ] && ! loginctl show-user "$(id -un)" 2>/dev/null | grep -q "Linger=yes"; then
+    note ""
+    note "note: a --user service stops when your last session ends. To keep it"
+    note "      running after logout: loginctl enable-linger $(id -un)"
   fi
+}
 
+write_plist() {
+  local watched="$1" library="$2" runtime_path="$3"
+  mkdir -p "$(dirname "$PLIST")"
   cat > "$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -113,12 +202,12 @@ install_service() {
     <key>WorkingDirectory</key><string>$PROJECT_DIR</string>
     <!-- launchd gives an agent a bare PATH, which does not include Homebrew.
          Without this, pdftoppm is not found and every scanned PDF fails while
-         the same command works by hand. -->
+         the same command works by hand. SYPY_LOG_FILE sends the log through a
+         rotating handler; without it every line lands in the capture below,
+         which nothing ever trims. -->
     <key>EnvironmentVariables</key>
     <dict>
-        <key>PATH</key><string>$RUNTIME_PATH</string>
-        <!-- Sends the log through a rotating handler. Without it every line
-             lands in the launchd capture below, which nothing ever trims. -->
+        <key>PATH</key><string>$runtime_path</string>
         <key>SYPY_LOG_FILE</key><string>$LOG_FILE</string>
     </dict>
     <key>RunAtLoad</key><true/>
@@ -129,56 +218,116 @@ install_service() {
 </dict>
 </plist>
 PLIST_EOF
-
   launchctl bootstrap "$DOMAIN" "$PLIST" || die "launchctl bootstrap failed"
-  note "installed $LABEL"
-  note "  watching : $watched"
-  note "  library  : $library"
-  note "  mode     : $MODE"
-  note "  logs     : $LOG_FILE"
-  note "  crashes  : $CRASH_FILE"
+}
+
+write_unit() {
+  local watched="$1" library="$2" runtime_path="$3"
+  mkdir -p "$UNIT_DIR"
+  cat > "$UNIT" <<UNIT_EOF
+[Unit]
+Description=SortYourPapers folder watcher
+Documentation=https://github.com/greasycat/SortYourPapers
+After=default.target
+# Restarting is how a transient failure recovers, but a service that fails
+# instantly and forever should stop rather than spin. Five starts in five
+# minutes and systemd gives up, leaving the reason in the journal.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=$PROJECT_DIR
+ExecStart="$VENV_DIR/bin/sypy" watch --input "$watched" --library "$library" --mode $MODE
+# A user service gets a bare PATH that does not include /usr/local or a
+# Homebrew prefix, and without pdftoppm on it every scanned PDF fails under the
+# service while the same command works by hand. SYPY_LOG_FILE sends the log
+# through a rotating handler, so months of running cannot fill the disk.
+Environment=PATH=$runtime_path
+Environment=SYPY_LOG_FILE=$LOG_FILE
+Restart=always
+RestartSec=10
+# The journal keeps a traceback from a crash; the log itself goes to
+# SYPY_LOG_FILE, so this file stays small enough to leave alone.
+StandardOutput=append:$CRASH_FILE
+StandardError=append:$CRASH_FILE
+
+[Install]
+WantedBy=default.target
+UNIT_EOF
+  systemctl --user daemon-reload || die "systemctl --user daemon-reload failed"
+  systemctl --user enable --now "$UNIT_NAME" || die "systemctl --user enable failed"
+}
+
+stop_service() {
+  case "$INIT_SYSTEM" in
+    launchd) launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true ;;
+    systemd) systemctl --user disable --now "$UNIT_NAME" 2>/dev/null || true ;;
+  esac
 }
 
 uninstall_service() {
   if is_loaded; then
-    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-    note "stopped $LABEL"
+    stop_service
+    note "stopped the service"
   else
-    note "$LABEL was not running"
+    note "no service was running"
   fi
-  if [ -f "$PLIST" ]; then
-    rm -f "$PLIST"
-    note "removed $PLIST"
-  fi
+  case "$INIT_SYSTEM" in
+    launchd)
+      if [ -f "$PLIST" ]; then
+        rm -f "$PLIST"
+        note "removed $PLIST"
+      fi
+      ;;
+    systemd)
+      if [ -f "$UNIT" ]; then
+        rm -f "$UNIT"
+        systemctl --user daemon-reload 2>/dev/null || true
+        note "removed $UNIT"
+      fi
+      ;;
+  esac
   note "the library and its logs are left in place"
+}
+
+show_status() {
+  if ! is_loaded; then
+    note "no service is installed"
+    return 0
+  fi
+  case "$INIT_SYSTEM" in
+    launchd)
+      launchctl print "$DOMAIN/$LABEL" | grep -E "^\s+(state|pid|last exit code) " || true
+      ;;
+    systemd)
+      systemctl --user --no-pager --lines=0 status "$UNIT_NAME" || true
+      ;;
+  esac
+}
+
+show_logs() {
+  [ -f "$LOG_FILE" ] && tail -n "${1:-40}" "$LOG_FILE" || note "no log at $LOG_FILE"
+  # A crash never reaches the rotating log: the process is gone before the
+  # handler could write it. Say so here rather than leaving the last thing that
+  # happened in a file nobody looks at.
+  if [ -s "$CRASH_FILE" ]; then
+    note ""
+    note "--- $CRASH_FILE (crashes, not rotated) ---"
+    tail -n 20 "$CRASH_FILE"
+  fi
 }
 
 case "${1:-}" in
   install) shift; install_service "$@" ;;
   uninstall) uninstall_service ;;
-  status)
-    if is_loaded; then
-      launchctl print "$DOMAIN/$LABEL" | grep -E "^\s+(state|pid|last exit code) " || true
-    else
-      note "$LABEL is not loaded"
-    fi
-    ;;
-  logs)
-    [ -f "$LOG_FILE" ] && tail -n "${2:-40}" "$LOG_FILE" || note "no log at $LOG_FILE"
-    # A crash never reaches the rotating log: the process is gone before the
-    # handler could write it. Say so here rather than leaving the last thing
-    # that happened in a file nobody looks at.
-    if [ -s "$CRASH_FILE" ]; then
-      note ""
-      note "--- $CRASH_FILE (crashes, not rotated) ---"
-      tail -n 20 "$CRASH_FILE"
-    fi
-    ;;
+  status) show_status ;;
+  logs) show_logs "${2:-40}" ;;
   *)
     printf 'usage: %s {install [watched] [library]|uninstall|status|logs [n]}\n' \
       "$(basename "$0")" >&2
-    printf '\n  defaults: watch ~/Downloads -> ~/Documents/sypy-library, mode=%s\n' "$MODE" >&2
-    printf '  override mode with SYPY_MODE=move\n' >&2
+    printf '\n  supervisor: %s\n' "$INIT_SYSTEM" >&2
+    printf '  mode      : %s (override with SYPY_MODE=move)\n' "$MODE" >&2
     exit 2
     ;;
 esac

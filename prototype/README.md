@@ -278,12 +278,32 @@ refusing to run files nothing at all.
 `sypy scan` runs the same reconciliation on its own, for checking a library
 without ingesting into it.
 
-## Usage
-
-Put `sypy` on PATH, then use it from anywhere:
+## Installing
 
 ```bash
-./prototype/scripts/sypy-path wire     # install and link
+./install.sh              # macOS or Linux
+./install.sh --check      # what is missing, changing nothing
+./install.sh --service    # ...and run the watcher in the background
+./install.sh --uninstall  # take it back off
+```
+
+It finds a Python 3.11 or newer — trying `python3.14` down to `python3`, since
+a distribution's `python3` is often older than the newest it also ships —
+builds a virtualenv inside the project, installs the pinned dependencies, and
+links `sypy` into `~/.local/bin`. Nothing is written outside the project, that
+directory, and (with `--service`) the supervisor's config.
+
+Two prerequisites are checked by name rather than left to fail obscurely later:
+Debian and its derivatives ship `venv` as a separate package, so a working
+`python3` is not on its own enough; and `pdftoppm` is only needed for documents
+with no text layer, so a missing one is a warning naming the package to install
+rather than a refusal.
+
+Override where things go with `SYPY_VENV_DIR` and `SYPY_BIN_DIR`.
+
+## Usage
+
+```bash
 
 sypy ingest --input ./inbox                 # preview: nothing is written
 sypy ingest --input ./inbox --mode copy     # copy in, leave the source alone
@@ -301,7 +321,7 @@ sypy backup <dir>                      # copy the store and the database, togeth
 sypy budget                            # what the last 24 hours cost at the API
 sypy cache [--forget]                  # model answers already paid for
 
-./prototype/scripts/sypy-path unwire   # remove the link
+./install.sh --uninstall               # remove the link
 ```
 
 Nothing is written without `--mode`. Use `copy` for a folder you did not create
@@ -374,29 +394,49 @@ going can still file a document twice, because both check before either writes.
 ## Running it as a service
 
 ```bash
-./prototype/scripts/sypy-service install            # the registry's default watch
+./install.sh --service                              # the registry's default watch
+
 ./prototype/scripts/sypy-service install papers     # a named watch
 ./prototype/scripts/sypy-service status
 ./prototype/scripts/sypy-service logs
 ./prototype/scripts/sypy-service uninstall
 ```
 
-Installs a launchd agent that watches in copy mode, so the watched folder is
-indexed but never rearranged. `SYPY_MODE=move` overrides that.
+**launchd** on macOS, **systemd --user** on Linux. The two are written the way
+each platform expects rather than one being emulated on the other: they differ
+in where the unit lives, how it is loaded, what happens to its output, and
+whether it survives logout.
 
-Logs go to `~/Library/Logs/sypy/sypy.log` through a rotating handler — 2MB a
-file, three kept — so a service left running for months cannot fill the disk.
-Every line carries a timestamp, because the log is read hours later and often
-after a restart, and every document that failed is named along with why: a full
-disk, an expired key, and a corrupt PDF all read the same as "1 failed".
+It watches in copy mode, so the watched folder is indexed but never rearranged.
+`SYPY_MODE=move` overrides that. Both units carry poppler's directory on `PATH`
+explicitly — a service gets a bare one that includes neither Homebrew nor
+`/usr/local`, and without it every scanned document fails under the service
+while the same command works by hand.
 
-launchd's own capture of the process goes to `sypy.crash.log` beside it and
-holds only what logging never sees — a traceback from a crash. `sypy-service
-logs` shows the tail of both.
+Restarting is how a transient failure recovers, and both stop rather than spin
+when it is not transient: launchd throttles, and the systemd unit gives up after
+five starts in five minutes, leaving the reason in the journal. A restart is
+cheap now in any case — the model's answers were banked before the file work,
+so a pass that comes back does not buy them again.
 
-There is one agent, so installing for a different folder is refused rather than
-silently replacing the running one; `uninstall` first. Reinstalling the same
-folder is how configuration changes are picked up.
+On Linux a `--user` service stops when your last session ends. To keep it
+running after logout, `loginctl enable-linger $USER`; the installer says so if
+linger is off.
+
+Logs go through a rotating handler — 2MB a file, three kept — so a service left
+running for months cannot fill the disk: `~/Library/Logs/sypy/sypy.log` on
+macOS, `~/.local/state/sypy/logs/sypy.log` on Linux. Every line carries a
+timestamp, because the log is read hours later and often after a restart, and
+every document that failed is named along with why: a full disk, an expired key,
+and a corrupt PDF all read the same as "1 failed".
+
+The supervisor's own capture of the process goes to `sypy.crash.log` beside it
+and holds only what logging never sees — a traceback from a crash.
+`sypy-service logs` shows the tail of both.
+
+There is one service, so installing for a different folder is refused rather
+than silently replacing the running one; `uninstall` first. Reinstalling the
+same folder is how configuration changes are picked up.
 
 DuckDB allows one writing process at a time, so a running service could shut
 every other command out. Three things stop it.
@@ -412,9 +452,9 @@ proportional to the number of documents, not to the bytes being read. On twelve
 4MB documents the share of a pass with the lock unavailable is 3%, against 66%
 when the file work was done with the connection held.
 
-`wire` builds a virtualenv at `prototype/.venv`, installs the dependencies from
-`requirements.lock`, installs the package into it in editable mode so source
-edits take effect without reinstalling, and symlinks `sypy` into `~/.local/bin`.
+`install.sh` delegates the virtualenv to `prototype/scripts/sypy-path wire`,
+which installs the dependencies from `requirements.lock` and then the package
+itself in editable mode, so source edits take effect without reinstalling.
 
 The lock is what stops two machines set up a week apart running different code,
 which is what makes a break arriving with a dependency indistinguishable from
