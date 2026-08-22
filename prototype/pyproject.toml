@@ -16,6 +16,7 @@ dependencies = [
 dev = [
   "pytest>=8.4.0",
   "pytest-asyncio>=0.24.0",
+  "pytest-timeout>=2.3.0",
 ]
 
 [project.scripts]
@@ -31,3 +32,10 @@ packages = ["src/syp_prototype"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+# No test may wedge the machine. Several tests drive the watcher, whose loop
+# only stays interruptible because every branch awaits; a change that removes
+# one spins at full CPU, and `asyncio.wait_for` cannot preempt a coroutine that
+# never yields. SIGALRM can, because it lands between bytecodes.
+timeout = 60
+timeout_method = "signal"

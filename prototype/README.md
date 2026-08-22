@@ -264,8 +264,20 @@ Without wiring, run it through the project directly:
 
 ```bash
 uv run --project prototype sypy ingest --input ./inbox
-uv run --project prototype --extra dev python -m pytest prototype/tests
 ```
+
+Running the tests needs the dev extras, which `wire` does not install:
+
+```bash
+prototype/.venv/bin/python -m pip install -e "prototype[dev]"
+prototype/.venv/bin/python -m pytest
+```
+
+Every test is capped at 60 seconds by `pytest-timeout`, using the signal method
+so it can interrupt a loop that never yields. Several tests drive the watcher,
+and `asyncio.wait_for` cannot preempt a coroutine that stops awaiting — without
+the cap, a change that removes an `await` from the watch loop spins at full CPU
+until the machine is unusable.
 
 Without `--input` the current directory is watched, and the library defaults to
 `sorted` inside it.
