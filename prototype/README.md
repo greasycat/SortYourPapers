@@ -47,17 +47,24 @@ library/
       figure-3.png          <- likewise
   tree/
     Machine Learning/Deep Learning/Transformers/
-      vaswani_2017_attention-is-all-you-need -> ../../../store/5112ee75ddcf__...
+      vaswani_2017_attention-is-all-you-need/          <- a real folder
+        vaswani_2017_attention-is-all-you-need -> ../../../../store/5112ee75ddcf__...
 ```
 
 Every document has one home: a folder in the store holding the document and
 whatever you keep beside it. **That folder is the durable thing** — it is what
 gets backed up, what re-tagging renames, and what removal deletes.
 
-`tree/` is one symlink per document, pointing at that folder. It is a view and
-nothing else: delete it and `sypy tree` rebuilds it exactly, and because nothing
-lives there, a rebuild cannot lose anything. Opening a link in the tree opens the
-document together with its notes.
+`tree/` is a view and nothing else: delete it and `sypy tree` rebuilds it
+exactly. Each document has a real folder there holding a single link to its
+store folder, so browsing a category and opening a document keeps you in the
+tree rather than throwing you into the store; following that one link is what
+takes you to the document and its notes.
+
+The cost of those folders being real is that things can be written into them,
+and the tree is neither backed up nor preserved across a rebuild-from-scratch.
+So `sypy tree` reports any file it finds living there and tells you to move it
+into the document's folder. It never deletes it — that is not this tool's call.
 
 The store filename is `<id>__<Tag>__<Tag>.pdf`. The id is permanent and the tags
 are not, so **re-tagging a paper is a rename plus a moved link** — no file is
@@ -232,6 +239,8 @@ and the correct spelling wins when both are set.
 - Moving a link by hand still does not re-tag anything: links are relative, so
   moving one to a different depth breaks it, and a rebuild puts it back. Use
   `sypy retag`. Files you add to a document's folder are safe either way.
-- `sypy remove` deletes the document's whole folder, including notes and
+- `sypy remove` deletes the document's whole store folder, including notes and
   anything else kept in it. It confirms first.
+- A file written into the tree rather than the document's folder is reported by
+  `sypy tree`, not moved or deleted. It is not durable where it sits.
 - A library made before documents had folders needs `sypy migrate-store` once.

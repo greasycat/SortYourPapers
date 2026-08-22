@@ -63,11 +63,12 @@ def test_the_tree_is_symlinks_pointing_back_into_the_store(
     filing = library.file_paper(paper, source)
 
     link = filing.link_path
-    # One link per document, pointing at its folder — so opening it shows the
-    # document together with anything kept beside it.
+    # A real folder per document in the tree, holding one link to its store
+    # folder — so browsing stays in the tree until the document is opened.
+    document_dir = library.tree_dir / "AI" / "Transformers" / "vaswani_2017_attention-is-all-you-need"
+    assert document_dir.is_dir() and not document_dir.is_symlink()
+    assert link == document_dir / document_dir.name
     assert link.is_symlink()
-    assert link.parent == library.tree_dir / "AI" / "Transformers"
-    assert link.name == "vaswani_2017_attention-is-all-you-need"
     assert link.resolve() == library.document_dir(paper).resolve()
     assert (link / paper.document_name).is_file()
 
@@ -113,7 +114,13 @@ def test_retagging_renames_the_file_and_moves_the_link(
     assert (library.store_dir / updated.store_name / updated.document_name).is_file()
     assert updated.store_name.endswith("__Systems__Databases")
     assert updated.store_name.startswith(filing.file_id), "the id must not change"
-    new_link = library.tree_dir / "Systems" / "Databases" / filing.link_path.name
+    new_link = (
+        library.tree_dir
+        / "Systems"
+        / "Databases"
+        / filing.link_path.name
+        / filing.link_path.name
+    )
     assert new_link.is_symlink()
     assert not (library.tree_dir / "AI").exists(), "the emptied branch should be pruned"
 
@@ -371,7 +378,12 @@ def test_a_note_follows_its_document_when_it_is_retagged(
     library.retag(filing.file_id, ["Systems", "Databases"])
 
     moved = (
-        library.tree_dir / "Systems" / "Databases" / filing.link_path.name / "my-notes.md"
+        library.tree_dir
+        / "Systems"
+        / "Databases"
+        / filing.link_path.name
+        / filing.link_path.name
+        / "my-notes.md"
     )
     assert moved.is_file(), "the note lives in the store folder and moves with it"
     assert moved.read_text() == "notes"
@@ -390,26 +402,46 @@ def test_the_link_still_resolves_after_a_retag_changes_depth(
 
     updated = library.retag(filing.file_id, ["Systems"])
 
-    link = library.tree_dir / "Systems" / filing.link_path.name
+    link = library.tree_dir / "Systems" / filing.link_path.name / filing.link_path.name
     assert link.is_symlink()
     assert link.resolve() == (library.store_dir / updated.store_name).resolve()
     assert (link / updated.document_name).is_file(), "and still reaches the document"
 
 
-def test_removing_leaves_a_folder_that_still_holds_something(
+def test_removing_leaves_behind_a_file_stranded_in_the_tree(
     library: Library, tmp_path: Path
 ) -> None:
+    # Written in the wrong place, so it was never the document's to begin with;
+    # removing the document does not make it this command's to delete either.
     filing = library.file_paper(
         _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
     )
-    note = filing.link_path.parent / "my-notes.md"
-    note.write_text("notes")
+    stray = filing.link_path.parent / "draft-thoughts.md"
+    stray.write_text("written in the wrong place")
 
     library.remove(filing.file_id)
 
     assert not filing.link_path.exists(), "the link goes"
     assert not filing.store_path.exists(), "the stored file goes"
-    assert note.is_file(), "someone else's file is not this command's to delete"
+    assert stray.is_file(), "someone else's file is not this command's to delete"
+
+
+def test_removing_takes_the_notes_kept_with_the_document(
+    library: Library, tmp_path: Path
+) -> None:
+    # Notes live in the document's store folder, so they are part of it and go
+    # with it. That is why removal asks first.
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    paper = library.db.get(filing.file_id)
+    note = library.note_path(paper)
+    note.write_text("why I saved this")
+
+    library.remove(filing.file_id)
+
+    assert not note.exists()
+    assert not library.document_dir(paper).exists()
 
 
 def test_removing_takes_the_folder_when_it_is_empty(
@@ -497,3 +529,79 @@ def test_a_note_lives_in_the_store_so_it_outlives_the_tree(
 
     assert library.note_path(paper).read_text() == "why I saved this"
     assert (filing.link_path / "notes.md").is_file(), "and is reachable through the tree"
+
+
+def test_browsing_a_document_stays_inside_the_tree(
+    library: Library, tmp_path: Path
+) -> None:
+    """The reason for the folder: entering a document does not leave the tree.
+
+    A bare symlink where the document sits would resolve into the store the
+    moment it was opened, losing the category it was reached through.
+    """
+    filing = library.file_paper(
+        _paper(["AI", "Transformers"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+
+    document_dir = filing.link_path.parent
+    assert document_dir.is_dir()
+    assert not document_dir.is_symlink(), "entering the document must stay in the tree"
+    assert document_dir.parent == library.tree_dir / "AI" / "Transformers"
+    # And it holds exactly one thing: the way through to the store.
+    assert [entry.name for entry in document_dir.iterdir()] == [document_dir.name]
+
+
+def test_a_file_left_in_the_tree_is_reported(library: Library, tmp_path: Path) -> None:
+    # A real folder in the tree can be written into, and the tree is rebuilt and
+    # not backed up — so anything found there is surfaced rather than kept
+    # quietly.
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    stray = filing.link_path.parent / "draft-thoughts.md"
+    stray.write_text("written in the wrong place")
+
+    litter = library.tree_litter()
+
+    assert litter == [stray]
+
+
+def test_finder_droppings_are_not_reported_as_litter(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    (filing.link_path.parent / ".DS_Store").write_bytes(b"\x00")
+
+    assert library.tree_litter() == [], "the filesystem's litter is not the owner's"
+
+
+def test_litter_reporting_does_not_walk_into_the_store(
+    library: Library, tmp_path: Path
+) -> None:
+    # Walking through the link would report every document and every note as
+    # litter, since they are real files at the other end of it.
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    paper = library.db.get(filing.file_id)
+    library.note_path(paper).write_text("a note, safely in the store")
+
+    assert library.tree_litter() == []
+
+
+def test_a_file_left_in_the_tree_survives_a_rebuild(
+    library: Library, tmp_path: Path
+) -> None:
+    # Reported, but not deleted: it is not this tool's to throw away.
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    stray = filing.link_path.parent / "draft-thoughts.md"
+    stray.write_text("keep me")
+
+    library.rebuild_tree()
+
+    assert stray.read_text() == "keep me"
+    assert library.tree_litter() == [stray]

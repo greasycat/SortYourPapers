@@ -111,6 +111,20 @@ def tree(
                 f"  ! {paper.file_id}: {paper.store_name} is missing from the store",
                 err=True,
             )
+        litter = library.tree_litter()
+        if litter:
+            typer.echo(
+                f"\n  {len(litter)} file(s) live in the tree, which is rebuilt and "
+                "is not backed up with the library:",
+                err=True,
+            )
+            for path in litter:
+                typer.echo(f"    {path.relative_to(library.tree_dir)}", err=True)
+            typer.echo(
+                "  move them into the document's folder "
+                "(`sypy note <id>` opens one) to keep them.",
+                err=True,
+            )
 
 
 @app.command()

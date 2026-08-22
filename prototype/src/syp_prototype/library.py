@@ -4,9 +4,14 @@ Every document has exactly one home, `store/<id>__<Tag>__<Tag>/`, holding the
 document itself and whatever its owner keeps beside it — notes, figures,
 supplements. That folder is the durable thing.
 
-`tree/` is one symlink per document, pointing at that folder. It is a view and
-nothing else: it can be deleted and rebuilt at any time, and because nothing
-lives there, a rebuild cannot lose anything.
+`tree/` is a view and nothing else: it can be deleted and rebuilt at any time.
+Each document gets a real folder there holding a single symlink to its store
+folder, so browsing the tree stays in the tree instead of jumping into the store
+the moment a document is opened.
+
+That does leave real directories in a part of the library that is disposable, so
+anything found sitting in the tree is reported rather than quietly kept: see
+`tree_litter`.
 
 Re-tagging renames the store folder, which carries its contents along, and the
 link is re-pointed. Links are relative, so the whole library can be moved.
@@ -333,6 +338,28 @@ class Library:
             linked += 1
         return linked
 
+    def tree_litter(self) -> list[Path]:
+        """Real files sitting in the tree, which is not where work is safe.
+
+        The tree is rebuildable and is not part of a backup of the store and the
+        database, so a file kept here is one deleted tree away from being gone.
+        Reported rather than removed: it is not this tool's to delete.
+
+        Dotfiles are skipped — `.DS_Store` and its kind are the filesystem's
+        litter, not the owner's work.
+        """
+        found: list[Path] = []
+        if not self.tree_dir.exists():
+            return found
+        for parent, dirnames, filenames in os.walk(self.tree_dir, followlinks=False):
+            here = Path(parent)
+            dirnames[:] = [name for name in dirnames if not (here / name).is_symlink()]
+            for name in filenames:
+                entry = here / name
+                if not entry.is_symlink() and not name.startswith("."):
+                    found.append(entry)
+        return sorted(found)
+
     def missing_files(self) -> list[Paper]:
         """Papers the database knows about whose file is gone from the store."""
         return [
@@ -343,12 +370,11 @@ class Library:
 
     # ---- links -------------------------------------------------------------
 
-    def _link_path(self, paper: Paper, taken: set[Path]) -> Path:
-        """Where this document's link belongs in the tree.
+    def _document_dir_in_tree(self, paper: Paper, taken: set[Path]) -> Path:
+        """The document's folder in the tree — a real folder, not a link.
 
-        One link per document, named for the document and pointing at its folder
-        in the store — so opening it in the tree opens the document together
-        with everything kept beside it.
+        Browsing stops here rather than being thrown into the store, so the
+        category a document was reached through stays visible.
         """
         parent = self.tree_dir.joinpath(*paper.tags) if paper.tags else self.tree_dir
         name = link_name(
@@ -363,17 +389,23 @@ class Library:
             candidate = parent / disambiguate(name, paper.file_id)
         return candidate
 
+    def _link_path(self, paper: Paper, taken: set[Path]) -> Path:
+        """The one link inside that folder, pointing at the store folder."""
+        directory = self._document_dir_in_tree(paper, taken)
+        return directory / directory.name
+
     def _link(self, paper: Paper, taken: set[Path] | None = None) -> Path:
         taken = taken if taken is not None else set()
-        link = self._link_path(paper, taken)
-        link.parent.mkdir(parents=True, exist_ok=True)
+        directory = self._document_dir_in_tree(paper, taken)
+        directory.mkdir(parents=True, exist_ok=True)
+        link = directory / directory.name
         if link.is_symlink() or link.exists():
             link.unlink()
         link.symlink_to(
             os.path.relpath(self.document_dir(paper), link.parent),
             target_is_directory=True,
         )
-        taken.add(link)
+        taken.add(directory)
         return link
 
     def _unlink(self, paper: Paper) -> None:
