@@ -27,6 +27,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Sequence
 
+import duckdb
+
 from .db import Paper, PaperDb
 from .discovery import file_id as hash_file
 from .naming import disambiguate, link_name, parse_store_name, store_name
@@ -67,6 +69,16 @@ class RescanReport:
     rehashed: int = 0
     changed: list[tuple[str, str, str]] = field(default_factory=list)
     missing: list[Paper] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class BackupReport:
+    """What a backup copied."""
+
+    destination: Path
+    database: Path
+    documents: int
+    bytes_copied: int
 
 
 @dataclass(frozen=True)
@@ -303,6 +315,64 @@ class Library:
         if write:
             self.db.set_stored_file_states(updates)
         return report
+
+    def backup(self, destination: Path) -> "BackupReport":
+        """Copy the library's two durable halves to `destination`.
+
+        The store and the database are only useful together: the store without
+        the database is a folder of documents nothing can find, and the database
+        without the store is a catalogue of files that are gone. So they are
+        copied by one command, in one place, rather than left as two things to
+        remember.
+
+        **The database goes first.** Between the two copies a watcher may file
+        another document, and which half is behind decides what the copy is
+        worth: a folder with no row is an orphan, which `sypy fsck --adopt`
+        brings back, while a row with no folder is a document that no longer
+        exists anywhere. Taking the database first makes the recoverable
+        mistake the only one available.
+
+        `tree/` is not copied. It holds nothing but links and is rebuilt from
+        the database by `sypy tree`.
+
+        Raises:
+            LibraryError: if the destination is unusable, or lies inside the
+                library — which would copy the backup into itself.
+        """
+        destination = destination.expanduser()
+        if destination.exists() and any(destination.iterdir()):
+            raise LibraryError(f"{destination} already exists and is not empty")
+        if _is_within(destination, self.root):
+            raise LibraryError(
+                f"{destination} is inside the library; back up somewhere else"
+            )
+
+        destination.mkdir(parents=True, exist_ok=True)
+        try:
+            self.db.backup_to(destination / DB_FILE)
+        except duckdb.Error as err:
+            raise LibraryError(f"could not copy the database: {err}") from err
+        self.release()
+
+        documents = 0
+        copied_bytes = 0
+        if self.store_dir.is_dir():
+            target = destination / STORE_DIR
+            try:
+                # `symlinks=True` so a link kept beside a document is copied as
+                # a link rather than followed and copied as its contents.
+                shutil.copytree(self.store_dir, target, symlinks=True)
+            except OSError as err:
+                raise LibraryError(f"could not copy the store: {err}") from err
+            documents = sum(1 for entry in target.iterdir() if entry.is_dir())
+            copied_bytes = _tree_bytes(target)
+
+        return BackupReport(
+            destination=destination,
+            database=destination / DB_FILE,
+            documents=documents,
+            bytes_copied=copied_bytes,
+        )
 
     def note_path(self, paper: Paper) -> Path:
         """Where a document's notes live: in its folder, beside it."""
@@ -618,6 +688,29 @@ def _clear_links(root: Path) -> None:
             directory.rmdir()
         except OSError:
             pass  # holds something that is not ours
+
+
+def _tree_bytes(root: Path) -> int:
+    """Total size of the real files under `root`. Links count as nothing."""
+    total = 0
+    for parent, _dirnames, filenames in os.walk(root, followlinks=False):
+        for name in filenames:
+            entry = Path(parent) / name
+            if not entry.is_symlink():
+                try:
+                    total += entry.stat().st_size
+                except OSError:
+                    pass
+    return total
+
+
+def _is_within(path: Path, parent: Path) -> bool:
+    """Whether `path` is `parent` or sits under it, without either having to exist."""
+    try:
+        resolved, root = path.resolve(), parent.resolve()
+    except OSError:
+        return False
+    return resolved == root or root in resolved.parents
 
 
 def _prune_empty(directory: Path, stop: Path) -> None:

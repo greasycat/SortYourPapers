@@ -129,6 +129,18 @@ async def watch(
                 report.skipped_already_known,
                 len(report.failed),
             )
+            # The counts above are all a service leaves behind, and a count is
+            # not something anyone can act on: a disk that filled, a key that
+            # expired, and a corrupt PDF all read as "1 failed". The reason is
+            # the only part worth waking up for, so each one is named.
+            for path, reason in report.failed:
+                log.warning("could not file %s: %s", path.name, reason)
+            for path in report.skipped_oversized:
+                log.warning(
+                    "skipped %s: larger than the %d MB limit",
+                    path.name,
+                    settings.max_file_size_mb,
+                )
     finally:
         observer.stop()
         observer.join(timeout=5)

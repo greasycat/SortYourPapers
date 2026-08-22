@@ -19,7 +19,12 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="${SYPY_VENV_DIR:-$PROJECT_DIR/.venv}"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_DIR="${SYPY_LOG_DIR:-$HOME/Library/Logs/sypy}"
+# The watcher's own log, written through a rotating handler so a service left
+# running for months cannot fill the disk.
 LOG_FILE="$LOG_DIR/sypy.log"
+# What launchd captures from the process: a traceback if it dies, and nothing
+# else, because the log itself goes to $LOG_FILE. Small enough to leave alone.
+CRASH_FILE="$LOG_DIR/sypy.crash.log"
 MODE="${SYPY_MODE:-copy}"
 DOMAIN="gui/$(id -u)"
 
@@ -112,12 +117,15 @@ install_service() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key><string>$RUNTIME_PATH</string>
+        <!-- Sends the log through a rotating handler. Without it every line
+             lands in the launchd capture below, which nothing ever trims. -->
+        <key>SYPY_LOG_FILE</key><string>$LOG_FILE</string>
     </dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>ProcessType</key><string>Background</string>
-    <key>StandardOutPath</key><string>$LOG_FILE</string>
-    <key>StandardErrorPath</key><string>$LOG_FILE</string>
+    <key>StandardOutPath</key><string>$CRASH_FILE</string>
+    <key>StandardErrorPath</key><string>$CRASH_FILE</string>
 </dict>
 </plist>
 PLIST_EOF
@@ -128,6 +136,7 @@ PLIST_EOF
   note "  library  : $library"
   note "  mode     : $MODE"
   note "  logs     : $LOG_FILE"
+  note "  crashes  : $CRASH_FILE"
 }
 
 uninstall_service() {
@@ -154,7 +163,17 @@ case "${1:-}" in
       note "$LABEL is not loaded"
     fi
     ;;
-  logs) [ -f "$LOG_FILE" ] && tail -n "${2:-40}" "$LOG_FILE" || note "no log at $LOG_FILE" ;;
+  logs)
+    [ -f "$LOG_FILE" ] && tail -n "${2:-40}" "$LOG_FILE" || note "no log at $LOG_FILE"
+    # A crash never reaches the rotating log: the process is gone before the
+    # handler could write it. Say so here rather than leaving the last thing
+    # that happened in a file nobody looks at.
+    if [ -s "$CRASH_FILE" ]; then
+      note ""
+      note "--- $CRASH_FILE (crashes, not rotated) ---"
+      tail -n 20 "$CRASH_FILE"
+    fi
+    ;;
   *)
     printf 'usage: %s {install [watched] [library]|uninstall|status|logs [n]}\n' \
       "$(basename "$0")" >&2

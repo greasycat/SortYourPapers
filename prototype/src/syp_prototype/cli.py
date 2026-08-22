@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import typer
@@ -32,11 +33,50 @@ from .watchlock import WatchConflict
 app = typer.Typer(help="SortYourPapers Python prototype: LLM ingest and folder watcher.")
 
 
+# Kept small enough that the whole history stays cheap to keep and to read:
+# four files of 2MB is roughly a fortnight of a busy watcher.
+LOG_MAX_BYTES = 2 * 1024 * 1024
+LOG_BACKUP_COUNT = 3
+
+
 @app.callback()
 def _configure(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
+    """Set up logging for whichever command follows.
+
+    Lines carry a timestamp because the watcher's log is read long after the
+    fact, and an untimed line cannot say whether it is from this run or the one
+    that crashed an hour ago — which is exactly the question a restart loop
+    raises.
+
+    With `SYPY_LOG_FILE` set — which is how the service runs — the log goes to
+    that file through a rotating handler instead of to stderr, so a watcher left
+    running for months cannot fill the disk. Instead of, not as well as: under
+    launchd stderr is itself redirected to a file that nothing rotates, and
+    writing every line to both would leave the unbounded copy growing exactly as
+    before. What still reaches stderr is what logging never sees — a traceback
+    from a crash — which is the one thing worth keeping unrotated.
+
+    Only the service sets it. A rotating handler is safe for a single writer,
+    and two processes rotating one file can lose each other's lines.
+    """
+    log_file = (os.environ.get("SYPY_LOG_FILE") or "").strip()
+    if log_file:
+        path = Path(log_file).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handlers: list[logging.Handler] = [
+            RotatingFileHandler(
+                path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT
+            )
+        ]
+    else:
+        handlers = [logging.StreamHandler()]
+
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
-        format="%(levelname)s %(message)s",
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=handlers,
+        force=True,
     )
 
 
@@ -338,6 +378,30 @@ def remove(
 
         library.remove(file_id)
         typer.echo(f"removed {file_id}")
+
+
+@app.command()
+def backup(
+    destination: Path = typer.Argument(..., help="Empty folder to copy the library into."),
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+) -> None:
+    """Copy the store and the database somewhere safe, together.
+
+    They are only useful as a pair, and the tree is not copied because `sypy
+    tree` rebuilds it. Run it from cron or a launchd agent for a nightly copy.
+    """
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        try:
+            report = library.backup(destination)
+        except LibraryError as err:
+            typer.echo(f"error: {err}", err=True)
+            raise typer.Exit(code=1) from err
+
+    typer.echo(f"backed up {report.documents} document(s) to {report.destination}")
+    typer.echo(f"  database  {report.database.name}")
+    typer.echo(f"  store     {report.bytes_copied / 1e6:.1f} MB")
+    typer.echo("  the tree is not copied; `sypy tree` rebuilds it")
 
 
 @app.command()

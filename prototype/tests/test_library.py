@@ -824,3 +824,119 @@ def test_a_stale_link_is_still_replaced(library: Library, tmp_path: Path) -> Non
     library.rebuild_tree()
 
     assert os.path.realpath(filing.link_path) != str(tmp_path / "somewhere-else")
+
+
+# ---- backups ---------------------------------------------------------------
+
+
+def test_a_backup_holds_the_store_and_the_database(
+    library: Library, tmp_path: Path
+) -> None:
+    # They are only useful together: the store alone is documents nothing can
+    # find, and the database alone is a catalogue of files that are gone.
+    paper = _paper(["AI"])
+    library.file_paper(paper, write_pdf(tmp_path / "raw" / "a.pdf", "attention"))
+
+    report = library.backup(tmp_path / "backup")
+
+    assert (report.destination / "papers.duckdb").is_file()
+    assert (report.destination / "store" / paper.store_name).is_dir()
+    assert report.documents == 1
+
+
+def test_a_backed_up_database_can_be_opened_on_its_own(
+    library: Library, tmp_path: Path
+) -> None:
+    """A file copy of a busy database can restore short of its most recent rows.
+
+    So the copy goes through DuckDB, and this is what says it did.
+    """
+    from syp_prototype.db import PaperDb
+
+    paper = _paper(["AI"])
+    library.file_paper(paper, write_pdf(tmp_path / "raw" / "a.pdf", "attention"))
+
+    report = library.backup(tmp_path / "backup")
+    library.close()
+
+    with PaperDb(report.database) as restored:
+        assert restored.get(paper.file_id) is not None
+
+
+def test_notes_kept_beside_a_document_are_backed_up(
+    library: Library, tmp_path: Path
+) -> None:
+    paper = _paper(["AI"])
+    library.file_paper(paper, write_pdf(tmp_path / "raw" / "a.pdf", "attention"))
+    library.note_path(paper).write_text("# mine\n", encoding="utf-8")
+
+    report = library.backup(tmp_path / "backup")
+
+    assert (
+        report.destination / "store" / paper.store_name / "notes.md"
+    ).read_text() == "# mine\n"
+
+
+def test_the_tree_is_not_backed_up(library: Library, tmp_path: Path) -> None:
+    # It is nothing but links and `sypy tree` rebuilds it exactly.
+    library.file_paper(_paper(["AI"]), write_pdf(tmp_path / "raw" / "a.pdf", "x"))
+
+    report = library.backup(tmp_path / "backup")
+
+    assert not (report.destination / "tree").exists()
+
+
+def test_the_database_is_copied_before_the_store(
+    library: Library, tmp_path: Path, monkeypatch
+) -> None:
+    """Which half is behind decides what a backup taken mid-pass is worth.
+
+    A folder with no row is an orphan, which `fsck --adopt` brings back. A row
+    with no folder is a document that no longer exists anywhere. Taking the
+    database first makes the recoverable mistake the only one available.
+    """
+    import shutil as shutil_module
+
+    import syp_prototype.library as library_module
+
+    library.file_paper(_paper(["AI"]), write_pdf(tmp_path / "raw" / "a.pdf", "first"))
+    real_copytree = shutil_module.copytree
+
+    def file_another_one_midway(*args, **kwargs):
+        library.file_paper(
+            _paper(["AI"]), write_pdf(tmp_path / "raw" / "b.pdf", "second")
+        )
+        return real_copytree(*args, **kwargs)
+
+    monkeypatch.setattr(library_module.shutil, "copytree", file_another_one_midway)
+    report = library.backup(tmp_path / "backup")
+    library.close()
+
+    restored = Library(report.destination)
+    try:
+        assert restored.db.count() == 1, "the database was taken after the store"
+        assert len(restored.orphans()) == 1, "the late document should be adoptable"
+        assert restored.missing_files() == [], "no row may point at a missing file"
+    finally:
+        restored.close()
+
+
+def test_backing_up_into_the_library_is_refused(
+    library: Library, tmp_path: Path
+) -> None:
+    # It would copy the backup into itself.
+    with pytest.raises(LibraryError, match="inside the library"):
+        library.backup(library.root / "backup")
+
+
+def test_backing_up_over_something_is_refused(
+    library: Library, tmp_path: Path
+) -> None:
+    destination = tmp_path / "backup"
+    destination.mkdir()
+    (destination / "important.txt").write_text("mine", encoding="utf-8")
+
+    with pytest.raises(LibraryError, match="not empty"):
+        library.backup(destination)
+
+    assert (destination / "important.txt").exists()

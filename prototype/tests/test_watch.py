@@ -245,3 +245,53 @@ async def test_the_claim_is_given_back_when_the_watcher_stops(
         watch(settings, FakeLlmClient(), library, mode=FilingMode.COPY, max_passes=1),
         timeout=10,
     )
+
+
+async def test_the_reason_a_document_failed_reaches_the_log(
+    settings: Settings, library: Library, caplog
+) -> None:
+    """A service leaves nothing but its log, and a count is not actionable.
+
+    A full disk, an expired key, and a corrupt PDF all read as "1 failed".
+    """
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    caplog.set_level("WARNING")
+
+    await asyncio.wait_for(
+        watch(
+            settings,
+            FailingLlmClient("insufficient_quota"),
+            library,
+            mode=FilingMode.MOVE,
+            max_passes=1,
+        ),
+        timeout=10,
+    )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "a.pdf" in message and "insufficient_quota" in message for message in messages
+    ), messages
+
+
+async def test_a_document_too_large_to_read_is_named_in_the_log(
+    settings: Settings, library: Library, caplog
+) -> None:
+    # Otherwise it is simply never filed, and nothing anywhere says why.
+    from dataclasses import replace as replace_field
+
+    settings = replace_field(settings, max_file_size_mb=1)
+    big = settings.input_dir / "huge.pdf"
+    write_pdf(big, "attention")
+    big.write_bytes(big.read_bytes() + b"0" * (2 * 1024 * 1024))
+    write_pdf(settings.input_dir / "small.pdf", "also here")
+    caplog.set_level("WARNING")
+
+    await asyncio.wait_for(
+        watch(settings, FakeLlmClient(), library, mode=FilingMode.MOVE, max_passes=1),
+        timeout=10,
+    )
+
+    assert any(
+        "huge.pdf" in record.getMessage() for record in caplog.records
+    ), [record.getMessage() for record in caplog.records]

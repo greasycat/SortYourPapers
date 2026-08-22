@@ -214,6 +214,36 @@ class PaperDb:
                 conn.execute("ROLLBACK")
                 raise
 
+    def backup_to(self, destination: Path) -> Path:
+        """Write a standalone copy of the database to `destination`.
+
+        Copied through DuckDB rather than by copying the file: a database being
+        written has changes in a write-ahead log beside it, so a file copy taken
+        at the wrong moment restores to a database missing its most recent rows
+        — or to one that will not open at all. `COPY FROM DATABASE` reads a
+        committed view and writes a complete one.
+
+        Raises:
+            duckdb.Error: if the copy cannot be made. A backup that failed has
+                to say so; a quiet one is worse than none, because it is
+                believed.
+        """
+        if destination.exists():
+            raise duckdb.IOException(f"{destination} already exists")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        source = self._conn.execute("SELECT current_database()").fetchone()[0]
+        # ATTACH takes a literal, not a parameter, so the path is quoted by
+        # hand. Doubling the quote is what keeps a folder name containing one
+        # from ending the string early.
+        literal = str(destination).replace("'", "''")
+        self._conn.execute(f"ATTACH '{literal}' AS sypy_backup")
+        try:
+            self._conn.execute(f'COPY FROM DATABASE "{source}" TO sypy_backup')
+        finally:
+            self._conn.execute("DETACH sypy_backup")
+        return destination
+
     @contextmanager
     def _transaction(self) -> Iterator[None]:
         self._conn.execute("BEGIN")

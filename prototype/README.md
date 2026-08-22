@@ -79,6 +79,27 @@ request gives up instead of holding a pass open and billing for every attempt.
 The ceilings bound the damage; they do not price it. This tool does not know
 what the model costs, and does not try to guess.
 
+## Backups
+
+```bash
+sypy backup ~/Backups/sypy-2026-08-22
+```
+
+The store and the database are only useful together — the store alone is a
+folder of documents nothing can find, the database alone is a catalogue of files
+that are gone — so one command copies both. `tree/` is skipped; `sypy tree`
+rebuilds it.
+
+The database is copied first, and through DuckDB rather than as a file: a
+database being written has changes in a log beside it, and a file copy taken at
+the wrong moment restores short of its most recent rows or will not open at all.
+The ordering matters for the same reason filing writes the file before the row.
+If the watcher files something between the two halves, the copy holds a folder
+with no row — an orphan, which `sypy fsck --adopt` brings back — rather than a
+row pointing at a document that no longer exists anywhere.
+
+For a nightly copy, run it from cron or a launchd agent.
+
 ## How the library is laid out
 
 Every PDF lives in exactly one place — a single flat folder — and the browsable
@@ -231,6 +252,7 @@ sypy remove <id>                       # delete link, folder, and record (asks f
 sypy scan                              # refresh hashes of files edited in place
 sypy fsck [--adopt]                    # check the store and database agree
 sypy tree                              # rebuild the symlink tree from the database
+sypy backup <dir>                      # copy the store and the database, together
 sypy budget                            # what the last 24 hours cost at the API
 
 ./prototype/scripts/sypy-path unwire   # remove the link
@@ -314,8 +336,17 @@ going can still file a document twice, because both check before either writes.
 ```
 
 Installs a launchd agent that watches in copy mode, so the watched folder is
-indexed but never rearranged. `SYPY_MODE=move` overrides that. Logs go to
-`~/Library/Logs/sypy/sypy.log`.
+indexed but never rearranged. `SYPY_MODE=move` overrides that.
+
+Logs go to `~/Library/Logs/sypy/sypy.log` through a rotating handler — 2MB a
+file, three kept — so a service left running for months cannot fill the disk.
+Every line carries a timestamp, because the log is read hours later and often
+after a restart, and every document that failed is named along with why: a full
+disk, an expired key, and a corrupt PDF all read the same as "1 failed".
+
+launchd's own capture of the process goes to `sypy.crash.log` beside it and
+holds only what logging never sees — a traceback from a crash. `sypy-service
+logs` shows the tail of both.
 
 There is one agent, so installing for a different folder is refused rather than
 silently replacing the running one; `uninstall` first. Reinstalling the same
@@ -371,6 +402,15 @@ What the prototype may spend, and how hard it tries:
 `SYP_MAX_REQUESTS_PER_DAY`, `SYP_MAX_TOKENS_PER_DAY`, `SYP_LLM_MAX_RETRIES`,
 `SYP_LLM_TIMEOUT_SECONDS`.
 
+Where it keeps what one invocation leaves for the next — watch claims and the
+spend ledger — is `SYPY_STATE_DIR`, defaulting to `~/.local/state/sypy`. The
+registry is `SYPY_CONFIG_DIR`, and `SYPY_LOG_FILE` turns on the rotating log
+(the service sets it; a second process rotating the same file can lose lines).
+
+The API key is read from `OPENAI_API_KEY`, `SYP_API_KEY`, or `OEPNAI_API_KEY`,
+including from the repository-root `.env`. The third spelling is a typo this
+repo's `.env` currently carries; it is accepted so the prototype works as-is,
+and the correct spelling wins when both are set.
 
 ## Known gaps
 
@@ -389,7 +429,6 @@ What the prototype may spend, and how hard it tries:
   `Machine Learning/Explainable AI/Medical Imaging` branch because it was the
   nearest thing present, where an unsteered run put it under
   `Medicine/Radiology`. `sypy retag` is the fix when it happens.
-- The service log has no timestamps, so restarts are hard to tell apart.
 - Moving a link by hand still does not re-tag anything: links are relative, so
   moving one to a different depth breaks it, and a rebuild puts it back. Use
   `sypy retag`. Files you add to a document's folder are safe either way.
@@ -405,4 +444,5 @@ What the prototype may spend, and how hard it tries:
   ceiling is enforced at the request that crosses it — the tokens that request
   turns out to cost are recorded after, and can carry the day slightly past the
   token ceiling.
+- `sypy backup` copies; it does not rotate, prune, or verify old backups.
 - A library made before documents had folders needs `sypy migrate-store` once.
