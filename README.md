@@ -1,264 +1,47 @@
 # SortYourPapers
-Use LLMs to sort papers.
 
-## Architecture
-- `crates/syp-core/` holds the shared runtime, config resolution, session persistence, paper pipeline, report types, and plain terminal backend.
-- `crates/paper-db/` holds the DuckDB-backed paper/embedding store and uses `syp-core`'s embedding client API.
-- `python/` holds the `uv`-managed maintainer tooling for SciJudgeBench-backed arXiv test-set curation and export.
-- `crates/syp/` holds the batch CLI parser and dispatch layer for the `syp` binary.
-- `prototype/` holds a Python prototype of the ingest pipeline and folder watcher.
+Use an LLM to sort documents into a folder tree you can browse.
 
-## What It Does
-- Scans a folder for PDFs (optional recursive mode)
-- Ignores files larger than a configurable limit (default `16MB`)
-- Extracts text from first `N` pages (default `1`)
-- Extracts file-keyword pairs plus a per-file preliminary `k`-depth category text in LLM batches (default `20` files per batch)
-- Builds the global taxonomy from the aggregated preliminary category texts, batching those aggregated entries when needed, and returns a linear path array that is rebuilt into a tree
-- Displays the merged taxonomy immediately after synthesis and, in interactive terminals, lets you iteratively suggest improvements until you accept it before placement generation begins
-- Can optionally feed the current output folder tree into taxonomy merge as naming/grouping guidance
-- Remaps papers to final destination folders in stable LLM batches (default `10` files per batch) using each file's keywords, preliminary category text, and the synthesized taxonomy
-- Prints the final synthesized category tree at the end of a successful run
-- Keeps `taxonomy-mode` for CLI/config compatibility, and uses `taxonomy-batch-size` to control batching of aggregated preliminary-category entries during taxonomy synthesis
-- Saves completed taxonomy batches during synthesis so an interrupted run can resume without redoing finished batches
-- Supports committed test-set manifests under `assets/testsets/` and a separate Python maintainer workflow for SciJudgeBench sampling and arXiv PDF materialization
-- Uses an LLM to:
-  - extract keywords per paper
-  - suggest a preliminary category text per paper
-  - synthesize folder taxonomy from the aggregated preliminary texts
-  - remap each PDF into one final destination folder
-- Supports preview mode by default and real moves with `--apply`
-- Supports rebuild mode to ignore existing folder names and reclassify all PDFs
-- Persists each run under the XDG cache dir so interrupted runs can be resumed, including partial keyword/preliminary-category batches
-- Shows `indicatif` progress bars for preprocessing, keyword batching, taxonomy synthesis, placement batching, and apply-mode moves
-- Keeps warnings/errors and the final summary visible by default while suppressing most staging chatter unless `-v` or `-vv` is enabled
+Point it at a folder, and it reads each document, labels it, files it into a
+store, and builds a symlink tree over that store by category. Run it once, or
+leave it watching a folder — a Downloads folder, say — and it files things as
+they arrive.
 
-## Configuration Priority
-`CLI > ENV > XDG config > defaults`
+Documents are not assumed to be academic papers. Bills, receipts, and manuals
+are categorized on their own terms.
 
-XDG config path:
-- `$XDG_CONFIG_HOME/sortyourpapers/config.toml`
-- fallback: `~/.config/sortyourpapers/config.toml`
+## Layout
 
-## Quick Start
-Create default XDG config:
+- **`prototype/`** — the tool. A Python ingest pipeline and folder watcher,
+  installable as `sypy`, with DuckDB as the source of truth. Start at
+  [`prototype/README.md`](prototype/README.md).
+- **`python/`** — maintainer tooling (`uv`-managed) for curating and fetching
+  arXiv test sets from SciJudgeBench. See [`python/README.md`](python/README.md).
+- **`assets/testsets/`** — committed test-set manifests.
+- **`docs/`** — measurements and design notes; `docs/archive/` keeps historical
+  planning material.
+- **`CHANGELOG.md`** — a verbose, newest-first log of what changed and why.
+
+## Quick start
+
 ```bash
-cargo run -p syp -- init
+./prototype/scripts/sypy-path wire        # install `sypy` and put it on PATH
+
+sypy ingest --input ./inbox               # preview: nothing is written
+sypy ingest --input ./inbox --mode copy   # copy in, leave the source alone
+sypy watch  --input ./inbox --mode copy   # keep doing it as documents arrive
 ```
 
-Overwrite existing config:
-```bash
-cargo run -p syp -- init --force
-```
+Everything else — the store layout, the registry of watched folders, running it
+as a background service, what leaves your machine, and what it costs — is in
+[`prototype/README.md`](prototype/README.md).
 
-Then run sorting:
-```bash
-cargo run -p syp -- \
-  --input ./papers \
-  --output ./sorted \
-  --recursive \
-  --llm-provider ollama
-```
+## History
 
-Scanned PDFs are handled automatically. When a PDF has no text layer, its first
-pages are rendered with `pdftoppm` (part of poppler, the same package as the
-`pdftotext` fallback) and sent to the configured model, which writes the title
-and an abstract-style description that stands in for the missing text. This
-costs one extra request per scanned PDF and needs a model that reads images —
-the Gemini and OpenAI defaults do; on Ollama it needs a multimodal model such
-as `llava`. Without one, the PDF is reported as a failure as before.
+This started as a Rust workspace: a `syp` binary over `syp-core`, `syp-ai`,
+`syp-library`, `syp-workflow`, and `paper-db`, with a two-stage taxonomy and
+placement pipeline. That implementation is preserved on the **`old-rust`**
+branch, along with the evaluation harness the measurements in `docs/` came
+from. It is not maintained.
 
-Set up a folder to watch, then organize papers as they arrive:
-```bash
-cd ./inbox && cargo run -p syp -- watch init
-cargo run -p syp -- watch --input ./inbox --apply
-```
-
-`watch init` writes `syp.toml` into the watched folder with the settings that
-folder needs — library location, scan depth, provider, model. It applies only
-while that folder is being watched, sitting between the environment and the
-XDG config in precedence: CLI flags and `SYP_*` variables still win over it,
-and it wins over `~/.config`. `input` cannot be set there, since the folder
-holding the file is the folder being watched. Paths are written absolute, so
-starting the watcher from any directory means the same thing. Edit the file by
-hand, or rerun `watch init` and confirm the overwrite. It also sets
-`placement_mode = "allow-new"` and `use_current_folder_tree = true`, because a
-watched folder is a library that keeps growing: without them every run after
-the first discards the taxonomy it just built and files new subjects into
-whichever existing folder fits worst. `watch init` sets up the
-current directory unless `--input` names another folder, ignoring the
-configured input folder so it always means the folder in front of you.
-
-In a terminal, `watch init` asks for the library folder, scan depth, model
-backend, model, and the environment variable holding the API key. Piped or in
-CI it skips the questions and writes the defaults, so scripted setup never
-blocks.
-
-`watch` runs until interrupted. It waits for the input folder to stop changing
-(so half-copied PDFs are left alone), then runs the normal pipeline on whatever
-is waiting. Without `--apply` it previews instead of moving, like `syp` itself.
-A failed run is logged and the watcher keeps going, but the same unchanged
-files are not retried until they change or a new PDF arrives. Taxonomy review
-prompts resolve to their defaults, since nobody is at the keyboard. Each
-triggered run is a normal session, so `syp session list` and `syp session
-review` work as usual. Run it under `tmux`, `launchd`, or `systemd --user` to
-keep it alive in the background.
-
-Score a finished run against a curated test set:
-```bash
-cargo run -p syp -- eval --manifest assets/testsets/clustering-eval.toml
-```
-
-`eval` compares the folders a run produced against the reference labels the
-curated set carries, reporting adjusted rand index, v-measure, homogeneity,
-completeness, and purity. Folder names are never compared to label names, so a
-run is scored on grouping alone. It also reports the placement score spread the
-run recorded and the gates that spread implies, so `--placement-min-similarity`
-and `--placement-min-margin` can be set from data rather than guessed.
-
-If a run is interrupted after some stages completed, list saved runs and choose one to resume:
-```bash
-cargo run -p syp -- session resume
-```
-
-Resume a specific run id:
-```bash
-cargo run -p syp -- session resume run-123456789
-```
-
-List saved sessions without resuming:
-```bash
-cargo run -p syp -- session list
-```
-
-Remove a saved session:
-```bash
-cargo run -p syp -- session remove run-123456789
-```
-
-Clear all incomplete sessions for the current workspace:
-```bash
-cargo run -p syp -- session clear
-```
-
-Show verbose timing and resume diagnostics:
-```bash
-cargo run -p syp -- \
-  --input ./papers \
-  --output ./sorted \
-  -v
-```
-
-Show full debug output including raw LLM requests:
-```bash
-cargo run -p syp -- \
-  --input ./papers \
-  --output ./sorted \
-  -vv
-```
-
-Suppress progress bars and final summary:
-```bash
-cargo run -p syp -- \
-  --input ./papers \
-  --output ./sorted \
-  --quiet
-```
-
-Apply real moves:
-```bash
-cargo run -p syp -- \
-  --input ./papers \
-  --output ./sorted \
-  --llm-provider openai \
-  --llm-model gpt-4o-mini \
-  --api-key "$SYP_API_KEY" \
-  --apply
-```
-
-Manual text extraction for debugging:
-```bash
-cargo run -p syp -- extract-text \
-  --page-cutoff 2 \
-  --pdf-extract-workers 4 \
-  --extractor pdf-oxide \
-  -vv \
-  ./papers/sample.pdf
-```
-
-## Core Flags
-- `init [-f|--force]` create default XDG config file  
-- `extract-text [--page-cutoff <u8>] [--extractor <auto|pdf-oxide|pdftotext>] [-v|-vv] <PDF...>` extract text directly  
-- `session|ses resume [RUN_ID]` list saved sessions and prompt for a choice when `RUN_ID` is omitted, or resume a specific run id from the XDG cache state directory
-- `session|ses review [RUN_ID]` display the synthesized category tree for a completed saved session
-- `session|ses list|ls` print saved sessions for the current workspace
-- `session|ses remove|rm [RUN_ID ...]` delete one or more saved sessions, or prompt for one when omitted interactively
-- `session|ses clear|clr` delete incomplete saved sessions for the current workspace
-- `-q, --quiet` suppress progress bars and final summary while still printing warnings/errors
-- normal mode prints one concise numbered line per top-level stage, for example `[3/10] Filter oversized PDFs`
-- `-v, --verbose` enable detailed stage diagnostics such as run/resume headlines and timings
-- `-vv` enable full debug output, including raw LLM request payloads
-- `-i, --input <PATH>` default `.`  
-- `-o, --output <PATH>` default `./sorted`  
-- `-r, --recursive` default `false`  
-- `-s, --max-file-size-mb <u64>` default `16`  
-- `-p, --page-cutoff <u8>` default `1`  
-- `--pdf-extract-workers <usize>` default `8`
-- `-d, --category-depth <u8>` default `2` (used for per-file preliminary category suggestions and the final synthesized taxonomy)  
-- `--taxonomy-mode <global|batch-merge>` default `batch-merge` (both values use the same preliminary-category batching + final merge flow)
-- `--taxonomy-batch-size <usize>` default `4` (aggregated preliminary-category entries per taxonomy batch before the final merge request)
-- `--use-current-folder-tree` default `false` (include the existing output folder tree as optional guidance during taxonomy merge; ignored in rebuild mode)
-- `--subcategories-suggestion-number <usize>` default `5` (taxonomy merge prompt guidance: try to keep subcategory count below this number)
-- `--placement-batch-size <usize>` default `10` (papers per placement request)
-- `-M, --placement-mode <existing-only|allow-new>` default `existing-only`  
-- `-R, --rebuild` default `false`  
-- `-a, --apply` move files instead of running in preview mode  
-- `-P, --llm-provider <openai|ollama|gemini>` default `gemini`  
-- `-m, --llm-model <STRING>` defaults to the provider's model: `gemini-3.7-flash`, `gpt-5.6-terra`, or `llama3.1`  
-- `-u, --llm-base-url <URL>` optional  
-- `-k, --api-key <STRING>` optional
-- `--keyword-batch-size <usize>` default `20` (keyword extraction batch size)
-
-## Resume State
-Each normal sorting run creates a state directory under `$XDG_CACHE_HOME/sortyourpapers/resume/<cwd-hash>/runs/<run-id>`.
-Fallback when `XDG_CACHE_HOME` is unset: `~/.cache/sortyourpapers/resume/<cwd-hash>/runs/<run-id>`.
-Completed stage outputs are written as JSON files, and `latest_run` is stored alongside that workspace’s `runs/` directory.
-Interrupted keyword extraction also saves partial batch progress so resume can skip already completed `(file_id, keywords, preliminary_categories_k_depth)` work.
-Interrupted taxonomy synthesis also saves completed preliminary-category batches so resume can skip them and continue from the remaining batch plus final merge.
-Interrupted placement generation also saves completed placement batches so resume can skip them, preserving the same per-run batch membership.
-If a run resumes after taxonomy synthesis but before placement generation, the merged taxonomy is reloaded from `07-synthesize-categories.json` and the inspect stage can re-render it once before placements continue.
-`session resume` without a `RUN_ID` prints all saved sessions and asks which one to continue.
-`session resume <RUN_ID>` reloads the saved config and continues from the first missing stage instead of repeating earlier LLM calls.
-`session review` prints the synthesized category tree for a completed saved session.
-`session list` prints saved sessions without resuming.
-`session remove` deletes specific saved sessions, and `session clear` removes incomplete ones for the current workspace.
-Use `session resume --quiet` if you only want the exit status without the progress stream or final summary.
-
-## Test Sets
-- `assets/testsets/` stores committed TOML and JSON metadata artifacts for curated paper sets.
-- `uv run --project python paperfetch build-manifest` reads SciJudgeBench metadata from Hugging Face Hub, samples top/bottom/random citation papers per category, and writes matching TOML and JSON artifacts.
-- `uv run --project python paperfetch materialize assets/testsets/scijudgebench-diverse.toml` downloads the selected arXiv PDFs plus manifest/state metadata into the shared repo-relative cache from `dev.toml` (`.cache/sortyourpapers/testsets/` by default).
-- `uv run --project python paperfetch export assets/testsets/scijudgebench-diverse.toml ./tmp/scijudgebench` copies the cached PDFs into a local directory for runs or manual inspection.
-- Each curated sample stores paper metadata, the arXiv abstract page URL, and the direct PDF URL.
-- The checked-in `scijudgebench-diverse` artifact uses a `5 top + 5 bottom + 5 deterministic random` policy per category.
-
-## Environment Variables
-- `SYP_INPUT`
-- `SYP_OUTPUT`
-- `SYP_RECURSIVE`
-- `SYP_MAX_FILE_SIZE_MB`
-- `SYP_PAGE_CUTOFF`
-- `SYP_PDF_EXTRACT_WORKERS`
-- `SYP_CATEGORY_DEPTH`
-- `SYP_TAXONOMY_MODE`
-- `SYP_TAXONOMY_BATCH_SIZE`
-- `SYP_USE_CURRENT_FOLDER_TREE`
-- `SYP_PLACEMENT_BATCH_SIZE`
-- `SYP_PLACEMENT_MODE`
-- `SYP_REBUILD`
-- `SYP_BATCH_START_DELAY_MS`
-- `SYP_SUBCATEGORIES_SUGGESTION_NUMBER`
-- `SYP_LLM_PROVIDER`
-- `SYP_LLM_MODEL`
-- `SYP_LLM_BASE_URL`
-- `SYP_API_KEY`
-- `SYP_KEYWORD_BATCH_SIZE`
+The work continues in Python, which is what `main` now holds.

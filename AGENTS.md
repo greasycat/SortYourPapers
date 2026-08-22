@@ -3,11 +3,12 @@
 ## Project Context
 
 - Project name: `SortYourPapers` (`syp`)
-- Primary language/runtime: Rust workspace (`edition = "2024"`) with Python 3.12.11 maintainer tooling under `python/` (manged by uv)
+- Primary language/runtime: Python 3.11+. The tool lives in `prototype/` (installed as `sypy`); `python/` holds `uv`-managed maintainer tooling for test sets.
+- The Rust workspace this project began as is preserved on the `old-rust` branch and is not maintained.
 
 ## Working Rules
 
-- If some popular crates or libraries exists and suitable for the task. Then use them instead of re-inventing the wheel unless explicityly note not to.
+- If a suitable well-known library exists for the task, use it rather than re-inventing the wheel, unless explicitly told not to.
 
 ### Version Control
 
@@ -19,7 +20,7 @@
 ### Editing
 
 - Prefer small, targeted changes.
-- Keep new code consistent with the existing workspace structure and style.
+- Keep new code consistent with the existing structure and style.
 - During refactors, backward compatibility is not required. The project is still in development.
 
 ### Communication
@@ -34,4 +35,5 @@
 
 ## Task-Specific Notes
 
-- Commands to know: `cargo fmt --all`, `cargo test --workspace`, `cargo clippy --workspace --all-targets`, `cargo run -p syp -- --help`, `uv run --project python pytest`.
+- Commands to know: `prototype/.venv/bin/python -m pytest` (run from `prototype/`), `./prototype/scripts/sypy-path wire`, `sypy --help`, `uv run --project python pytest`.
+- Every test is capped at 60 seconds by `pytest-timeout` using the signal method, so a loop that stops awaiting cannot wedge the machine.

@@ -25,11 +25,6 @@
       "skillPath": "skills/migration/SKILL.md",
       "computedHash": "7348b2d21ca05bdecc1e4ec2c8b63515ccb1700c8a261fdbd458b04b7383945b"
     },
-    "rust-skills": {
-      "source": "leonardomso/rust-skills",
-      "sourceType": "github",
-      "computedHash": "46bd078eef99d07cf5544129e24f917646a39cda58672233c559d3fa6af68369"
-    },
     "safe-refactor": {
       "source": "JuliusBrussee/caveman",
       "sourceType": "github",

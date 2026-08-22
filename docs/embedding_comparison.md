@@ -1,5 +1,9 @@
 # Embedding Comparison
 
+> Measured against the Rust implementation, which now lives on the
+> `old-rust` branch. The findings still stand; the command does not run
+> from `main`.
+
 This document compares two dry-run taxonomy/placement passes over the curated `scijudgebench-diverse` test set.
 
 - Reference evidence present in embedding-guided run: `yes`

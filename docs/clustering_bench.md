@@ -5,6 +5,10 @@ abstracts and its arXiv labels. All numbers below come from
 `cargo test -p syp-library curated_set -- --ignored --nocapture`, which needs
 no API key and no PDFs.
 
+> Measured against the Rust implementation, which now lives on the
+> `old-rust` branch. The findings still stand; the command does not run
+> from `main`.
+
 Read **ARI** (adjusted rand index). It is the only measure here corrected for
 chance, so it does not reward splitting. The others are reported to show *how*
 a strategy fails, not to rank strategies.
