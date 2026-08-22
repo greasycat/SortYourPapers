@@ -75,7 +75,11 @@ Links are named from whichever of author, year, and title are known —
 `vaswani_2017_attention-is-all-you-need`, or `vaswani_attention…` when the year
 is missing, or `attention…` when only the title is. A document with neither an
 author nor a title falls back to the store name, since a bare year names
-nothing. They are relative, so
+nothing. A long title is cut between words rather than inside one, so a name
+never trails off mid-word.
+
+Because those names are derived, changing how they are derived leaves existing
+files spelled the old way. `sypy migrate-store` renames them to match. They are relative, so
 the whole library can be moved without breaking.
 
 **DuckDB is the source of truth.** Filenames and the links are projections of

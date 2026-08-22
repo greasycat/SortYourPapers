@@ -113,7 +113,7 @@ def link_name(
     rather than being called `2017.pdf`.
     """
     author = _first_author_surname(authors or [])
-    slug = _slugify(title or "")[:MAX_TITLE_SLUG_CHARS].strip("-")
+    slug = _truncate_words(_slugify(title or ""), MAX_TITLE_SLUG_CHARS)
     if not (author or slug):
         return fallback
 
@@ -127,6 +127,24 @@ def disambiguate(name: str, paper_id: str) -> str:
     if not dot:
         return f"{name}_{paper_id}"
     return f"{stem}_{paper_id}.{suffix}"
+
+
+def _truncate_words(slug: str, limit: int) -> str:
+    """Shorten a slug to `limit`, cutting between words rather than inside one.
+
+    A title clipped mid-word reads as a typo — `...-and-tomo` for
+    "...and Tomosynthesis". Dropping the partial word is shorter and honest.
+
+    A first word already longer than the limit has no boundary to cut at, so it
+    is clipped as it stands.
+    """
+    if len(slug) <= limit:
+        return slug.strip("-")
+    clipped = slug[:limit]
+    boundary = clipped.rfind("-")
+    if boundary > 0:
+        clipped = clipped[:boundary]
+    return clipped.strip("-")
 
 
 def _first_author_surname(authors: list[str]) -> str:

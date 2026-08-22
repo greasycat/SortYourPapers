@@ -316,6 +316,39 @@ class Library:
             moved.append(paper.file_id)
         return moved
 
+    def refresh_document_names(self) -> list[tuple[str, str, str]]:
+        """Rename stored files the naming rules would now spell differently.
+
+        A document's filename is derived from its title, authors, and year, so
+        changing how that derivation works leaves existing files spelled the old
+        way — and the tree, which recomputes the name on every rebuild, spelled
+        the new one. Renaming the file keeps the two saying the same thing.
+
+        Returns `(file_id, old, new)` for each rename.
+        """
+        renamed: list[tuple[str, str, str]] = []
+        for paper in self.db.all_papers():
+            directory = self.document_dir(paper)
+            current = directory / paper.document_name
+            if not paper.document_name or not current.is_file():
+                continue
+
+            suffix = Path(paper.document_name).suffix or ".pdf"
+            wanted = link_name(
+                fallback=f"{paper.store_name}{suffix}",
+                authors=paper.authors,
+                year=paper.year,
+                title=paper.title,
+                suffix=suffix,
+            )
+            if wanted == paper.document_name or (directory / wanted).exists():
+                continue
+
+            os.replace(current, directory / wanted)
+            self.db.set_store_layout(paper.file_id, paper.store_name, wanted)
+            renamed.append((paper.file_id, paper.document_name, wanted))
+        return renamed
+
     def existing_categories(self, limit: int | None = None) -> list[str]:
         """Category paths already in use, for steering a new document."""
         return self.db.tag_paths(limit=limit)

@@ -187,17 +187,24 @@ def note(
 def migrate_store(
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
 ) -> None:
-    """Move a pre-folder library into a folder per document."""
+    """Bring the store's layout and filenames in line with the current rules."""
     settings = _settings(None, library_dir)
     with Library(settings.output_dir) as library:
         moved = library.migrate_store_layout()
-        if not moved:
-            typer.echo("nothing to migrate; every document already has a folder")
-            return
         for file_id in moved:
             paper = library.db.get(file_id)
-            typer.echo(f"  {file_id} -> {paper.store_name}/{paper.document_name}")
-        typer.echo(f"moved {len(moved)} document(s) into folders")
+            typer.echo(f"  folder: {file_id} -> {paper.store_name}/{paper.document_name}")
+
+        renamed = library.refresh_document_names()
+        for _, old, new in renamed:
+            typer.echo(f"  rename: {old}\n       -> {new}")
+
+        if not moved and not renamed:
+            typer.echo("nothing to do; the store already matches the current rules")
+            return
+        typer.echo(
+            f"moved {len(moved)} document(s) into folders, renamed {len(renamed)}"
+        )
         library.rebuild_tree()
         typer.echo("tree rebuilt")
 

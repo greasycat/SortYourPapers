@@ -111,3 +111,51 @@ def test_link_name_falls_back_without_an_author_or_a_title(year) -> None:
 
 def test_disambiguate_keeps_the_suffix() -> None:
     assert disambiguate("a_2017_b.pdf", "deadbeef") == "a_2017_b_deadbeef.pdf"
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        # Clipped between words, not inside one: "...and Tomosynthesis" loses
+        # the whole word rather than leaving "-tomo" looking like a typo.
+        (
+            "Comparing the Subsequent Search Miss Effect Between Mammography and Tomosynthesis",
+            "doe_2020_comparing-the-subsequent-search-miss-effect-between-mammography-and.pdf",
+        ),
+        # Already ends on a boundary, so nothing is dropped.
+        (
+            "Advancing AI Interpretability in Medical Imaging: A Comparative Analysis of "
+            "Pixel-Level Interpretability",
+            "doe_2020_advancing-ai-interpretability-in-medical-imaging-a-comparative-analysis.pdf",
+        ),
+        # Short enough to keep whole.
+        ("A Short Title", "doe_2020_a-short-title.pdf"),
+    ],
+)
+def test_a_long_title_is_cut_between_words(title, expected) -> None:
+    assert (
+        link_name(fallback="x.pdf", authors=["Jane Doe"], year=2020, title=title)
+        == expected
+    )
+
+
+def test_a_single_over_long_word_has_no_boundary_to_cut_at() -> None:
+    # Nothing to cut between, so it is clipped where it stands rather than
+    # collapsing to nothing.
+    name = link_name(
+        fallback="x.pdf", authors=["Jane Doe"], year=2020, title="Supercalifragilistic" * 8
+    )
+
+    assert name.startswith("doe_2020_supercalifragilistic")
+    assert len(name) <= MAX_NAME_CHARS
+
+
+def test_a_cut_title_never_ends_in_a_dash() -> None:
+    for words in range(1, 30):
+        name = link_name(
+            fallback="x.pdf",
+            authors=["Jane Doe"],
+            year=2020,
+            title=" ".join(["word"] * words),
+        )
+        assert not name.removesuffix(".pdf").endswith("-"), name
