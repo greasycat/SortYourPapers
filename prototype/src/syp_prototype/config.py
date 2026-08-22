@@ -42,6 +42,11 @@ DEFAULT_MAX_TOKENS_PER_DAY = 1_000_000
 DEFAULT_LLM_MAX_RETRIES = 2
 DEFAULT_LLM_TIMEOUT_SECONDS = 120.0
 
+# How long a model answer stays worth reusing. Its labels were chosen against
+# the categories the library used at the time, so a receipt is worth keeping for
+# a while and not forever; `0` turns the cache off entirely.
+DEFAULT_LABEL_CACHE_DAYS = 7
+
 
 def state_dir() -> Path:
     """Where this machine keeps what one `sypy` invocation leaves for the next.
@@ -135,6 +140,20 @@ def resolve_api_key() -> str:
 def _repo_dotenv() -> Path:
     """The repository-root ``.env``, which is where this repo keeps its key."""
     return Path(__file__).resolve().parents[3] / ".env"
+
+
+def label_cache_max_age_ms() -> int | None:
+    """How old a cached model answer may be, or None when nothing expires.
+
+    `SYP_LABEL_CACHE_DAYS=0` disables reuse, so every document is labelled
+    afresh; a negative value keeps answers indefinitely.
+    """
+    days = env_int("SYP_LABEL_CACHE_DAYS", DEFAULT_LABEL_CACHE_DAYS)
+    if days == 0:
+        return 0
+    if days < 0:
+        return None
+    return days * 24 * 60 * 60 * 1000
 
 
 def env_int(name: str, default: int) -> int:

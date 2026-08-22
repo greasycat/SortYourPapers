@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from conftest import FailingLlmClient, FakeLlmClient, write_pdf, write_scanned_pdf
 
 from syp_prototype.llm import LlmError
@@ -515,13 +517,18 @@ async def test_a_busy_database_does_not_stop_the_pass(
     assert report.processed == 1, "the document should still have been filed"
 
 
-async def test_a_preview_writes_nothing_to_the_database(
+async def test_a_preview_does_not_change_what_the_library_holds(
     settings: Settings, library: Library, tmp_path: Path
 ) -> None:
     """`--mode preview` promises to leave the library as it found it.
 
     A hash refreshed on the way in is a row rewritten, which is a real change to
     a library the caller asked not to touch.
+
+    What a preview does write is the bank of model answers, which says nothing
+    about what the library holds — only that a request has already been paid
+    for. Throwing that away would mean the apply after a preview buys the same
+    answer twice.
     """
     write_pdf(settings.input_dir / "a.pdf", "attention")
     await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
@@ -536,6 +543,8 @@ async def test_a_preview_writes_nothing_to_the_database(
     after = library.db.get(paper.file_id)
     assert after.content_hash == before.content_hash, "a preview rewrote a row"
     assert after.stored_mtime_ms == before.stored_mtime_ms
+    assert library.db.count() == 1, "a preview filed something"
+    assert library.orphans() == [], "a preview put something in the store"
 
 
 async def test_a_preview_still_sees_what_the_reconciliation_found(
@@ -580,3 +589,146 @@ async def test_an_apply_does_record_what_it_found(
     await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
 
     assert library.db.get(paper.file_id).content_hash != before
+
+
+# ---- paying once -----------------------------------------------------------
+
+
+async def test_a_crash_between_paying_and_filing_does_not_pay_again(
+    settings: Settings, library: Library, monkeypatch
+) -> None:
+    """The failure the bank exists for.
+
+    The model call comes before the file work, so a pass that dies in between
+    has spent money and recorded nothing. Under `KeepAlive` a pass that dies is
+    a pass that starts again — so without this, a crash that repeats is a charge
+    that repeats with it.
+    """
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    client = FakeLlmClient()
+
+    def die_while_copying(*_args, **_kwargs):
+        raise KeyboardInterrupt("killed mid-pass")
+
+    monkeypatch.setattr(Library, "place_file", die_while_copying)
+    with pytest.raises(KeyboardInterrupt):
+        await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+    assert len(client.batches) == 1, "the first attempt should have paid once"
+
+    monkeypatch.undo()
+    report = await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert len(client.batches) == 1, "the restart bought the same answer again"
+    assert report.reused_answers == 1
+    assert report.processed == 1, "and it still gets filed"
+
+
+async def test_the_answer_is_banked_before_the_file_is_touched(
+    settings: Settings, library: Library, monkeypatch
+) -> None:
+    # Banking it after the copy would leave exactly the window this closes.
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    banked: list[int] = []
+    real_place = Library.place_file
+
+    def watch_place(self, *args, **kwargs):
+        banked.append(self.db.count_model_answers())
+        return real_place(self, *args, **kwargs)
+
+    monkeypatch.setattr(Library, "place_file", watch_place)
+    await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
+
+    assert banked == [1], "the answer was not banked before the file was copied"
+
+
+async def test_a_failed_batch_does_not_lose_the_page_text_it_was_given(
+    settings: Settings, library: Library, monkeypatch
+) -> None:
+    """Reading a scan is the most expensive thing a pass does.
+
+    A rate limit on the labelling call that followed would otherwise throw that
+    reading away and buy it again on the next pass.
+    """
+    write_scanned_pdf(settings.input_dir / "scan.pdf")
+    monkeypatch.setattr(ingest_module, "render_pages", _fake_render)
+
+    class _ReadsThenFails(FakeLlmClient):
+        async def extract_keywords(self, batch, existing_categories=()):
+            raise LlmError("rate limited")
+
+    reader = _ReadsThenFails()
+    await ingest_folder(settings, reader, library, mode=FilingMode.COPY)
+    assert reader.pages_read == [1], "the scan should have been read once"
+
+    working = FakeLlmClient()
+    report = await ingest_folder(settings, working, library, mode=FilingMode.COPY)
+
+    assert working.pages_read == [], "the scan was read a second time"
+    assert report.processed == 1
+
+
+async def test_a_preview_and_the_apply_after_it_pay_once(
+    settings: Settings, library: Library
+) -> None:
+    # Looking at what would happen, then letting it happen, is one decision.
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    client = FakeLlmClient()
+
+    await ingest_folder(settings, client, library, mode=FilingMode.PREVIEW)
+    report = await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert len(client.batches) == 1, "the apply asked the model again"
+    assert report.processed == 1
+
+
+async def test_a_banked_answer_past_its_age_is_not_reused(
+    settings: Settings, library: Library, monkeypatch
+) -> None:
+    """A label is a choice made against the categories the library had then.
+
+    Worth reusing for a while; not forever.
+    """
+    monkeypatch.setenv("SYP_LABEL_CACHE_DAYS", "7")
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    client = FakeLlmClient()
+    await ingest_folder(settings, client, library, mode=FilingMode.PREVIEW)
+
+    eight_days = 8 * 24 * 60 * 60 * 1000
+    library.db._conn.execute(
+        "UPDATE model_answers SET created_at_ms = created_at_ms - ?", [eight_days]
+    )
+    library.release()
+
+    await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert len(client.batches) == 2, "a stale answer was reused"
+
+
+async def test_reuse_can_be_turned_off(
+    settings: Settings, library: Library, monkeypatch
+) -> None:
+    monkeypatch.setenv("SYP_LABEL_CACHE_DAYS", "0")
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    client = FakeLlmClient()
+
+    await ingest_folder(settings, client, library, mode=FilingMode.PREVIEW)
+    await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert len(client.batches) == 2
+    assert library.db.count_model_answers() == 0, "nothing should have been banked"
+
+
+async def test_an_unreadable_banked_answer_is_only_a_miss(
+    settings: Settings, library: Library
+) -> None:
+    # The worst a broken cache may cost is the request it was meant to save.
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    client = FakeLlmClient()
+    await ingest_folder(settings, client, library, mode=FilingMode.PREVIEW)
+    library.db._conn.execute("UPDATE model_answers SET labels = '{not json'")
+    library.release()
+
+    report = await ingest_folder(settings, client, library, mode=FilingMode.COPY)
+
+    assert len(client.batches) == 2
+    assert report.processed == 1

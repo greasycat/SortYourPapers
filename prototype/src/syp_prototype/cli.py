@@ -11,6 +11,7 @@ import typer
 
 from .budget import Budget
 from .config import (
+    DEFAULT_LABEL_CACHE_DAYS,
     DEFAULT_LLM_MAX_RETRIES,
     DEFAULT_LLM_TIMEOUT_SECONDS,
     ConfigError,
@@ -402,6 +403,39 @@ def backup(
     typer.echo(f"  database  {report.database.name}")
     typer.echo(f"  store     {report.bytes_copied / 1e6:.1f} MB")
     typer.echo("  the tree is not copied; `sypy tree` rebuilds it")
+
+
+@app.command()
+def cache(
+    forget: bool = typer.Option(
+        False, "--forget", help="Throw the banked answers away."
+    ),
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+) -> None:
+    """Show the model answers this library has already paid for.
+
+    An answer is kept against the document's contents, so a pass that dies
+    between paying and filing does not buy the same one again when it restarts.
+    `--forget` clears them, which costs money rather than losing anything: the
+    next pass asks the model again.
+    """
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        if forget:
+            typer.echo(f"forgot {library.db.forget_model_answers()} banked answer(s)")
+            return
+        typer.echo(f"{library.db.count_model_answers()} banked answer(s)")
+
+    days = env_int("SYP_LABEL_CACHE_DAYS", DEFAULT_LABEL_CACHE_DAYS)
+    if days == 0:
+        typer.echo("reuse is off (SYP_LABEL_CACHE_DAYS=0); every pass asks again")
+    elif days < 0:
+        typer.echo("kept indefinitely (SYP_LABEL_CACHE_DAYS is negative)")
+    else:
+        typer.echo(
+            f"reused for {days} day(s), then asked again — a label is a choice "
+            "made against the categories the library had at the time"
+        )
 
 
 @app.command()

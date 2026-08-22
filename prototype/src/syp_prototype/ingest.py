@@ -6,9 +6,11 @@ process, so any stretch where this holds the lock is a stretch where no other
 open, and the database is visited in three short bursts between:
 
 1. hash every candidate                     no database
-2. **read**: which are already held, and how the library is organised
+2. **read**: which are already held, how the library is organised, and what
+   the model has already been paid to say about these contents
 3. parse only the new ones                  no database
-4. call the model                           no database
+4. call the model, for whatever is left unanswered
+   **write**: bank the answers, before any file is touched
 5. copy the files                           no database
 6. **write**: record the whole batch at once
 7. link them into the tree                  no database
@@ -21,6 +23,16 @@ Model batches run concurrently, capped the way the Rust pipeline caps them,
 because that stage is bound by round-trips rather than tokens. Nothing is
 written unless the filing mode says so: rearranging a person's files is not
 undoable by guessing.
+
+The one thing a preview does write is that bank of answers. Filing is what
+`--mode preview` promises not to do, and a receipt for a request already paid
+for changes nothing about what the library holds — while throwing it away means
+the apply that follows buys the same answer twice.
+
+Answers are banked between the model call and the file work on purpose. That
+gap is where a pass can die with money spent and nothing to show for it, and
+under `KeepAlive` a pass that dies is a pass that starts again: without the
+bank, a crash that repeats is a charge that repeats with it.
 """
 
 from __future__ import annotations
@@ -33,8 +45,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Sequence
 
-from .config import MAX_CONCURRENT_REQUESTS, MAX_STEERING_CATEGORIES, Settings
-from .db import Paper
+from .config import (
+    MAX_CONCURRENT_REQUESTS,
+    MAX_STEERING_CATEGORIES,
+    Settings,
+    label_cache_max_age_ms,
+)
+from .db import ModelAnswer, Paper
 from .discovery import discover_pdfs, file_id as content_hash_of
 from .extract import ExtractionError, PaperText, extract_paper_text
 from .library import FilingMode, Library, LibraryError, PlannedFiling, RescanReport
@@ -53,6 +70,8 @@ class IngestReport:
     planned: list[PlannedFiling] = field(default_factory=list)
     skipped_already_known: int = 0
     skipped_oversized: list[Path] = field(default_factory=list)
+    # Documents labelled from an answer already paid for rather than a request.
+    reused_answers: int = 0
     failed: list[tuple[Path, str]] = field(default_factory=list)
     # What reconciling the store against the database found on the way in.
     rescan: RescanReport | None = None
@@ -94,22 +113,53 @@ async def ingest_folder(
         # call an edited copy new while the apply that follows recognises it.
         known |= {digest for _, _, digest in report.rescan.changed}
     existing = library.existing_categories(limit=MAX_STEERING_CATEGORIES)
+    max_age_ms = label_cache_max_age_ms()
+    answers = (
+        library.db.model_answers(
+            [digest for _, digest in candidates], max_age_ms=max_age_ms
+        )
+        if max_age_ms != 0
+        else {}
+    )
     library.release()
 
     # Phase 3 — read only what is new. No database, and no wasted parsing of
     # documents the library already has. Scanned pages are read here too, so
     # by phase 4 every document has text regardless of where it came from.
-    prepared = await _extract_new(candidates, known, settings, report, client)
+    prepared, read_pages = await _extract_new(
+        candidates, known, answers, settings, report, client
+    )
+    if read_pages and max_age_ms != 0:
+        # Written before anything else happens to these documents. Reading a
+        # scan is the most expensive thing a pass does, and the batch it feeds
+        # can still fail — a rate limit is likelier than a crash — so the page
+        # text is banked on its own rather than riding on the labels.
+        library.db.remember_model_answers(read_pages, max_age_ms=max_age_ms)
+        library.release()
     if not prepared:
         return report
 
     papers = [paper for paper, _ in prepared]
     hashes = {paper.file_id: digest for paper, digest in prepared}
 
-    # Phase 4 — the model calls. No database.
+    # Phase 4 — the model calls, for whatever has not already been answered.
+    # No database.
+    known_labels = {
+        digest: answer.labels
+        for digest, answer in answers.items()
+        if answer.labels is not None
+    }
+    unanswered = [paper for paper in papers if paper.file_id not in known_labels]
+    report.reused_answers = len(papers) - len(unanswered)
+    if report.reused_answers:
+        log.info(
+            "%d document(s) labelled from answers already paid for",
+            report.reused_answers,
+        )
+
     batches = [
-        papers[start : start + settings.keyword_batch_size]
-        for start in range(0, len(papers), settings.keyword_batch_size)
+        unanswered[start : start + settings.keyword_batch_size]
+        for start in range(0, len(unanswered), settings.keyword_batch_size)
     ]
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
@@ -121,7 +171,7 @@ async def ingest_folder(
         *(run_batch(batch) for batch in batches), return_exceptions=True
     )
 
-    labelled: list[tuple[PaperText, KeywordPair]] = []
+    fresh: dict[str, KeywordPair] = {}
     for batch, result in zip(batches, results):
         if isinstance(result, BaseException):
             # One failed batch must not discard the batches that succeeded.
@@ -129,10 +179,31 @@ async def ingest_folder(
             log.warning("batch of %d document(s) failed: %s", len(batch), reason)
             report.failed.extend((paper.path, reason) for paper in batch)
             continue
-        labelled.extend(zip(batch, result))
+        fresh.update({pair.file_id: pair for pair in result})
+
+    # In the batch's order, whichever half each answer came from. A document
+    # neither half answered is one whose batch failed, and is already reported.
+    labelled: list[tuple[PaperText, KeywordPair]] = []
+    for paper in papers:
+        pair = known_labels.get(paper.file_id) or fresh.get(paper.file_id)
+        if pair is not None:
+            labelled.append((paper, pair))
 
     if not labelled:
         return report
+
+    # Phase 4b — bank what was just bought, before a single file is touched.
+    # This is the whole point: from here the pass can crash, be restarted by
+    # launchd, and re-run without paying for any of it a second time.
+    if fresh and max_age_ms != 0:
+        library.db.remember_model_answers(
+            [
+                ModelAnswer(content_hash=digest, labels=pair, model=settings.model)
+                for digest, pair in fresh.items()
+            ],
+            max_age_ms=max_age_ms,
+        )
+        library.release()
 
     if not mode.writes:
         for paper_text, pair in labelled:
@@ -271,10 +342,11 @@ def _hash_candidates(
 async def _extract_new(
     candidates: list[tuple[Path, str]],
     known: set[str],
+    answers: dict[str, ModelAnswer],
     settings: Settings,
     report: IngestReport,
     client: LlmClient,
-) -> list[tuple[PaperText, str]]:
+) -> tuple[list[tuple[PaperText, str]], list[ModelAnswer]]:
     """Read the candidates the library does not already hold. No database.
 
     A PDF with no text layer is a scan: it opens fine and yields nothing. Rather
@@ -282,6 +354,11 @@ async def _extract_new(
     text that comes back stands in for the text it does not carry. From here on
     it is an ordinary document — labelled by the same batched call, steered by
     the same categories.
+
+    A scan whose pages were read by an earlier attempt is not read again: that
+    text was bought once and is keyed by the document's contents, which have not
+    changed. Returns what to label, and whatever was newly read and is now worth
+    banking.
     """
     prepared: list[tuple[PaperText, str]] = []
     scanned: list[tuple[PaperText, str]] = []
@@ -297,11 +374,32 @@ async def _extract_new(
             report.failed.append((path, str(err)))
             continue
 
-        (prepared if paper.has_text_layer else scanned).append((paper, digest))
+        if paper.has_text_layer:
+            prepared.append((paper, digest))
+            continue
 
+        remembered = answers.get(digest)
+        if remembered is not None and remembered.page_text:
+            prepared.append(
+                (
+                    replace(paper, text=remembered.page_text, from_page_images=True),
+                    digest,
+                )
+            )
+            continue
+        scanned.append((paper, digest))
+
+    read_pages: list[ModelAnswer] = []
     if scanned:
-        prepared.extend(await _read_scanned(scanned, settings, report, client))
-    return prepared
+        read = await _read_scanned(scanned, settings, report, client)
+        prepared.extend(read)
+        read_pages = [
+            ModelAnswer(
+                content_hash=digest, page_text=paper.text, model=settings.model
+            )
+            for paper, digest in read
+        ]
+    return prepared, read_pages
 
 
 async def _read_scanned(

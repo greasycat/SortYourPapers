@@ -56,9 +56,11 @@ a folder, do not point a watch at it.
 
 ## What it costs
 
-The watcher runs unattended under `KeepAlive`, which means the thing that
-reliably restarts it is failure — and a pass that dies partway through comes
-back, re-reads the same folder, and pays again. So spending is capped:
+Two different things bound this, and it is worth keeping them apart. **Paying
+twice for the same document** is a defect, and is fixed by banking the model's
+answer — the section after this one. **Paying more than you meant to in a day**
+is not a defect at all; it is what happens when a watch is pointed somewhere
+surprising. That is what the ceiling is for:
 
 ```bash
 sypy budget           # what the last 24 hours cost, against the ceiling
@@ -77,7 +79,50 @@ default 2; `SYP_LLM_TIMEOUT_SECONDS`, default 120), so one failing or hanging
 request gives up instead of holding a pass open and billing for every attempt.
 
 The ceilings bound the damage; they do not price it. This tool does not know
-what the model costs, and does not try to guess.
+what the model costs, and does not try to guess. Nor is the ceiling a cap on how
+much one pass may do: stopping a pass halfway would leave the rest of the folder
+unfiled and, in copy mode, never looked at again — the watcher decides there is
+work by comparing a folder snapshot against the last one it ran, and a folder it
+only half-processed looks unchanged. Request size is capped where it belongs
+instead: 20 documents per request, 60,000 characters across a batch, 4,000 per
+document, four requests at a time.
+
+## Paying once for a document
+
+A pass calls the model, then copies files, then writes rows. Anything that kills
+it in between — a crash, a full disk, `launchctl bootout` — has spent money and
+recorded nothing, and under `KeepAlive` the thing that reliably restarts the
+watcher is failure. It comes back, finds the same documents pending, and pays
+for them again. Repeatably, if whatever killed it is repeatable.
+
+So the model's answer is banked against the document's **contents** the moment
+it arrives, before a single file is touched:
+
+```bash
+sypy cache            # how many answers this library has already paid for
+sypy cache --forget   # throw them away and ask again
+```
+
+Keyed by content hash rather than document id, because the id is minted fresh on
+every attempt — the point is to be found again by a pass with no memory of the
+one that paid. A scan's page text is banked separately and as soon as it is
+read, since reading a scan is the most expensive thing a pass does and the
+labelling call after it can fail on its own.
+
+A preview banks its answers too, so looking at what would happen and then
+letting it happen is one decision and one charge. That is the only thing a
+preview writes: it says nothing about what the library holds, only that a
+request has already been paid for.
+
+Answers are reused for 7 days, then asked again — `SYP_LABEL_CACHE_DAYS`, `0`
+to turn reuse off, negative to keep them indefinitely. Not forever by default,
+because a label is a choice made against the categories the library had at the
+time, and a library that has grown since would be steered somewhere else.
+
+This is what makes the daily ceiling a backstop rather than a budget: with it,
+the same document is not bought twice, so the ceiling only catches what was
+never predicted — a watch pointed at a folder of ten thousand PDFs, a key shared
+with something else.
 
 ## Backups
 
@@ -254,6 +299,7 @@ sypy fsck [--adopt]                    # check the store and database agree
 sypy tree                              # rebuild the symlink tree from the database
 sypy backup <dir>                      # copy the store and the database, together
 sypy budget                            # what the last 24 hours cost at the API
+sypy cache [--forget]                  # model answers already paid for
 
 ./prototype/scripts/sypy-path unwire   # remove the link
 ```
@@ -416,7 +462,7 @@ Settings resolve CLI > environment > defaults, reusing the Rust pipeline's
 
 What the prototype may spend, and how hard it tries:
 `SYP_MAX_REQUESTS_PER_DAY`, `SYP_MAX_TOKENS_PER_DAY`, `SYP_LLM_MAX_RETRIES`,
-`SYP_LLM_TIMEOUT_SECONDS`.
+`SYP_LLM_TIMEOUT_SECONDS`, `SYP_LABEL_CACHE_DAYS`.
 
 Where it keeps what one invocation leaves for the next — watch claims and the
 spend ledger — is `SYPY_STATE_DIR`, defaulting to `~/.local/state/sypy`. The
@@ -432,9 +478,15 @@ and the correct spelling wins when both are set.
 
 - Only OpenAI is wired up, because that is the key the repo carries.
 - No resumable run state beyond the database: an interrupted pass keeps the
-  papers it filed and redoes the batch it was in the middle of.
-- Preview and apply are separate model calls, so the categories a preview shows
-  are not always the ones a later run produces.
+  papers it filed and redoes the batch it was in the middle of — though it no
+  longer pays for it, because the answers were banked before the file work.
+- The bank closes the window between the model call and the rows. The narrower
+  one inside it — a crash between reading a scan's pages and labelling them, in
+  the same breath, with no file work in between — is not covered, because the
+  page text is banked when the reading stage finishes rather than per document.
+- Banked answers hold the model's reading of a document's first page, so
+  clearing them (`sypy cache --forget`) is the way to stop that text sitting in
+  the library.
 - `remove` deletes the stored file, which is the only copy when the document
   arrived by move. There is no unfile-but-keep option.
 - Category steering sends at most 200 existing paths; a larger library sends its

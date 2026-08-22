@@ -14,6 +14,7 @@ in `paper_attributes` as a key/value pair.
 
 from __future__ import annotations
 
+import json
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Iterator, Sequence
 
 import duckdb
+
+from .llm import KeywordPair
 
 # DuckDB allows one writing process at a time, so a command run while the
 # watcher is mid-pass finds the file locked. Waiting briefly turns that from an
@@ -95,7 +98,39 @@ _MIGRATIONS: list[tuple[str, str]] = [
         ALTER TABLE papers ADD COLUMN IF NOT EXISTS document_name TEXT;
         """,
     ),
+    (
+        "0005_model_answer_cache",
+        """
+        CREATE TABLE IF NOT EXISTS model_answers (
+            content_hash  TEXT PRIMARY KEY,
+            page_text     TEXT,
+            labels        TEXT,
+            model         TEXT,
+            created_at_ms BIGINT NOT NULL,
+            updated_at_ms BIGINT NOT NULL
+        );
+        """,
+    ),
 ]
+
+
+@dataclass
+class ModelAnswer:
+    """What the model said about one document's contents, keyed by its hash.
+
+    A receipt for money already spent, not a description of the library. It is
+    keyed by content rather than by document id because the id is minted fresh
+    on every attempt — the whole point is to be found again by a pass that has
+    no memory of the one that paid.
+
+    Either half may be absent: `page_text` only exists for a document with no
+    text layer, and `labels` only once the labelling call has come back.
+    """
+
+    content_hash: str
+    page_text: str | None = None
+    labels: "KeywordPair | None" = None
+    model: str | None = None
 
 
 @dataclass
@@ -128,6 +163,45 @@ class Paper:
 
 def now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _encode_labels(labels: KeywordPair | None) -> str | None:
+    """A label set as JSON. `file_id` is left out: it belongs to one attempt."""
+    if labels is None:
+        return None
+    return json.dumps(
+        {
+            "keywords": labels.keywords,
+            "preliminary_category": labels.preliminary_category,
+            "title": labels.title,
+            "authors": labels.authors,
+            "year": labels.year,
+        }
+    )
+
+
+def _decode_labels(content_hash: str, payload: str | None) -> KeywordPair | None:
+    """Read a stored label set back, or None if it cannot be used.
+
+    A cache that cannot be read is a cache miss, never an error: the worst it
+    costs is the request it was meant to save.
+    """
+    if not payload:
+        return None
+    try:
+        fields = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(fields, dict):
+        return None
+    return KeywordPair(
+        file_id=content_hash,
+        keywords=[str(keyword) for keyword in fields.get("keywords") or []],
+        preliminary_category=str(fields.get("preliminary_category") or ""),
+        title=str(fields.get("title") or ""),
+        authors=[str(author) for author in fields.get("authors") or []],
+        year=fields.get("year") if isinstance(fields.get("year"), int) else None,
+    )
 
 
 class PaperDb:
@@ -322,6 +396,97 @@ class PaperDb:
             unique,
         ).fetchall()
         return {row[0] for row in rows}
+
+    def model_answers(
+        self, content_hashes: Sequence[str], *, max_age_ms: int | None
+    ) -> dict[str, ModelAnswer]:
+        """What has already been paid for, for these contents.
+
+        Entries past `max_age_ms` are ignored. A label is a decision made
+        against the library as it was when the model made it — the categories
+        it was steered by have since moved on — so a receipt is worth reusing
+        for a while and not forever. `None` keeps them indefinitely.
+        """
+        if not content_hashes:
+            return {}
+        unique = list(dict.fromkeys(content_hashes))
+        placeholders = ", ".join("?" for _ in unique)
+        parameters: list[object] = list(unique)
+        clause = ""
+        if max_age_ms is not None:
+            clause = " AND created_at_ms >= ?"
+            parameters.append(now_ms() - max_age_ms)
+
+        rows = self._conn.execute(
+            "SELECT content_hash, page_text, labels, model FROM model_answers "  # noqa: S608
+            f"WHERE content_hash IN ({placeholders}){clause}",
+            parameters,
+        ).fetchall()
+
+        answers: dict[str, ModelAnswer] = {}
+        for content_hash, page_text, labels, model in rows:
+            answers[content_hash] = ModelAnswer(
+                content_hash=content_hash,
+                page_text=page_text,
+                labels=_decode_labels(content_hash, labels),
+                model=model,
+            )
+        return answers
+
+    def remember_model_answers(
+        self, answers: Sequence[ModelAnswer], *, max_age_ms: int | None = None
+    ) -> None:
+        """Record what the model said, so a later pass does not buy it again.
+
+        Written as one transaction, and merged rather than replaced: the page
+        text of a scan is recorded as soon as it is read, and its labels arrive
+        in a second visit, so a write that dropped the halves it was not given
+        would throw away the more expensive one.
+        """
+        if not answers:
+            return
+        with self._transaction():
+            stamp = now_ms()
+            for answer in answers:
+                self._conn.execute(
+                    """
+                    INSERT INTO model_answers
+                        (content_hash, page_text, labels, model,
+                         created_at_ms, updated_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (content_hash) DO UPDATE SET
+                        page_text = coalesce(excluded.page_text, model_answers.page_text),
+                        labels    = coalesce(excluded.labels, model_answers.labels),
+                        model     = coalesce(excluded.model, model_answers.model),
+                        updated_at_ms = excluded.updated_at_ms
+                    """,
+                    [
+                        answer.content_hash,
+                        answer.page_text,
+                        _encode_labels(answer.labels),
+                        answer.model,
+                        stamp,
+                        stamp,
+                    ],
+                )
+            if max_age_ms is not None:
+                # Pruned here rather than on a schedule: this is the one place
+                # the table is written, and an unbounded cache of text would
+                # outgrow the library it describes.
+                self._conn.execute(
+                    "DELETE FROM model_answers WHERE created_at_ms < ?",
+                    [stamp - max_age_ms],
+                )
+
+    def forget_model_answers(self) -> int:
+        """Empty the cache, and say how many receipts were thrown away."""
+        count = self._conn.execute("SELECT count(*) FROM model_answers").fetchone()[0]
+        with self._transaction():
+            self._conn.execute("DELETE FROM model_answers")
+        return count
+
+    def count_model_answers(self) -> int:
+        return self._conn.execute("SELECT count(*) FROM model_answers").fetchone()[0]
 
     def delete(self, file_id: str) -> None:
         """Forget a document entirely."""

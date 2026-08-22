@@ -170,3 +170,108 @@ def test_a_failed_batch_write_records_none_of_it(tmp_path: Path) -> None:
 
     assert db.count() == 0, "the first document must not survive the batch failing"
     db.close()
+
+
+# ---- the bank of model answers ---------------------------------------------
+
+
+def _answers(tmp_path: Path) -> PaperDb:
+    return PaperDb(tmp_path / "papers.duckdb")
+
+
+def test_labels_written_later_do_not_erase_the_page_text(tmp_path: Path) -> None:
+    """The two halves of an answer arrive in separate visits.
+
+    A scan's page text is banked as soon as it is read, because the labelling
+    call that follows can fail on its own. Those labels then arrive with no page
+    text attached, and a write that replaced rather than merged would throw away
+    the more expensive half — leaving a later pass to render and read the
+    document all over again.
+    """
+    from syp_prototype.db import ModelAnswer
+    from syp_prototype.llm import KeywordPair
+
+    with _answers(tmp_path) as db:
+        db.remember_model_answers([ModelAnswer("sha-1", page_text="a scanned page")])
+        db.remember_model_answers(
+            [
+                ModelAnswer(
+                    "sha-1",
+                    labels=KeywordPair(
+                        file_id="sha-1", keywords=["k"], preliminary_category="Misc"
+                    ),
+                )
+            ]
+        )
+
+        answer = db.model_answers(["sha-1"], max_age_ms=None)["sha-1"]
+        assert answer.page_text == "a scanned page"
+        assert answer.labels is not None
+
+
+def test_page_text_written_later_does_not_erase_the_labels(tmp_path: Path) -> None:
+    from syp_prototype.db import ModelAnswer
+    from syp_prototype.llm import KeywordPair
+
+    with _answers(tmp_path) as db:
+        db.remember_model_answers(
+            [
+                ModelAnswer(
+                    "sha-1",
+                    labels=KeywordPair(
+                        file_id="sha-1", keywords=["k"], preliminary_category="Misc"
+                    ),
+                )
+            ]
+        )
+        db.remember_model_answers([ModelAnswer("sha-1", page_text="a scanned page")])
+
+        answer = db.model_answers(["sha-1"], max_age_ms=None)["sha-1"]
+        assert answer.labels is not None
+        assert answer.page_text == "a scanned page"
+
+
+def test_a_label_survives_the_round_trip_intact(tmp_path: Path) -> None:
+    from syp_prototype.db import ModelAnswer
+    from syp_prototype.llm import KeywordPair
+
+    labels = KeywordPair(
+        file_id="sha-1",
+        keywords=["attention", "sequence"],
+        preliminary_category="AI/Transformers",
+        title="Attention Is All You Need",
+        authors=["Ashish Vaswani"],
+        year=2017,
+    )
+    with _answers(tmp_path) as db:
+        db.remember_model_answers([ModelAnswer("sha-1", labels=labels)])
+
+        assert db.model_answers(["sha-1"], max_age_ms=None)["sha-1"].labels == labels
+
+
+def test_expired_answers_are_pruned_when_the_bank_is_next_written(
+    tmp_path: Path,
+) -> None:
+    # An unbounded cache of document text would outgrow the library it describes.
+    from syp_prototype.db import ModelAnswer
+
+    day = 24 * 60 * 60 * 1000
+    with _answers(tmp_path) as db:
+        db.remember_model_answers([ModelAnswer("old", page_text="x")])
+        db._conn.execute("UPDATE model_answers SET created_at_ms = created_at_ms - ?", [8 * day])
+
+        db.remember_model_answers([ModelAnswer("new", page_text="y")], max_age_ms=7 * day)
+
+        assert db.count_model_answers() == 1
+
+
+def test_forgetting_the_bank_says_how_much_was_thrown_away(tmp_path: Path) -> None:
+    from syp_prototype.db import ModelAnswer
+
+    with _answers(tmp_path) as db:
+        db.remember_model_answers(
+            [ModelAnswer("a", page_text="x"), ModelAnswer("b", page_text="y")]
+        )
+
+        assert db.forget_model_answers() == 2
+        assert db.count_model_answers() == 0
