@@ -7,6 +7,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Sequence
 
 import typer
 
@@ -21,6 +22,7 @@ from .config import (
     resolve_api_key,
     resolve_settings,
 )
+from .db import Paper
 from .ingest import ingest_folder
 import os
 import subprocess
@@ -560,7 +562,9 @@ def find(
         ..., help="Words to match against titles, authors, keywords, tags, and ids."
     ),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
-    limit: int = typer.Option(20, "--limit", "-n", help="Most to show; 0 for all."),
+    limit: int = typer.Option(
+        20, "--limit", "-n", min=0, help="Most to show; 0 for all."
+    ),
     as_json: bool = typer.Option(
         False, "--json", help="Print records instead of a table, for a program to read."
     ),
@@ -573,11 +577,21 @@ def find(
     """
     settings = _settings(None, library_dir)
     with Library(settings.output_dir) as library:
-        papers = library.db.search(query, limit=limit or None)
-        _report(library, papers, as_json=as_json)
+        # One more than will be shown, which is how the cap is noticed. A
+        # capped result that says nothing about it reads as the whole answer,
+        # and the reader stops looking for the document that was cut off.
+        papers = library.db.search(query, limit=limit + 1 if limit else None)
+        capped = bool(limit) and len(papers) > limit
+        _report(library, papers[:limit] if capped else papers, as_json=as_json)
+        if capped:
+            typer.echo(
+                f"more than {limit} matched; narrow the search, "
+                "or pass --limit 0 for all of them",
+                err=True,
+            )
 
 
-def _report(library: Library, papers: list, *, as_json: bool) -> None:
+def _report(library: Library, papers: Sequence[Paper], *, as_json: bool) -> None:
     """Show what was found, either to a person or to whatever called this."""
     if as_json:
         typer.echo(
@@ -590,7 +604,7 @@ def _report(library: Library, papers: list, *, as_json: bool) -> None:
     typer.echo(f"\n{len(papers)} document(s) in {library.root}")
 
 
-def _describe(library: Library, paper) -> dict:
+def _describe(library: Library, paper: Paper) -> dict:
     """One document as a record, with the paths that lead to it.
 
     Paths are absolute because the caller is not standing anywhere in

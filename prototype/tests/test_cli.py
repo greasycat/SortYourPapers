@@ -135,3 +135,90 @@ def test_note_path_never_opens_an_editor(library, monkeypatch, capsys) -> None:
     cli.note("aaa111aaa111", library.root, True)
 
     assert capsys.readouterr().out.strip().endswith("notes.md")
+
+
+def _crowded(library, count: int = 25):
+    """A library with more documents than a default search will show."""
+    from syp_prototype.db import Paper
+
+    library.db.upsert_many(
+        [
+            Paper(
+                file_id=f"{i:012d}",
+                content_hash=f"sha-{i}",
+                store_name=f"{i:012d}__AI",
+                document_name="paper.pdf",
+                title=f"Paper {i}",
+                tags=["AI"],
+                keywords=["shared"],
+            )
+            for i in range(count)
+        ]
+    )
+    root = library.root
+    library.close()
+    return root
+
+
+def _invoke(root, *args):
+    from typer.testing import CliRunner
+
+    from syp_prototype.cli import app
+
+    return CliRunner().invoke(app, [*args, "--library", str(root)])
+
+
+def test_a_capped_search_says_it_was_capped(library) -> None:
+    """A cap that says nothing reads as the whole answer.
+
+    The reader stops looking, and the document that was cut off is one they
+    now believe the library does not hold.
+    """
+    root = _crowded(library)
+
+    result = _invoke(root, "find", "shared", "--limit", "3")
+
+    assert result.exit_code == 0, result.output
+    assert len([line for line in result.stdout.splitlines() if line[:12].isdigit()]) == 3
+    assert "more than 3 matched" in result.stderr
+    assert "--limit 0" in result.stderr
+
+
+def test_the_cap_notice_leaves_the_records_parseable(library) -> None:
+    """It goes to stderr, so `--json` stdout is still only JSON."""
+    import json
+
+    root = _crowded(library)
+
+    result = _invoke(root, "find", "shared", "--limit", "3", "--json")
+
+    assert len(json.loads(result.stdout)) == 3
+    assert "more than 3 matched" in result.stderr
+
+
+def test_a_search_that_fits_says_nothing_about_a_cap(library) -> None:
+    root = _crowded(library, count=3)
+
+    result = _invoke(root, "find", "shared", "--limit", "3")
+
+    assert result.exit_code == 0, result.output
+    assert "more than" not in result.stderr
+
+
+def test_no_limit_shows_everything(library) -> None:
+    root = _crowded(library)
+
+    result = _invoke(root, "find", "shared", "--limit", "0")
+
+    assert "25 document(s)" in result.stdout
+    assert "more than" not in result.stderr
+
+
+def test_a_negative_limit_is_a_usage_error(library) -> None:
+    """Not a DuckDB binder error surfacing from three layers down."""
+    root = _crowded(library, count=1)
+
+    result = _invoke(root, "find", "shared", "--limit", "-1")
+
+    assert result.exit_code == 2
+    assert "--limit" in result.stderr

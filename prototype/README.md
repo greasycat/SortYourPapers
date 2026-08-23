@@ -250,6 +250,9 @@ somewhere, so a second word narrows rather than widens.
 sypy find "vaswani attention" --json
 ```
 
+`find` shows 20 matches by default and says on stderr when more matched, since
+a cap that says nothing reads as the whole answer; `--limit 0` lifts it.
+
 `--json`, on `find` and on `list`, prints records instead of a table. Each
 carries the absolute path to the document, its folder, and its notes, because a
 result whose file the caller cannot open is only half an answer. Nothing else

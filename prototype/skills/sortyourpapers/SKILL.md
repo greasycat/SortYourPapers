@@ -24,6 +24,11 @@ tag, author, or keyword — so adding a word narrows and removing one widens. If
 a search comes back empty, drop the most specific word and try again rather
 than concluding the library does not have it.
 
+Twenty results are shown by default. When more matched, `find` says so on
+stderr — read it, because the rest are documents the library holds and this
+search did not show you. Add a word to narrow, or pass `--limit 0` for all of
+them.
+
 Each record looks like this:
 
 ```json
