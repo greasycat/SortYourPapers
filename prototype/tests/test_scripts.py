@@ -366,3 +366,117 @@ def test_the_installer_says_how_to_put_it_on_path(home: Path, tmp_path: Path) ->
     )
 
     assert "SYPY_BIN_DIR" in result.stderr
+
+
+# ---- the agent skill -------------------------------------------------------
+
+
+def _wired(home: Path, tmp_path: Path, extra: dict | None = None) -> dict:
+    """A wire that installs nothing: the venv is stubbed, so no pip, no network."""
+    venv_bin = tmp_path / "venv" / "bin"
+    _stub(venv_bin, "python")  # answers the version check and every pip call
+    _stub(venv_bin, "sypy")
+    env = {
+        "HOME": str(home),
+        "SYPY_PYTHON": str(_stub(tmp_path / "stubs", "python3")),
+        "SYPY_VENV_DIR": str(tmp_path / "venv"),
+        "SYPY_BIN_DIR": str(home / "bin"),
+        "SYPY_FROM_INSTALLER": "1",
+    }
+    env.update(extra or {})
+    return env
+
+
+def test_wiring_links_the_skill_where_the_agent_looks(home: Path, tmp_path: Path) -> None:
+    """A skill an agent cannot find is no more use than a command off PATH."""
+    (home / ".claude").mkdir()
+
+    result = _run(WIRE, "wire", env=_wired(home, tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    link = home / ".claude" / "skills" / "sortyourpapers"
+    assert link.is_symlink()
+    assert link.resolve() == (PROJECT / "prototype" / "skills" / "sortyourpapers")
+    assert (link / "SKILL.md").is_file()
+
+
+def test_no_skills_directory_is_invented_for_an_agent_that_is_not_there(
+    home: Path, tmp_path: Path
+) -> None:
+    """A machine with no ~/.claude will never read a skill put there.
+
+    Creating another tool's config folder to hold one is litter, so the install
+    says how to place it by hand instead.
+    """
+    result = _run(WIRE, "wire", env=_wired(home, tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert not (home / ".claude").exists()
+    assert "SYPY_SKILLS_DIR" in result.stdout
+
+
+def test_skills_dir_is_taken_at_its_word(home: Path, tmp_path: Path) -> None:
+    """Anything that is not Claude Code says where it looks, and is believed."""
+    elsewhere = tmp_path / "agent" / "skills"
+
+    result = _run(
+        WIRE, "wire", env=_wired(home, tmp_path, {"SYPY_SKILLS_DIR": str(elsewhere)})
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (elsewhere / "sortyourpapers" / "SKILL.md").is_file()
+
+
+def test_a_skill_of_the_same_name_someone_else_wrote_survives(
+    home: Path, tmp_path: Path
+) -> None:
+    """Theirs to keep — and warned about, not silently replaced."""
+    mine = home / ".claude" / "skills" / "sortyourpapers"
+    mine.mkdir(parents=True)
+    (mine / "SKILL.md").write_text("mine", encoding="utf-8")
+
+    wired = _run(WIRE, "wire", env=_wired(home, tmp_path))
+    unwired = _run(WIRE, "unwire", env=_wired(home, tmp_path))
+
+    assert wired.returncode == 0, wired.stderr
+    assert "leaving it alone" in wired.stdout + unwired.stdout
+    assert (mine / "SKILL.md").read_text() == "mine"
+
+
+def test_unwiring_takes_the_skill_back_off(home: Path, tmp_path: Path) -> None:
+    (home / ".claude").mkdir()
+    env = _wired(home, tmp_path)
+    _run(WIRE, "wire", env=env)
+    link = home / ".claude" / "skills" / "sortyourpapers"
+    assert link.is_symlink()
+
+    result = _run(WIRE, "unwire", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert not link.exists() and not link.is_symlink()
+
+
+def test_the_skill_comes_off_even_when_the_command_link_is_not_ours(
+    home: Path, tmp_path: Path
+) -> None:
+    """`unwire` refuses outright over a `sypy` it did not create.
+
+    Doing the skill first is what stops that refusal leaving the skill behind.
+    """
+    (home / ".claude").mkdir()
+    env = _wired(home, tmp_path)
+    _run(WIRE, "wire", env=env)
+    link = home / ".claude" / "skills" / "sortyourpapers"
+    (home / "bin" / "sypy").unlink()
+    _stub(home / "bin", "sypy")  # a real file now, not our symlink
+
+    result = _run(WIRE, "unwire", env=env)
+
+    assert result.returncode != 0, "the command link should still be refused"
+    assert not link.exists() and not link.is_symlink()
+
+
+def test_the_installer_says_where_the_skill_goes(home: Path) -> None:
+    result = _run(INSTALL, "--help", env={"HOME": str(home), "NO_COLOR": "1"})
+
+    assert "SYPY_SKILLS_DIR" in result.stderr

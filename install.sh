@@ -9,7 +9,8 @@
 #
 # Everything it needs beyond a Python interpreter is installed into a
 # virtualenv inside the project, so nothing is written outside the project, the
-# chosen bin directory, and — with --service — the supervisor's config.
+# chosen bin directory, the skills directory an agent reads, and — with
+# --service — the supervisor's config. The last two get a symlink each.
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,11 +45,12 @@ usage: ./install.sh [--service] [--check] [--uninstall]
 
   --service     also install the background watcher (launchd or systemd --user)
   --check       report what is missing and stop, changing nothing
-  --uninstall   remove the \`sypy\` link, and the service if one is installed
+  --uninstall   remove the \`sypy\` and skill links, and the service if installed
   -h, --help    this
 
-  SYPY_VENV_DIR   where the virtualenv goes   (default $PACKAGE_DIR/.venv)
-  SYPY_BIN_DIR    where \`sypy\` is linked      (default \$HOME/.local/bin)
+  SYPY_VENV_DIR    where the virtualenv goes    (default $PACKAGE_DIR/.venv)
+  SYPY_BIN_DIR     where \`sypy\` is linked       (default \$HOME/.local/bin)
+  SYPY_SKILLS_DIR  where the agent skill goes   (default \$HOME/.claude/skills)
 USAGE
   exit 2
 }
@@ -198,7 +200,7 @@ do_uninstall() {
   step "Removing the background service"
   SYPY_VENV_DIR="$VENV_DIR" "$PACKAGE_DIR/scripts/sypy-service" uninstall 2>/dev/null \
     || note_no_service
-  step "Removing the command"
+  step "Removing the command and the agent skill"
   SYPY_VENV_DIR="$VENV_DIR" SYPY_BIN_DIR="$BIN_DIR" "$PACKAGE_DIR/scripts/sypy-path" unwire
   printf '\nThe virtualenv at %s and your library are left in place.\n' "$VENV_DIR"
 }
@@ -216,7 +218,7 @@ if [ "$CHECK_ONLY" = 1 ]; then
   exit 0
 fi
 
-step "Installing sypy"
+step "Installing sypy and the agent skill"
 SYPY_FROM_INSTALLER=1 SYPY_PYTHON="$PYTHON" SYPY_VENV_DIR="$VENV_DIR" \
   SYPY_BIN_DIR="$BIN_DIR" "$PACKAGE_DIR/scripts/sypy-path" wire
 

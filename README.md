@@ -17,6 +17,7 @@ are categorized on their own terms.
   [`prototype/README.md`](prototype/README.md).
 - **`prototype/skills/`** — an agent skill for searching and reading a library
   through `sypy find`, so an LLM can answer questions from what you have filed.
+  `./install.sh` links it into `~/.claude/skills`.
 - **`python/`** — maintainer tooling (`uv`-managed) for curating and fetching
   arXiv test sets from SciJudgeBench. See [`python/README.md`](python/README.md).
 - **`assets/testsets/`** — committed test-set manifests.

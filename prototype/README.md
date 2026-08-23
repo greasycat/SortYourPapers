@@ -262,9 +262,16 @@ program that cannot drive one would be left holding open.
 Together those three are the whole read surface. `skills/sortyourpapers/` is an
 agent skill over them — what to run to find a document, how to read and annotate
 it, and which commands cost money or delete things and so are not to be run to
-answer a question. It is a file in this repository, not something `install.sh`
-puts anywhere; point an agent at it, or copy it where that agent looks for
-skills.
+answer a question. `./install.sh` links it into `~/.claude/skills`, alongside
+putting `sypy` on PATH: a skill an agent cannot find is no more use than a
+command that is not on PATH. It is a symlink into the project, so editing it
+takes effect without reinstalling.
+
+The link is only made into a skills directory whose parent already exists.
+A machine with no `~/.claude` will never read a skill put there, and inventing
+another tool's config folder to hold one is litter — so the install says how to
+place it instead. `SYPY_SKILLS_DIR` names the directory for anything that is not
+Claude Code, and is taken at its word.
 
 ## When the two halves disagree
 
@@ -316,8 +323,10 @@ without ingesting into it.
 It finds a Python 3.11 or newer — trying `python3.14` down to `python3`, since
 a distribution's `python3` is often older than the newest it also ships —
 builds a virtualenv inside the project, installs the pinned dependencies, and
-links `sypy` into `~/.local/bin`. Nothing is written outside the project, that
-directory, and (with `--service`) the supervisor's config.
+links `sypy` into `~/.local/bin`, and links the agent skill into
+`~/.claude/skills`. Nothing is written outside the project, those two
+directories, and (with `--service`) the supervisor's config — and the last two
+get a symlink each.
 
 Two prerequisites are checked by name rather than left to fail obscurely later:
 Debian and its derivatives ship `venv` as a separate package, so a working
@@ -325,7 +334,8 @@ Debian and its derivatives ship `venv` as a separate package, so a working
 with no text layer, so a missing one is a warning naming the package to install
 rather than a refusal.
 
-Override where things go with `SYPY_VENV_DIR` and `SYPY_BIN_DIR`.
+Override where things go with `SYPY_VENV_DIR`, `SYPY_BIN_DIR`, and
+`SYPY_SKILLS_DIR`.
 
 ## Usage
 
@@ -498,7 +508,10 @@ debugging session left behind stay out of it. Versions are pinned, not hashes:
 it says what is installed, and does not try to prove the index handed over the
 same bytes as last time. It refuses to replace a `sypy` it did not create,
 and `unwire` refuses to delete one, so an unrelated command of the same name
-survives both. Override the locations with `SYPY_VENV_DIR` and `SYPY_BIN_DIR`.
+survives both; a skill of the same name someone else wrote survives the same
+way, though as a warning rather than a refusal, since by then the command is
+already installed. Override the locations with `SYPY_VENV_DIR`,
+`SYPY_BIN_DIR`, and `SYPY_SKILLS_DIR`.
 
 Without wiring, run it through the project directly:
 
