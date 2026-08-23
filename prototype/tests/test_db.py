@@ -275,3 +275,54 @@ def test_forgetting_the_bank_says_how_much_was_thrown_away(tmp_path: Path) -> No
 
         assert db.forget_model_answers() == 2
         assert db.count_model_answers() == 0
+
+
+def test_search_narrows_as_words_are_added(tmp_path: Path) -> None:
+    """Every word has to match, which is what makes a second word useful."""
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper())
+        db.upsert(
+            _paper(
+                file_id="def456def456",
+                content_hash="sha-2",
+                store_name="def456def456__AI.pdf",
+                title="Another Paper",
+                year=2020,
+                authors=["Jane Doe"],
+            )
+        )
+
+        assert [p.file_id for p in db.search("paper")] == [
+            "abc123abc123",
+            "def456def456",
+        ]
+        assert [p.file_id for p in db.search("paper vaswani")] == ["abc123abc123"]
+        assert db.search("paper vaswani 2020") == []
+
+
+def test_search_matches_wherever_a_paper_is_described(tmp_path: Path) -> None:
+    """A reader does not know which column or side table holds their word."""
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper(original_name="scan-of-the-thing.pdf"))
+
+        for word in ("abc123", "a paper", "vaswani", "attention", "transformers",
+                     "2017", "scan-of"):
+            assert [p.file_id for p in db.search(word)] == ["abc123abc123"], word
+
+
+def test_search_takes_a_filename_wildcard_literally(tmp_path: Path) -> None:
+    """`_` and `%` turn up in filenames, where they mean themselves."""
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper(original_name="report_2024.pdf"))
+
+        assert db.search("report_2024") != []
+        assert db.search("report-2024") == []
+
+
+def test_search_for_nothing_finds_nothing(tmp_path: Path) -> None:
+    """An empty query is not a request for the whole library."""
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper())
+
+        assert db.search("") == []
+        assert db.search("   ") == []

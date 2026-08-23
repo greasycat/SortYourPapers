@@ -15,6 +15,8 @@ are categorized on their own terms.
 - **`prototype/`** — the tool. A Python ingest pipeline and folder watcher,
   installable as `sypy`, with DuckDB as the source of truth. Start at
   [`prototype/README.md`](prototype/README.md).
+- **`prototype/skills/`** — an agent skill for searching and reading a library
+  through `sypy find`, so an LLM can answer questions from what you have filed.
 - **`python/`** — maintainer tooling (`uv`-managed) for curating and fetching
   arXiv test sets from SciJudgeBench. See [`python/README.md`](python/README.md).
 - **`assets/testsets/`** — committed test-set manifests.

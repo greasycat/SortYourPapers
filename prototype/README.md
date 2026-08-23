@@ -240,6 +240,32 @@ supplements, a scanned appendix — gets the same treatment. All of it is backed
 up with the document, follows it through a re-tag, and is deleted with it, which
 is why `sypy remove` asks first.
 
+## Reading the library from a program
+
+`sypy find` searches everything a document is described by — its id, title,
+original filename, year, tags, authors, and keywords. Every word has to match
+somewhere, so a second word narrows rather than widens.
+
+```bash
+sypy find "vaswani attention" --json
+```
+
+`--json`, on `find` and on `list`, prints records instead of a table. Each
+carries the absolute path to the document, its folder, and its notes, because a
+result whose file the caller cannot open is only half an answer. Nothing else
+takes `--json`: the maintenance commands are read by people.
+
+`sypy note <id> --path` prints where the notes live and stops, for a caller that
+means to write them itself. Without it the command opens `$EDITOR`, which a
+program that cannot drive one would be left holding open.
+
+Together those three are the whole read surface. `skills/sortyourpapers/` is an
+agent skill over them — what to run to find a document, how to read and annotate
+it, and which commands cost money or delete things and so are not to be run to
+answer a question. It is a file in this repository, not something `install.sh`
+puts anywhere; point an agent at it, or copy it where that agent looks for
+skills.
+
 ## When the two halves disagree
 
 ```bash
@@ -311,8 +337,11 @@ sypy ingest --input ./inbox --mode move     # move in, draining the source
 sypy watch  --input ./inbox --mode copy     # keep doing it as documents arrive
 
 sypy list                              # what the library holds
+sypy list --json                       # ...as records, for a program to read
+sypy find "attention 2017"             # by title, author, keyword, tag, year, or id
 sypy retag <id> "Systems/Databases"    # re-tag: renames the file, moves the link
 sypy note <id>                         # open this document's notes ($EDITOR)
+sypy note <id> --path                  # ...or just say where they are
 sypy remove <id>                       # delete link, folder, and record (asks first)
 sypy scan                              # refresh hashes of files edited in place
 sypy fsck [--adopt]                    # check the store and database agree

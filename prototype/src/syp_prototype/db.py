@@ -204,6 +204,40 @@ def _decode_labels(content_hash: str, payload: str | None) -> KeywordPair | None
     )
 
 
+_PAPER_COLUMNS = (
+    "file_id, content_hash, store_name, original_name, source_path, "
+    "size_bytes, pages_read, title, year, stored_mtime_ms, "
+    "from_page_images, document_name"
+)
+
+# What one search word is checked against. A paper is described in four columns
+# and three side tables, and a reader searching for "vaswani" does not know or
+# care which of them holds the answer.
+_MATCHES_A_WORD = """(
+    lower(p.file_id) LIKE ? ESCAPE '!'
+    OR lower(coalesce(p.title, '')) LIKE ? ESCAPE '!'
+    OR lower(coalesce(p.original_name, '')) LIKE ? ESCAPE '!'
+    OR coalesce(CAST(p.year AS VARCHAR), '') LIKE ? ESCAPE '!'
+    OR EXISTS (SELECT 1 FROM paper_tags t
+               WHERE t.file_id = p.file_id AND lower(t.tag) LIKE ? ESCAPE '!')
+    OR EXISTS (SELECT 1 FROM paper_authors a
+               WHERE a.file_id = p.file_id AND lower(a.name) LIKE ? ESCAPE '!')
+    OR EXISTS (SELECT 1 FROM paper_keywords k
+               WHERE k.file_id = p.file_id AND lower(k.keyword) LIKE ? ESCAPE '!')
+)"""
+
+
+def _like(word: str) -> str:
+    """One search word as a LIKE pattern, with its wildcards taken literally.
+
+    `_` and `%` turn up in filenames, where they mean themselves rather than
+    "any character" — a search for `report_2024` should not also match
+    `report-2024`.
+    """
+    escaped = word.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return f"%{escaped}%"
+
+
 class PaperDb:
     """Connection to the library database."""
 
@@ -339,12 +373,7 @@ class PaperDb:
 
     def get(self, file_id: str) -> Paper | None:
         row = self._conn.execute(
-            """
-            SELECT file_id, content_hash, store_name, original_name, source_path,
-                   size_bytes, pages_read, title, year, stored_mtime_ms,
-                   from_page_images, document_name
-            FROM papers WHERE file_id = ?
-            """,
+            f"SELECT {_PAPER_COLUMNS} FROM papers WHERE file_id = ?",  # noqa: S608
             [file_id],
         ).fetchone()
         if row is None:
@@ -353,12 +382,33 @@ class PaperDb:
 
     def all_papers(self) -> list[Paper]:
         rows = self._conn.execute(
-            """
-            SELECT file_id, content_hash, store_name, original_name, source_path,
-                   size_bytes, pages_read, title, year, stored_mtime_ms,
-                   from_page_images, document_name
-            FROM papers ORDER BY file_id
-            """
+            f"SELECT {_PAPER_COLUMNS} FROM papers ORDER BY file_id"  # noqa: S608
+        ).fetchall()
+        return [self._hydrate(row) for row in rows]
+
+    def search(self, query: str, limit: int | None = None) -> list[Paper]:
+        """Every paper matching all of `query`'s words, anywhere it is described.
+
+        A word matches against the id, the title, the original filename, the
+        year, and any one tag, author, or keyword. Words are ANDed and fields
+        are ORed, so `transformer 2017` narrows while `attention` on its own
+        casts wide — the order a reader expects from a search box.
+
+        Matching happens in SQL rather than over `all_papers()` because
+        hydrating a paper costs three further queries, and a search that
+        hydrates the whole library to discard most of it pays them for nothing.
+        """
+        words = query.split()
+        if not words:
+            return []
+
+        clauses = " AND ".join(_MATCHES_A_WORD for _ in words)
+        params = [pattern for word in words for pattern in (_like(word),) * 7]
+        ceiling = f" LIMIT {int(limit)}" if limit is not None else ""
+        rows = self._conn.execute(
+            f"SELECT {_PAPER_COLUMNS} FROM papers p "  # noqa: S608
+            f"WHERE {clauses} ORDER BY p.file_id{ceiling}",
+            params,
         ).fetchall()
         return [self._hydrate(row) for row in rows]
 

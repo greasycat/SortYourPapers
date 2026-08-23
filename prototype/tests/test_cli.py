@@ -84,3 +84,54 @@ def test_the_log_file_is_written_where_it_was_asked_for(
         handler.flush()
 
     assert "into the file" in log_file.read_text(encoding="utf-8")
+
+
+def test_a_record_carries_the_path_to_the_document(library) -> None:
+    """A search result whose file cannot be opened is only half an answer."""
+    from syp_prototype.cli import _describe
+    from syp_prototype.db import Paper
+
+    paper = Paper(
+        file_id="aaa111aaa111",
+        content_hash="sha-1",
+        store_name="aaa111aaa111__AI__Transformers",
+        document_name="vaswani_2017_attention.pdf",
+        title="Attention Is All You Need",
+        tags=["AI", "Transformers"],
+    )
+
+    record = _describe(library, paper)
+
+    assert Path(record["document"]).is_absolute()
+    assert record["document"].endswith(
+        "store/aaa111aaa111__AI__Transformers/vaswani_2017_attention.pdf"
+    )
+    assert record["notes"].endswith("aaa111aaa111__AI__Transformers/notes.md")
+    assert record["category"] == "AI/Transformers"
+
+
+def test_note_path_never_opens_an_editor(library, monkeypatch, capsys) -> None:
+    """A caller writing the notes itself would be stuck holding an editor open."""
+    from syp_prototype import cli
+    from syp_prototype.db import Paper
+
+    paper = Paper(
+        file_id="aaa111aaa111",
+        content_hash="sha-1",
+        store_name="aaa111aaa111__AI",
+        document_name="paper.pdf",
+        title="A Paper",
+        tags=["AI"],
+    )
+    library.db.upsert(paper)
+    library.document_dir(paper).mkdir(parents=True)
+    library.close()
+
+    monkeypatch.setenv("EDITOR", "vim")
+    monkeypatch.setattr(
+        cli.subprocess, "call", lambda *a, **k: pytest.fail("opened an editor")
+    )
+
+    cli.note("aaa111aaa111", library.root, True)
+
+    assert capsys.readouterr().out.strip().endswith("notes.md")

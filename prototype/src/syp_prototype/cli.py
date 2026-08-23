@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -226,11 +227,18 @@ def retag(
 def note(
     file_id: str = typer.Argument(..., help="Document id, from `sypy list`."),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    path_only: bool = typer.Option(
+        False, "--path", help="Print where the notes are instead of opening them."
+    ),
 ) -> None:
     """Open a document's notes, creating them if they do not exist yet.
 
     Notes live in the document's folder in the store, so they are backed up with
     it, follow it when it is re-tagged, and are reachable through the tree.
+
+    `--path` prints the file and stops. A caller that means to write the notes
+    itself has no use for an editor, and one inheriting an `$EDITOR` it cannot
+    drive would be left holding a terminal open forever.
     """
     settings = _settings(None, library_dir)
     with Library(settings.output_dir) as library:
@@ -247,7 +255,7 @@ def note(
             title = paper.title or paper.original_name or paper.store_name
             path.write_text(f"# {title}\n\n", encoding="utf-8")
 
-    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    editor = None if path_only else (os.environ.get("VISUAL") or os.environ.get("EDITOR"))
     if editor:
         # Split so EDITOR="code -w" works, and let the editor own the terminal.
         subprocess.call([*editor.split(), str(path)])
@@ -536,15 +544,73 @@ def _claimed_folders(directory: Path) -> dict[Path, int]:
 @app.command("list")
 def list_papers(
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    as_json: bool = typer.Option(
+        False, "--json", help="Print records instead of a table, for a program to read."
+    ),
 ) -> None:
     """List what the library holds."""
     settings = _settings(None, library_dir)
     with Library(settings.output_dir) as library:
-        papers = library.db.all_papers()
-        for paper in papers:
-            tags = " / ".join(paper.tags) or "-"
-            typer.echo(f"{paper.file_id}  {tags:<40}  {paper.title or paper.original_name}")
-        typer.echo(f"\n{len(papers)} document(s) in {library.root}")
+        _report(library, library.db.all_papers(), as_json=as_json)
+
+
+@app.command()
+def find(
+    query: str = typer.Argument(
+        ..., help="Words to match against titles, authors, keywords, tags, and ids."
+    ),
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    limit: int = typer.Option(20, "--limit", "-n", help="Most to show; 0 for all."),
+    as_json: bool = typer.Option(
+        False, "--json", help="Print records instead of a table, for a program to read."
+    ),
+) -> None:
+    """Find documents by title, author, keyword, tag, year, or id.
+
+    Every word has to match somewhere, so adding one narrows the result. The
+    records `--json` prints carry the path to each document, which is how a
+    reader gets from a search to the file itself.
+    """
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        papers = library.db.search(query, limit=limit or None)
+        _report(library, papers, as_json=as_json)
+
+
+def _report(library: Library, papers: list, *, as_json: bool) -> None:
+    """Show what was found, either to a person or to whatever called this."""
+    if as_json:
+        typer.echo(
+            json.dumps([_describe(library, paper) for paper in papers], indent=2)
+        )
+        return
+    for paper in papers:
+        tags = " / ".join(paper.tags) or "-"
+        typer.echo(f"{paper.file_id}  {tags:<40}  {paper.title or paper.original_name}")
+    typer.echo(f"\n{len(papers)} document(s) in {library.root}")
+
+
+def _describe(library: Library, paper) -> dict:
+    """One document as a record, with the paths that lead to it.
+
+    Paths are absolute because the caller is not standing anywhere in
+    particular, and a record whose file cannot be opened from it is only half
+    an answer.
+    """
+    return {
+        "id": paper.file_id,
+        "title": paper.title,
+        "authors": paper.authors,
+        "year": paper.year,
+        "category": "/".join(paper.tags),
+        "tags": paper.tags,
+        "keywords": paper.keywords,
+        "document": str(library.store_path(paper).resolve()),
+        "folder": str(library.document_dir(paper).resolve()),
+        "notes": str(library.note_path(paper).resolve()),
+        "original_name": paper.original_name,
+        "from_page_images": paper.from_page_images,
+    }
 
 
 def _watch_entry(name: str | None) -> WatchEntry | None:
