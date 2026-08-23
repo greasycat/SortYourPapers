@@ -12,15 +12,14 @@ are categorized on their own terms.
 
 ## Layout
 
-- **`prototype/`** — the tool. A Python ingest pipeline and folder watcher,
+- **`python/`** — the tool. A Python ingest pipeline and folder watcher,
   installable as `sypy`, with DuckDB as the source of truth. Start at
-  [`prototype/README.md`](prototype/README.md).
-- **`prototype/skills/`** — an agent skill for searching and reading a library
+  [`python/README.md`](python/README.md).
+- **`python/skills/`** — an agent skill for searching and reading a library
   through `sypy find`, so an LLM can answer questions from what you have filed.
   `./install.sh` links it into `~/.claude/skills`.
-- **`python/`** — maintainer tooling (`uv`-managed) for curating and fetching
-  arXiv test sets from SciJudgeBench. See [`python/README.md`](python/README.md).
-- **`assets/testsets/`** — committed test-set manifests.
+- **`assets/testsets/`** — committed test-set manifests, kept as data. The
+  tooling that built them is gone from `main`; it is in the history.
 - **`docs/`** — measurements and design notes; `docs/archive/` keeps historical
   planning material.
 - **`CHANGELOG.md`** — a verbose, newest-first log of what changed and why.
@@ -37,7 +36,7 @@ sypy watch  --input ./inbox --mode copy   # keep doing it as documents arrive
 
 Everything else — the store layout, the registry of watched folders, running it
 as a background service, what leaves your machine, and what it costs — is in
-[`prototype/README.md`](prototype/README.md).
+[`python/README.md`](python/README.md).
 
 ## History
 

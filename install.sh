@@ -14,7 +14,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PACKAGE_DIR="$PROJECT_DIR/prototype"
+PACKAGE_DIR="$PROJECT_DIR/python"
 VENV_DIR="${SYPY_VENV_DIR:-$PACKAGE_DIR/.venv}"
 BIN_DIR="${SYPY_BIN_DIR:-$HOME/.local/bin}"
 
@@ -239,5 +239,5 @@ fi
 
 if [ "$WANT_SERVICE" = 0 ]; then
   printf '\n  To watch a folder in the background:\n'
-  printf '    ./install.sh --service      (after declaring a watch — see prototype/README.md)\n'
+  printf '    ./install.sh --service      (after declaring a watch — see python/README.md)\n'
 fi

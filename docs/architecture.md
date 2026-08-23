@@ -8,15 +8,13 @@ The Rust workspace this document used to describe — `crates/syp`, `syp-core`,
 and is preserved on the `old-rust` branch.
 
 ## Repository Layout
-- `prototype/`: the tool — a Python ingest pipeline and folder watcher.
-- `python/`: `uv`-managed maintainer tooling for SciJudgeBench sampling and
-  arXiv PDF materialization.
+- `python/`: the tool — a Python ingest pipeline and folder watcher.
 - `assets/testsets/`: committed test-set manifests for fetched paper corpora.
 - `docs/`: project documentation.
 - `docs/archive/`: historical planning material kept for reference.
 
 ## The Pipeline
-`prototype/src/syp_prototype/` holds the whole of it. A pass runs in phases,
+`python/src/sypy/` holds the whole of it. A pass runs in phases,
 and the split is deliberate: DuckDB allows one writing process, so everything
 slow happens with no connection open and the database is visited in short
 bursts between. `ingest.py`'s module docstring is the authority on that order
@@ -43,17 +41,6 @@ and on why each boundary sits where it does.
 - `db.py`: the DuckDB schema and every query, including the bank of model
   answers that stops a document being paid for twice.
 - `naming.py`: store names, link names, and the rules for cutting them.
-
-## Test-Set Fetching Layout
-- `python/src/syp_paperfetch/catalog.py`: Hugging Face Hub dataset download and
-  SciJudgeBench pair flattening.
-- `python/src/syp_paperfetch/curate.py`: top/bottom/random citation sampling per
-  category with subcategory caps.
-- `python/src/syp_paperfetch/manifest.py`: TOML manifest load/save helpers.
-- `python/src/syp_paperfetch/materialize.py`: arXiv PDF download, cache
-  verification, and export helpers.
-- `python/src/syp_paperfetch/cli.py`: `uv`-run CLI entrypoints for
-  build/materialize/export.
 
 ## Notes
 - The original greenfield implementation plan lives in

@@ -3,7 +3,7 @@
 ## Project Context
 
 - Project name: `SortYourPapers` (`syp`)
-- Primary language/runtime: Python 3.11+. The tool lives in `prototype/` (installed as `sypy`); `python/` holds `uv`-managed maintainer tooling for test sets.
+- Primary language/runtime: Python 3.11+. The tool lives in `python/` and installs as `sypy`.
 - The Rust workspace this project began as is preserved on the `old-rust` branch and is not maintained.
 
 ## Working Rules
@@ -35,5 +35,5 @@
 
 ## Task-Specific Notes
 
-- Commands to know: `prototype/.venv/bin/python -m pytest` (run from `prototype/`), `./prototype/scripts/sypy-path wire`, `sypy --help`, `uv run --project python pytest`.
+- Commands to know: `python/.venv/bin/python -m pytest` (run from `python/`), `./python/scripts/sypy-path wire`, `sypy --help`.
 - Every test is capped at 60 seconds by `pytest-timeout` using the signal method, so a loop that stops awaiting cannot wedge the machine.
