@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -161,12 +162,12 @@ def _crowded(library, count: int = 25):
     return root
 
 
-def _invoke(root, *args):
+def _invoke(root, *args, **kwargs):
     from typer.testing import CliRunner
 
     from sypy.cli import app
 
-    return CliRunner().invoke(app, [*args, "--library", str(root)])
+    return CliRunner().invoke(app, [*args, "--library", str(root)], **kwargs)
 
 
 def test_a_capped_search_says_it_was_capped(library) -> None:
@@ -432,3 +433,182 @@ def test_verbose_brings_everything_back(monkeypatch, capsys) -> None:
     logging.getLogger("httpx2._client").info("HTTP Request: POST ...")
 
     assert "HTTP Request" in capsys.readouterr().err
+
+
+# ---- naming a document without reciting its id -----------------------------
+
+
+def _two_papers(library):
+    """Two documents that share a word, so a bare word is ambiguous."""
+    from sypy.db import Paper
+
+    for file_id, title, tags, keywords in (
+        ("78c64b3b8ef6", "Successor representations in human behavior",
+         ["Psychology", "Research Methods"], ["kahn", "learning"]),
+        ("aa11bb22cc33", "Successor features for transfer",
+         ["Machine Learning", "RL"], ["barreto", "learning"]),
+    ):
+        paper = Paper(
+            file_id=file_id, content_hash=f"sha-{file_id}",
+            store_name=f"{file_id}__" + "__".join(tags),
+            document_name="doc.pdf", title=title, tags=tags, keywords=keywords,
+        )
+        library.db.upsert(paper)
+        library.document_dir(paper).mkdir(parents=True)
+        (library.document_dir(paper) / "doc.pdf").write_bytes(b"%PDF")
+    library.rebuild_tree()
+    root = library.root
+    library.close()
+    return root
+
+
+@pytest.fixture(autouse=True)
+def _no_fzf(monkeypatch):
+    """fzf is interactive and may be installed; never launch it by accident."""
+    from sypy import cli
+
+    monkeypatch.setattr(cli, "_fzf_available", lambda: False)
+
+
+def test_a_word_is_enough_to_name_a_document(library) -> None:
+    from sypy.library import Library
+
+    root = _two_papers(library)
+
+    result = _invoke(root, "retag", "kahn", "Cognitive Science/Computation")
+
+    assert result.exit_code == 0, result.output
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6").tags == ["Cognitive Science", "Computation"]
+
+
+def test_what_a_word_resolved_to_is_reported_on_stderr(library) -> None:
+    """`sypy note <id> --path` is composed as `$(...)`; stdout stays the path."""
+    root = _two_papers(library)
+
+    result = _invoke(root, "note", "kahn", "--path")
+
+    assert result.stdout.strip().endswith("notes.md")
+    assert result.stdout.strip().count("\n") == 0, "only the path is on stdout"
+    assert "78c64b3b8ef6" in result.stderr
+
+
+def test_an_exact_id_is_never_searched_for(library) -> None:
+    """So a document can always be named unambiguously.
+
+    Here one document's id is also a word in another's keywords, which would
+    make the id ambiguous if it went through the search.
+    """
+    from sypy.db import Paper
+    from sypy.library import Library
+
+    root = _two_papers(library)
+    with Library(root) as lib:
+        other = lib.db.get("aa11bb22cc33")
+        lib.db.upsert(Paper(**{**other.__dict__, "keywords": ["78c64b3b8ef6"]}))
+
+    result = _invoke(root, "retag", "78c64b3b8ef6", "Cognitive Science/Computation")
+
+    assert result.exit_code == 0, result.output
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6").tags == ["Cognitive Science", "Computation"]
+        assert after.db.get("aa11bb22cc33").tags == ["Machine Learning", "RL"]
+
+
+def test_a_word_matching_nothing_is_an_error(library) -> None:
+    root = _two_papers(library)
+
+    result = _invoke(root, "note", "nothinglikethis", "--path")
+
+    assert result.exit_code == 1
+    assert "matches" in result.stderr
+
+
+def test_an_ambiguous_word_lists_the_matches_and_changes_nothing(library) -> None:
+    """With no picker available, printing them beats acting on a guess."""
+    from sypy.library import Library
+
+    root = _two_papers(library)
+
+    result = _invoke(root, "retag", "learning", "Cognitive Science/Computation")
+
+    assert result.exit_code == 2
+    assert "78c64b3b8ef6" in result.stderr and "aa11bb22cc33" in result.stderr
+    assert "name one by its id" in result.stderr
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6").tags == ["Psychology", "Research Methods"]
+
+
+def test_fzf_picks_among_the_matches(library, monkeypatch) -> None:
+    from sypy import cli
+    from sypy.library import Library
+
+    root = _two_papers(library)
+    monkeypatch.setattr(cli, "_fzf_available", lambda: True)
+    shown: dict = {}
+
+    def fake_run(argv, **kwargs):
+        shown["argv"] = argv
+        shown["lines"] = kwargs["input"]
+        return subprocess.CompletedProcess(
+            argv, 0, stdout="aa11bb22cc33\tMachine Learning / RL\tSuccessor features\n"
+        )
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    result = _invoke(root, "retag", "learning", "Cognitive Science/Computation")
+
+    assert result.exit_code == 0, result.output
+    assert shown["argv"][0] == "fzf"
+    assert "--with-nth" in shown["argv"], "the id column is not displayed"
+    assert shown["lines"].count("\n") == 1, "both matches were offered"
+    with Library(root) as after:
+        assert after.db.get("aa11bb22cc33").tags == ["Cognitive Science", "Computation"]
+        assert after.db.get("78c64b3b8ef6").tags == ["Psychology", "Research Methods"]
+
+
+def test_backing_out_of_fzf_changes_nothing(library, monkeypatch) -> None:
+    from sypy import cli
+    from sypy.library import Library
+
+    root = _two_papers(library)
+    monkeypatch.setattr(cli, "_fzf_available", lambda: True)
+    # 130 is what fzf exits with on an interrupt.
+    monkeypatch.setattr(
+        cli.subprocess, "run",
+        lambda argv, **kw: subprocess.CompletedProcess(argv, 130, stdout=""),
+    )
+
+    result = _invoke(root, "retag", "learning", "Cognitive Science/Computation")
+
+    assert result.exit_code == 0, "backing out is a decision, not an error"
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6").tags == ["Psychology", "Research Methods"]
+
+
+def test_unattended_delete_will_not_act_on_a_word(library) -> None:
+    """Which document a word matches changes as the library grows."""
+    from sypy.library import Library
+
+    root = _two_papers(library)
+
+    result = _invoke(root, "remove", "kahn", "--yes")
+
+    assert result.exit_code == 2
+    assert "exact id" in result.stderr
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6") is not None
+
+
+def test_delete_by_word_shows_what_it_found_before_asking(library) -> None:
+    from sypy.library import Library
+
+    root = _two_papers(library)
+
+    result = _invoke(root, "remove", "kahn", input="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Successor representations in human behavior" in result.stdout
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6") is None
+        assert after.db.get("aa11bb22cc33") is not None, "the other one is untouched"

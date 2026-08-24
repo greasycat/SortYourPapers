@@ -225,6 +225,43 @@ service is installed with poppler's directory added explicitly. Without that,
 scans fail only under the service while working by hand — install warns if
 `pdftoppm` cannot be found.
 
+## Naming a document
+
+Nobody remembers `78c64b3b8ef6`. Every command that takes a document — `retag`,
+`note`, `remove` — also takes words, matched against the same things `sypy find`
+searches: ids, titles, original filenames, years, tags, authors, and keywords.
+
+```bash
+sypy note kahn --path
+sypy retag "successor representations" "Cognitive Science/Computation"
+```
+
+What a word resolved to is printed **on stderr**, so `$(sypy note kahn --path)`
+still yields nothing but the path.
+
+An exact id is never searched for, so a document can always be named
+unambiguously — even one whose id happens to appear in another document's
+keywords.
+
+When several documents match, `fzf` opens on them if it is installed and there
+is a terminal to draw on; the id is carried on each line but hidden from what
+you see and type against. Without a picker, the matches are printed and nothing
+is done:
+
+```
+error: 'psychology' matches 3 documents:
+  4d402aa8e499  Psychology / Research Methods   Experimental Design and Analysis
+  689c4699c74c  Psychology / Research Methods   PSY 389: Advanced Methods
+  78c64b3b8ef6  Psychology / Research Methods   Trial-by-trial learning of …
+
+add a word to narrow it, or name one by its id.
+```
+
+`sypy remove --yes` is the one exception: it wants an exact id and refuses a
+word. The confirmation is what shows you which document a word found, and with
+`--yes` there is no confirmation — while which document a word matches changes
+as the library grows.
+
 ## When a document is filed wrongly
 
 ```bash
@@ -400,6 +437,7 @@ sypy list --json                       # ...as records, for a program to read
 sypy find "attention 2017"             # by title, author, keyword, tag, year, or id
 sypy retag <id> "Systems/Databases"    # re-tag: renames the folder, moves the link
 sypy retag <id>                        # ...or ask the model, and confirm
+sypy note kahn                         # id or words: any command taking a document
 sypy note <id>                         # open this document's notes ($EDITOR)
 sypy note <id> --path                  # ...or just say where they are
 sypy remove <id>                       # delete link, folder, and record (asks first)

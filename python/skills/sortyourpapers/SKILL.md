@@ -49,7 +49,9 @@ Each record looks like this:
 ```
 
 `document` is the file — open it to read the document. `id` is what every
-other command takes. `from_page_images: true` means the title, authors and year
+other command takes. Those commands accept words too, but **pass the id you got
+from `find`**: a word matching two documents is an error you then have to
+resolve, and the id you already have cannot be ambiguous. `from_page_images: true` means the title, authors and year
 were a model's reading of a scan rather than the document's own words, so treat
 them as approximate and say so if they matter.
 
@@ -102,7 +104,9 @@ bare form themselves.
   `--mode copy` unless they ask for `move`, which drains the source folder.
 - **`sypy remove` deletes the document, its notes, and its record.** When the
   document arrived by move, that is the only copy. Ask first, every time; pass
-  `--yes` only after the user has said yes to that document.
+  `--yes` only after the user has said yes to that document, and only with an
+  exact id — `--yes` refuses words, because what a word matches changes as the
+  library grows.
 - `sypy fsck`, `scan`, `tree`, `migrate-store`, and `backup` are maintenance.
   They are safe, but run them when asked, not speculatively.
 

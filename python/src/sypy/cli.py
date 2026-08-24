@@ -26,6 +26,7 @@ from .config import (
 from .db import Paper
 from .ingest import ingest_folder
 import os
+import shutil
 import subprocess
 
 from .library import FilingMode, Library, LibraryError
@@ -218,9 +219,111 @@ def tree(
             )
 
 
+def _resolve(library: Library, needle: str) -> Paper:
+    """The document a command should act on, named by id or by words.
+
+    Nobody remembers `78c64b3b8ef6`. `sypy retag kahn` should be enough, and the
+    search behind `sypy find` already matches ids, titles, authors, keywords,
+    tags, and years — so this is that search with a single answer required.
+
+    An exact id wins outright and is never searched for, so a document can
+    always be named unambiguously even when its id happens to read like a word
+    in another document's title.
+    """
+    exact = library.db.get(needle)
+    if exact is not None:
+        return exact
+
+    matches = library.db.search(needle)
+    if not matches:
+        typer.echo(f"error: nothing in the library matches {needle!r}", err=True)
+        raise typer.Exit(code=1)
+    if len(matches) == 1:
+        found = matches[0]
+        # To stderr: `sypy note <id> --path` is composed as `$(...)`, and a
+        # second line on stdout would land in the path.
+        typer.echo(f"{found.file_id}  {_label(found)}", err=True)
+        return found
+    return _choose(matches, needle)
+
+
+def _label(paper: Paper) -> str:
+    return paper.title or paper.original_name or paper.store_name
+
+
+def _choose(matches: list[Paper], needle: str) -> Paper:
+    """Pick one of several matches, through fzf when it can be used."""
+    if _fzf_available():
+        chosen = _pick_with_fzf(matches, needle)
+        if chosen is None:
+            typer.echo("nothing chosen", err=True)
+            raise typer.Exit(code=0)  # backing out is a decision, not an error
+        return chosen
+
+    typer.echo(f"error: {needle!r} matches {len(matches)} documents:", err=True)
+    for paper in matches:
+        tags = " / ".join(paper.tags) or "-"
+        typer.echo(f"  {paper.file_id}  {tags:<40}  {_label(paper)}", err=True)
+    typer.echo("\nadd a word to narrow it, or name one by its id.", err=True)
+    raise typer.Exit(code=2)
+
+
+def _fzf_available() -> bool:
+    """Whether a picker can be shown at all.
+
+    Both halves are needed: fzf draws its interface on the terminal, so with no
+    terminal to draw on — cron, a pipeline, a test — there is nothing to pick
+    with and the caller falls back to printing the matches.
+    """
+    if shutil.which("fzf") is None:
+        return False
+    try:
+        with open("/dev/tty"):
+            return True
+    except OSError:
+        return False
+
+
+def _pick_with_fzf(matches: list[Paper], needle: str) -> Paper | None:
+    """Show the matches in fzf and return the one chosen, or None.
+
+    The id leads each line so the choice can be read back from it, and
+    `--with-nth` keeps it out of what is displayed and searched. Only stdout is
+    captured: fzf paints its interface on the terminal it opens itself, and
+    capturing stderr as well would swallow it.
+    """
+    lines = "\n".join(
+        f"{paper.file_id}\t{' / '.join(paper.tags) or '-'}\t{_label(paper)}"
+        for paper in matches
+    )
+    try:
+        result = subprocess.run(
+            [
+                "fzf",
+                "--prompt", f"{needle}> ",
+                "--delimiter", "\t",
+                "--with-nth", "2..",
+                "--height", "40%",
+                "--reverse",
+            ],
+            input=lines,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as err:  # fzf vanished between the check and the call
+        typer.echo(f"error: could not run fzf: {err}", err=True)
+        raise typer.Exit(code=1) from err
+
+    # 0 chose something; 130 is an interrupt, 1 no match, and both mean no.
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    chosen = result.stdout.split("\t", 1)[0].strip()
+    return next((paper for paper in matches if paper.file_id == chosen), None)
+
+
 @app.command()
 def retag(
-    file_id: str = typer.Argument(..., help="Document id, the part before the first __."),
+    file_id: str = typer.Argument(..., help="Document id, or words from its title, authors, or keywords."),
     category: str = typer.Argument(
         None, help="New category path, e.g. 'AI/Transformers'. Omit to ask the model."
     ),
@@ -244,7 +347,7 @@ def retag(
         raise typer.Exit(code=2)
 
     with Library(settings.output_dir) as library:
-        _apply_retag(library, file_id, tags)
+        _apply_retag(library, _resolve(library, file_id).file_id, tags)
 
 
 def _apply_retag(
@@ -271,10 +374,7 @@ def _retag_by_asking(file_id: str, library_dir: Path | None, model: str | None) 
     settings, client = _build(None, library_dir, None, None, None, model)
 
     with Library(settings.output_dir) as library:
-        paper = library.db.get(file_id)
-        if paper is None:
-            typer.echo(f"error: no document with id {file_id}", err=True)
-            raise typer.Exit(code=1)
+        paper = _resolve(library, file_id)
         store_path = library.store_path(paper)
         steering = library.existing_categories(MAX_STEERING_CATEGORIES)
         library.release()
@@ -319,7 +419,9 @@ def _retag_by_asking(file_id: str, library_dir: Path | None, model: str | None) 
             choice = _ask_what_to_do()
             if choice == "accept":
                 with Library(settings.output_dir) as writable:
-                    _apply_retag(writable, file_id, tags, suggestion.keywords or None)
+                    _apply_retag(
+                        writable, paper.file_id, tags, suggestion.keywords or None
+                    )
                 return
             if choice == "cancel":
                 typer.echo("nothing changed")
@@ -354,7 +456,7 @@ def _ask_what_to_do() -> str:
 
 @app.command()
 def note(
-    file_id: str = typer.Argument(..., help="Document id, from `sypy list`."),
+    file_id: str = typer.Argument(..., help="Document id, or words from its title, authors, or keywords."),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
     path_only: bool = typer.Option(
         False, "--path", help="Print where the notes are instead of opening them."
@@ -371,10 +473,7 @@ def note(
     """
     settings = _settings(None, library_dir)
     with Library(settings.output_dir) as library:
-        paper = library.db.get(file_id)
-        if paper is None:
-            typer.echo(f"error: no document with id {file_id}", err=True)
-            raise typer.Exit(code=1)
+        paper = _resolve(library, file_id)
         if not library.document_dir(paper).is_dir():
             typer.echo(f"error: {paper.store_name} is missing from the store", err=True)
             raise typer.Exit(code=1)
@@ -495,27 +594,40 @@ def scan(
 
 @app.command()
 def remove(
-    file_id: str = typer.Argument(..., help="Document id, the part before the first __."),
+    file_id: str = typer.Argument(..., help="Document id, or words from its title, authors, or keywords. An exact id with --yes."),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation."),
 ) -> None:
-    """Delete a document from the library: its link, its file, and its record."""
+    """Delete a document from the library: its link, its file, and its record.
+
+    Words find a document here as they do elsewhere, and what they found is
+    shown before anything is deleted. With `--yes` there is nothing to show, so
+    the document must be named by its exact id: which document a word matches
+    changes as the library grows, and an unattended delete must not.
+    """
     settings = _settings(None, library_dir)
     with Library(settings.output_dir) as library:
-        paper = library.db.get(file_id)
-        if paper is None:
-            typer.echo(f"error: no document with id {file_id}", err=True)
-            raise typer.Exit(code=1)
+        if yes and library.db.get(file_id) is None:
+            typer.echo(
+                f"error: --yes needs an exact id, and {file_id!r} is not one.",
+                err=True,
+            )
+            typer.echo(
+                "  what a word matches changes as the library grows; "
+                "run it without --yes to see what this finds.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
 
-        label = paper.title or paper.original_name or paper.store_name
+        paper = _resolve(library, file_id)
         if not yes:
-            typer.echo(f"{paper.store_name}\n  {label}")
+            typer.echo(f"{paper.store_name}\n  {_label(paper)}")
             # The stored file is the only copy when it arrived by move, so this
             # is not undoable.
             typer.confirm("permanently delete this document?", abort=True)
 
-        library.remove(file_id)
-        typer.echo(f"removed {file_id}")
+        library.remove(paper.file_id)
+        typer.echo(f"removed {paper.file_id}")
 
 
 @app.command()
