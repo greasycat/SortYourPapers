@@ -170,6 +170,22 @@ def _invoke(root, *args, **kwargs):
     return CliRunner().invoke(app, [*args, "--library", str(root)], **kwargs)
 
 
+def test_running_sypy_with_no_arguments_shows_the_help() -> None:
+    """A bare `sypy` is someone asking what this does.
+
+    Click's default answer is "Missing command", which names neither the
+    commands there are nor the one that is missing.
+    """
+    from typer.testing import CliRunner
+
+    from sypy.cli import app
+
+    result = CliRunner().invoke(app, [])
+
+    assert "Usage: " in result.output
+    assert "ingest" in result.output and "find" in result.output
+
+
 def test_a_capped_search_says_it_was_capped(library) -> None:
     """A cap that says nothing reads as the whole answer.
 

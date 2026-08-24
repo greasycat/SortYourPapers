@@ -37,7 +37,12 @@ from .registry import RegistryError, WatchEntry, load_registry, registry_path
 from .watch import watch as watch_loop
 from .watchlock import WatchConflict
 
-app = typer.Typer(help="SortYourPapers: LLM ingest and folder watcher.")
+app = typer.Typer(
+    help="SortYourPapers: LLM ingest and folder watcher.",
+    # A bare `sypy` is someone asking what this does, so answer that rather
+    # than an error saying a command is missing without naming one.
+    no_args_is_help=True,
+)
 
 
 # Kept small enough that the whole history stays cheap to keep and to read:
