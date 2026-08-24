@@ -5,13 +5,12 @@ document itself and whatever its owner keeps beside it — notes, figures,
 supplements. That folder is the durable thing.
 
 `tree/` is a view and nothing else: it can be deleted and rebuilt at any time.
-Each document gets a real folder there holding a single symlink to its store
-folder, so browsing the tree stays in the tree instead of jumping into the store
-the moment a document is opened.
+Each document appears there as a single symlink to its store folder, named for
+its author, year, and title, under the folders its tags make. Opening a link
+leads into the store, where the document and anything kept beside it live.
 
-That does leave real directories in a part of the library that is disposable, so
-anything found sitting in the tree is reported rather than quietly kept: see
-`tree_litter`.
+Anything real found sitting in the tree is reported rather than quietly kept —
+the tree is not where work is safe: see `tree_litter`.
 
 Re-tagging renames the store folder, which carries its contents along, and the
 link is re-pointed. Links are relative, so the whole library can be moved.
@@ -576,12 +575,8 @@ class Library:
 
     # ---- links -------------------------------------------------------------
 
-    def _document_dir_in_tree(self, paper: Paper, taken: set[Path]) -> Path:
-        """The document's folder in the tree — a real folder, not a link.
-
-        Browsing stops here rather than being thrown into the store, so the
-        category a document was reached through stays visible.
-        """
+    def _link_path(self, paper: Paper, taken: set[Path]) -> Path:
+        """Where this document's link belongs, under the folders its tags make."""
         parent = self.tree_dir.joinpath(*paper.tags) if paper.tags else self.tree_dir
         name = link_name(
             fallback=paper.store_name,
@@ -595,11 +590,6 @@ class Library:
             candidate = parent / disambiguate(name, paper.file_id)
         return candidate
 
-    def _link_path(self, paper: Paper, taken: set[Path]) -> Path:
-        """The one link inside that folder, pointing at the store folder."""
-        directory = self._document_dir_in_tree(paper, taken)
-        return directory / directory.name
-
     def _link(self, paper: Paper, taken: set[Path] | None = None) -> Path:
         """Point this document's link at its store folder.
 
@@ -607,40 +597,38 @@ class Library:
         link belongs is somebody's work — `tree_litter` reports it and tells
         them to move it — and unlinking whatever is in the way would delete it
         to make room for something rebuildable. So the document takes its
-        id-decorated folder instead, which no other document can want.
+        id-decorated name instead, which no other document can want.
 
         Raises:
-            LibraryError: if that folder is occupied by something real too. The
+            LibraryError: if that name is occupied by something real too. The
                 link is not placed rather than a file being destroyed for it.
         """
         taken = taken if taken is not None else set()
-        directory = self._document_dir_in_tree(paper, taken)
-        link = self._place_link(paper, directory)
+        path = self._link_path(paper, taken)
+        link = self._place_link(paper, path)
         if link is None:
-            directory = directory.parent / disambiguate(directory.name, paper.file_id)
-            link = self._place_link(paper, directory)
+            path = path.parent / disambiguate(path.name, paper.file_id)
+            link = self._place_link(paper, path)
         if link is None:
             raise LibraryError(
-                f"cannot link {paper.file_id}: {directory / directory.name} "
-                "is a real file, not a link. Move it into the document's "
-                "folder in the store to keep it."
+                f"cannot link {paper.file_id}: {path} is a real file, not a "
+                "link. Move it into the document's folder in the store to keep it."
             )
-        taken.add(directory)
+        taken.add(path)
         return link
 
-    def _place_link(self, paper: Paper, directory: Path) -> Path | None:
-        """Put the link in `directory`, or None if something real is in its place."""
-        directory.mkdir(parents=True, exist_ok=True)
-        link = directory / directory.name
-        if link.is_symlink():
-            link.unlink()  # ours, and pointing at a previous answer
-        elif link.exists():
+    def _place_link(self, paper: Paper, path: Path) -> Path | None:
+        """Put the link at `path`, or None if something real is in its place."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_symlink():
+            path.unlink()  # ours, and pointing at a previous answer
+        elif path.exists():
             return None
-        link.symlink_to(
-            os.path.relpath(self.document_dir(paper), link.parent),
+        path.symlink_to(
+            os.path.relpath(self.document_dir(paper), path.parent),
             target_is_directory=True,
         )
-        return link
+        return path
 
     def _unlink(self, paper: Paper) -> None:
         """Remove this document's link, and any branches it leaves empty.
@@ -656,12 +644,9 @@ class Library:
 
         target = os.path.realpath(self.document_dir(paper))
         for entry in list(parent.iterdir()):
-            if entry.is_symlink() or not entry.is_dir():
-                continue
-            link = entry / entry.name
-            if link.is_symlink() and os.path.realpath(link) == target:
-                link.unlink()
-                _prune_empty(entry, stop=self.tree_dir)
+            if entry.is_symlink() and os.path.realpath(entry) == target:
+                entry.unlink()
+        _prune_empty(parent, stop=self.tree_dir)
 
 
 def _clear_links(root: Path) -> None:

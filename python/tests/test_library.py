@@ -64,11 +64,10 @@ def test_the_tree_is_symlinks_pointing_back_into_the_store(
     filing = library.file_paper(paper, source)
 
     link = filing.link_path
-    # A real folder per document in the tree, holding one link to its store
-    # folder — so browsing stays in the tree until the document is opened.
-    document_dir = library.tree_dir / "AI" / "Transformers" / "vaswani_2017_attention-is-all-you-need"
-    assert document_dir.is_dir() and not document_dir.is_symlink()
-    assert link == document_dir / document_dir.name
+    # One link per document, named for it, under the folders its tags make.
+    assert link == (
+        library.tree_dir / "AI" / "Transformers" / "vaswani_2017_attention-is-all-you-need"
+    )
     assert link.is_symlink()
     assert link.resolve() == library.document_dir(paper).resolve()
     assert (link / paper.document_name).is_file()
@@ -115,13 +114,7 @@ def test_retagging_renames_the_file_and_moves_the_link(
     assert (library.store_dir / updated.store_name / updated.document_name).is_file()
     assert updated.store_name.endswith("__Systems__Databases")
     assert updated.store_name.startswith(filing.file_id), "the id must not change"
-    new_link = (
-        library.tree_dir
-        / "Systems"
-        / "Databases"
-        / filing.link_path.name
-        / filing.link_path.name
-    )
+    new_link = library.tree_dir / "Systems" / "Databases" / filing.link_path.name
     assert new_link.is_symlink()
     assert not (library.tree_dir / "AI").exists(), "the emptied branch should be pruned"
 
@@ -379,12 +372,7 @@ def test_a_note_follows_its_document_when_it_is_retagged(
     library.retag(filing.file_id, ["Systems", "Databases"])
 
     moved = (
-        library.tree_dir
-        / "Systems"
-        / "Databases"
-        / filing.link_path.name
-        / filing.link_path.name
-        / "my-notes.md"
+        library.tree_dir / "Systems" / "Databases" / filing.link_path.name / "my-notes.md"
     )
     assert moved.is_file(), "the note lives in the store folder and moves with it"
     assert moved.read_text() == "notes"
@@ -403,7 +391,7 @@ def test_the_link_still_resolves_after_a_retag_changes_depth(
 
     updated = library.retag(filing.file_id, ["Systems"])
 
-    link = library.tree_dir / "Systems" / filing.link_path.name / filing.link_path.name
+    link = library.tree_dir / "Systems" / filing.link_path.name
     assert link.is_symlink()
     assert link.resolve() == (library.store_dir / updated.store_name).resolve()
     assert (link / updated.document_name).is_file(), "and still reaches the document"
@@ -532,26 +520,6 @@ def test_a_note_lives_in_the_store_so_it_outlives_the_tree(
     assert (filing.link_path / "notes.md").is_file(), "and is reachable through the tree"
 
 
-def test_browsing_a_document_stays_inside_the_tree(
-    library: Library, tmp_path: Path
-) -> None:
-    """The reason for the folder: entering a document does not leave the tree.
-
-    A bare symlink where the document sits would resolve into the store the
-    moment it was opened, losing the category it was reached through.
-    """
-    filing = library.file_paper(
-        _paper(["AI", "Transformers"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
-    )
-
-    document_dir = filing.link_path.parent
-    assert document_dir.is_dir()
-    assert not document_dir.is_symlink(), "entering the document must stay in the tree"
-    assert document_dir.parent == library.tree_dir / "AI" / "Transformers"
-    # And it holds exactly one thing: the way through to the store.
-    assert [entry.name for entry in document_dir.iterdir()] == [document_dir.name]
-
-
 def test_a_file_left_in_the_tree_is_reported(library: Library, tmp_path: Path) -> None:
     # A real folder in the tree can be written into, and the tree is rebuilt and
     # not backed up — so anything found there is surfaced rather than kept
@@ -656,9 +624,8 @@ def test_removing_one_of_two_look_alikes_keeps_the_other_linked(
 
     survivors = list((library.tree_dir / "AI").iterdir())
     assert len(survivors) == 1, f"expected one link left, got {survivors}"
-    link = survivors[0] / survivors[0].name
-    assert link.is_symlink()
-    assert os.path.realpath(link) == os.path.realpath(
+    assert survivors[0].is_symlink()
+    assert os.path.realpath(survivors[0]) == os.path.realpath(
         library.document_dir(library.db.get(first.file_id))
     ), "the surviving link must point at the document that was kept"
 
@@ -682,13 +649,13 @@ def test_retagging_one_of_two_look_alikes_moves_the_right_one(
     assert len(remaining) == 1, f"first should stay put, found {remaining}"
     # Counting is not enough: the entry left behind must be the document that
     # was not re-tagged, still pointing at its own folder.
-    assert os.path.realpath(remaining[0] / remaining[0].name) == os.path.realpath(
+    assert os.path.realpath(remaining[0]) == os.path.realpath(
         library.document_dir(library.db.get(first.file_id))
     ), "the entry left in AI must be the untouched document's"
 
     moved = list((library.tree_dir / "Systems").iterdir())
     assert len(moved) == 1
-    assert os.path.realpath(moved[0] / moved[0].name) == os.path.realpath(
+    assert os.path.realpath(moved[0]) == os.path.realpath(
         library.document_dir(library.db.get(second.file_id))
     )
 
@@ -810,7 +777,7 @@ def test_the_document_is_still_linked_beside_the_file_that_blocked_it(
     ]
     assert len(links) == 1
     assert os.path.realpath(links[0]) == str(library.document_dir(paper).resolve())
-    assert paper.file_id in links[0].parent.name, "the id-decorated folder"
+    assert paper.file_id in links[0].name, "the id-decorated name"
 
 
 def test_a_stale_link_is_still_replaced(library: Library, tmp_path: Path) -> None:

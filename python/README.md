@@ -160,8 +160,7 @@ library/
       figure-3.png          <- likewise
   tree/
     Machine Learning/Deep Learning/Transformers/
-      vaswani_2017_attention-is-all-you-need/          <- a real folder
-        vaswani_2017_attention-is-all-you-need -> ../../../../store/5112ee75ddcf__...
+      vaswani_2017_attention-is-all-you-need -> ../../../store/5112ee75ddcf__...
 ```
 
 Every document has one home: a folder in the store holding the document and
@@ -169,15 +168,13 @@ whatever you keep beside it. **That folder is the durable thing** — it is what
 gets backed up, what re-tagging renames, and what removal deletes.
 
 `tree/` is a view and nothing else: delete it and `sypy tree` rebuilds it
-exactly. Each document has a real folder there holding a single link to its
-store folder, so browsing a category and opening a document keeps you in the
-tree rather than throwing you into the store; following that one link is what
-takes you to the document and its notes.
+exactly. Each document appears there as a single link to its store folder, so
+opening one from a category takes you straight to the document and its notes.
 
-The cost of those folders being real is that things can be written into them,
-and the tree is neither backed up nor preserved across a rebuild-from-scratch.
-So `sypy tree` reports any file it finds living there and tells you to move it
-into the document's folder. It never deletes it — that is not this tool's call.
+Only the category folders are real, and the tree is neither backed up nor
+preserved across a rebuild-from-scratch. So `sypy tree` reports any file it
+finds living there and tells you to move it into the document's folder. It never
+deletes it — that is not this tool's call.
 
 The store filename is `<id>__<Tag>__<Tag>.pdf`. The id is permanent and the tags
 are not, so **re-tagging a paper is a rename plus a moved link** — no file is
@@ -674,8 +671,8 @@ and the correct spelling wins when both are set.
   anything else kept in it. It confirms first.
 - A file written into the tree rather than the document's folder is reported by
   `sypy tree`, not moved or deleted. It is not durable where it sits. If it is
-  sitting exactly where a document's link belongs, that document is linked into
-  an id-decorated folder beside it instead; the file is never replaced.
+  sitting exactly where a document's link belongs, that document is linked under
+  an id-decorated name beside it instead; the file is never replaced.
 - The spend ceiling counts requests and tokens, not money. It bounds the damage
   from a restart loop; it does not know what the model costs.
 - Four batches run at once and each reserves its request before sending, so the
