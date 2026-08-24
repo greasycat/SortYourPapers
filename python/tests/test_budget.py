@@ -239,3 +239,22 @@ def test_the_client_gives_up_rather_than_retrying_forever(tmp_path: Path) -> Non
 
     assert client._client.max_retries == 2
     assert client._client.timeout == 30.0
+
+
+_ONE_CATEGORY = '{"category":"Cognitive Science/Computation","keywords":["a"]}'
+
+
+async def test_every_re_ask_is_budgeted_like_any_other_request(tmp_path: Path) -> None:
+    """Regenerating is unbounded by design, so the ceiling is what bounds it."""
+    ledger = Budget(tmp_path / "spend.json", Limits(requests_per_day=2, tokens_per_day=0))
+    completions = _RecordingCompletions(_ONE_CATEGORY, total_tokens=11)
+    client = _client_with(ledger, completions)
+    paper = PaperText(file_id="a", path=tmp_path / "a.pdf", text="x", pages_read=1)
+
+    await client.suggest_category(paper)
+    await client.suggest_category(paper, rejected=["Cognitive Science/Computation"])
+
+    assert ledger.usage() == Usage(requests=2, tokens=22)
+    with pytest.raises(BudgetExceeded):
+        await client.suggest_category(paper)
+    assert completions.calls == 2, "the refused one was never sent"

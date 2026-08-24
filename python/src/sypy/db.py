@@ -679,10 +679,32 @@ class PaperDb:
                     [content_hash, size_bytes, mtime_ms, timestamp, file_id],
                 )
 
-    def set_tags(self, file_id: str, tags: list[str], store_name: str) -> None:
-        """Re-tag a document and record the new name of its store folder."""
+    def set_tags(
+        self,
+        file_id: str,
+        tags: list[str],
+        store_name: str,
+        keywords: list[str] | None = None,
+    ) -> None:
+        """Re-tag a document and record the new name of its store folder.
+
+        Keywords go in the same transaction when they are given, because a
+        re-tag that took the model's category and left its keywords behind would
+        describe the document as two different things at once.
+
+        They do not go through `_replace_ordered`: `paper_keywords` has no
+        `position` column, being a set rather than a sequence.
+        """
         with self._transaction():
             self._replace_ordered(file_id, "paper_tags", "tag", tags)
+            if keywords is not None:
+                self._conn.execute(
+                    "DELETE FROM paper_keywords WHERE file_id = ?", [file_id]
+                )
+                for keyword in keywords:
+                    self._conn.execute(
+                        "INSERT INTO paper_keywords VALUES (?, ?)", [file_id, keyword]
+                    )
             self._conn.execute(
                 "UPDATE papers SET store_name = ?, updated_at_ms = ? WHERE file_id = ?",
                 [store_name, now_ms(), file_id],

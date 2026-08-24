@@ -225,6 +225,52 @@ service is installed with poppler's directory added explicitly. Without that,
 scans fail only under the service while working by hand — install warns if
 `pdftoppm` cannot be found.
 
+## When a document is filed wrongly
+
+```bash
+sypy retag <id> "Cognitive Science/Computational Modelling"   # you decide
+sypy retag <id>                                               # ask the model
+```
+
+Steering is what makes a second utility bill join the first, and it is also how
+a document ends up somewhere wrong: a paper on computational cognitive science
+joins `Psychology/Research Methods` because the library holds two
+research-methods documents and nothing closer. With a category, `retag` applies
+it. Without one it asks the model where the document belongs:
+
+```
+78c64b3b8ef6  Trial-by-trial learning of successor representations in human behavior
+  now:        Psychology / Research Methods
+
+suggestion 1: Cognitive Science / Computational Modelling
+  keywords:   successor representations, temporal difference learning, …
+
+[a]ccept, [r]egenerate, [c]ancel [a]:
+```
+
+`r` asks again, and each round is told every category already turned down — so
+the model has to reconsider rather than reword. Without that the inputs would be
+identical each time and the answer would be too. There is no cap on how many
+times you may ask; each one is a request, numbered on screen so the count is
+visible, and the daily ceiling is what bounds it.
+
+Accepting replaces the tags **and** the keywords, in one transaction, since
+taking the model's category and keeping its old keywords would describe the
+document as two things at once. A re-tag you type yourself leaves the keywords
+alone. Title, authors, and year are never touched: they name the link, and may
+have been corrected by hand.
+
+The question the model is asked is not the one ingest asks. Ingest is told to
+*prefer* an existing path, which is what misfiled the document; here the
+existing paths are context to weigh, and opening a new one is a valid answer.
+What it reads is the library's own record — title, authors, keywords — followed
+by the document's first pages, so a scan with no text layer and a document whose
+file has gone missing both still get an answer, with no extra request.
+
+Nothing is written until you accept, and the database is let go before the first
+request: the exchange waits on a person, and holding the write lock across that
+would stop the watcher.
+
 ## Notes
 
 ```bash
@@ -352,7 +398,8 @@ sypy watch  --input ./inbox --mode copy     # keep doing it as documents arrive
 sypy list                              # what the library holds
 sypy list --json                       # ...as records, for a program to read
 sypy find "attention 2017"             # by title, author, keyword, tag, year, or id
-sypy retag <id> "Systems/Databases"    # re-tag: renames the file, moves the link
+sypy retag <id> "Systems/Databases"    # re-tag: renames the folder, moves the link
+sypy retag <id>                        # ...or ask the model, and confirm
 sypy note <id>                         # open this document's notes ($EDITOR)
 sypy note <id> --path                  # ...or just say where they are
 sypy remove <id>                       # delete link, folder, and record (asks first)

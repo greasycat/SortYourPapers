@@ -88,3 +88,90 @@ def test_an_unrequested_file_is_rejected() -> None:
 def test_malformed_json_is_an_llm_error() -> None:
     with pytest.raises(LlmError, match="invalid JSON"):
         parse_response("not json", [_paper("a")])
+
+
+# ---- re-asking for a category ----------------------------------------------
+
+
+def _text(body: str = "successor representations, temporal difference learning"):
+    from sypy.extract import PaperText
+
+    return PaperText(file_id="abc", path=Path("a.pdf"), text=body, pages_read=1)
+
+
+def test_the_re_ask_tells_the_model_what_was_already_turned_down() -> None:
+    """Without this, asking twice returns the same answer twice.
+
+    The inputs are otherwise identical, so "give me another" would never move
+    off the first suggestion.
+    """
+    from sypy.llm import build_category_prompt
+
+    prompt = build_category_prompt(
+        _text(),
+        "Psychology/Research Methods",
+        ["Psychology/Research Methods"],
+        ["Psychology/Research Methods", "Psychology/Statistics"],
+    )
+
+    assert "already offered and rejected" in prompt
+    assert "Psychology/Statistics" in prompt
+    assert "Do not return any of them" in prompt
+
+
+def test_the_re_ask_weighs_existing_paths_rather_than_preferring_them() -> None:
+    """The ingest prompt's preference is what misfiles a document.
+
+    A paper on computational cognitive science joins `Psychology/Research
+    Methods` because two research-methods documents are already there. Someone
+    re-tagging has seen that answer and said no, so the same rule must not
+    decide it again.
+    """
+    from sypy.llm import build_category_prompt, build_prompt
+
+    ingest = build_prompt([_text()], ["Psychology/Research Methods"])
+    re_ask = build_category_prompt(_text(), "", ["Psychology/Research Methods"])
+
+    assert "Prefer a path from existing_categories" in ingest
+    assert "Prefer a path from existing_categories" not in re_ask
+    assert "do not force this document into one" in re_ask
+    assert "its own subject decides" in re_ask
+
+
+def test_the_re_ask_does_not_ask_for_title_authors_or_year() -> None:
+    """Those name the link and may have been fixed by hand; a re-tag keeps them."""
+    from sypy.llm import build_category_prompt
+
+    prompt = build_category_prompt(_text())
+
+    for field in ("title", "authors", "year"):
+        assert f'"{field}"' not in prompt
+
+
+def test_a_category_response_is_read_and_trimmed() -> None:
+    from sypy.llm import parse_category_response
+
+    suggestion = parse_category_response(
+        '{"category":"  Cognitive Science/Computation  ","keywords":["a","  ","b"]}'
+    )
+
+    assert suggestion.category == "Cognitive Science/Computation"
+    assert suggestion.keywords == ["a", "b"], "blank keywords are dropped"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not json at all",
+        '["a list"]',
+        '{"keywords":["a"]}',
+        '{"category":"","keywords":[]}',
+        '{"category":"   ","keywords":[]}',
+        '{"category":"AI","keywords":"not a list"}',
+    ],
+)
+def test_an_unusable_category_response_is_an_error(payload: str) -> None:
+    from sypy.llm import LlmError, parse_category_response
+
+    with pytest.raises(LlmError):
+        parse_category_response(payload)

@@ -42,6 +42,19 @@ class KeywordPair:
     year: int | None = None
 
 
+@dataclass(frozen=True)
+class CategorySuggestion:
+    """One re-ask of where a document belongs, and what it is about.
+
+    Title, authors, and year are deliberately absent: they name the document's
+    link and may have been corrected by hand, so a re-tag must not overwrite
+    them.
+    """
+
+    category: str
+    keywords: list[str] = field(default_factory=list)
+
+
 class LlmClient(Protocol):
     """Extracts keywords and a preliminary category for a batch of documents."""
 
@@ -52,6 +65,15 @@ class LlmClient(Protocol):
     ) -> list[KeywordPair]: ...
 
     async def describe_pages(self, images: Sequence[PageImage]) -> str: ...
+
+    async def suggest_category(
+        self,
+        paper: PaperText,
+        *,
+        current: str = "",
+        existing_categories: Sequence[str] = (),
+        rejected: Sequence[str] = (),
+    ) -> CategorySuggestion: ...
 
 
 _SYSTEM_PROMPT = (
@@ -109,6 +131,110 @@ _RESPONSE_SCHEMA = {
     "required": ["pairs"],
     "additionalProperties": False,
 }
+
+
+_CATEGORY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string"},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["category", "keywords"],
+    "additionalProperties": False,
+}
+
+
+def build_category_prompt(
+    paper: PaperText,
+    current: str = "",
+    existing_categories: Sequence[str] = (),
+    rejected: Sequence[str] = (),
+) -> str:
+    """Build the prompt for re-asking where one document belongs.
+
+    Deliberately unlike `build_prompt`. That one tells the model to *prefer* an
+    existing path, which is what files a computational cognitive science paper
+    under `Psychology/Research Methods` when the library already holds two
+    research-methods documents and nothing closer. Someone re-tagging by hand
+    has already seen that answer and said no, so here the existing paths are
+    context to be weighed rather than a branch to be joined.
+
+    `rejected` is what makes asking twice worth anything: without it the same
+    inputs return the same answer and "give me another" never moves.
+    """
+    sections = [
+        "Say where this document belongs, and what it is about.",
+        "",
+        "Return JSON with this exact schema:",
+        '{"category":"Top/Sub","keywords":["...","..."]}',
+        "Rules:",
+        "- `category` is a `Top/Sub` path, one to three levels deep",
+        "- Choose it from what the document is actually about, not from what "
+        "its neighbours in the library happen to be",
+        "- Documents are not always academic papers. Bills, receipts, manuals, "
+        "contracts, and notes are all expected; categorize each on its own terms",
+        "- Keep 5 to 12 keywords, specific nouns or short noun phrases",
+        "- No markdown",
+    ]
+
+    if current:
+        # Named so the model can see what it is being asked to improve on. Not
+        # forbidden outright: it may genuinely be right, and a second opinion
+        # that agrees is a useful answer.
+        sections.append(
+            f"- The document is filed under `{current}` today. Say so again only "
+            "if it is genuinely the best fit"
+        )
+
+    if rejected:
+        sections.append(
+            "- These were already offered and rejected by the person filing "
+            f"this document: {json.dumps(list(rejected))}. Do not return any of "
+            "them, or a trivial rewording of one. Reconsider what the document "
+            "is about rather than renaming the same idea"
+        )
+
+    if existing_categories:
+        sections.append(
+            "- The paths below are already in use. Matching one exactly keeps "
+            "the library tidy, but do not force this document into one: its own "
+            "subject decides, and opening a new path is the right answer when "
+            "none of them fits"
+        )
+
+    sections.append("")
+    sections.append(f"document:\n{paper.text[:MAX_TEXT_CHARS_PER_FILE]}")
+    if existing_categories:
+        sections.append(
+            f"\nexisting_categories:\n{json.dumps(list(existing_categories))}"
+        )
+    return "\n".join(sections)
+
+
+def parse_category_response(content: str) -> CategorySuggestion:
+    """Parse a re-ask response.
+
+    Raises:
+        LlmError: if the JSON is malformed or carries no usable category.
+    """
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError as err:
+        raise LlmError(f"model returned invalid JSON: {err}") from err
+    if not isinstance(payload, dict):
+        raise LlmError("model response is not an object")
+
+    category = payload.get("category")
+    if not isinstance(category, str) or not category.strip():
+        raise LlmError("model returned no category")
+
+    keywords = payload.get("keywords") or []
+    if not isinstance(keywords, list):
+        raise LlmError("keywords must be a list")
+    return CategorySuggestion(
+        category=category.strip(),
+        keywords=[str(keyword) for keyword in keywords if str(keyword).strip()],
+    )
 
 
 def build_prompt(
@@ -320,6 +446,51 @@ class OpenAiClient:
         self._record_tokens(response)
         content = response.choices[0].message.content or ""
         return parse_response(content, batch)
+
+    async def suggest_category(
+        self,
+        paper: PaperText,
+        *,
+        current: str = "",
+        existing_categories: Sequence[str] = (),
+        rejected: Sequence[str] = (),
+    ) -> CategorySuggestion:
+        """Re-ask where one document belongs.
+
+        One request, budgeted like any other, so a long back-and-forth over a
+        single document is refused by the same daily ceiling that stops a
+        restarting watcher.
+
+        Raises:
+            LlmError: if the request fails or the answer carries no category.
+        """
+        self._spend("category suggestion")
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": build_category_prompt(
+                            paper, current, existing_categories, rejected
+                        ),
+                    },
+                ],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "category_suggestion",
+                        "schema": _CATEGORY_SCHEMA,
+                        "strict": True,
+                    },
+                },
+            )
+        except Exception as err:  # surface SDK/transport failures uniformly
+            raise LlmError(f"category request failed: {err}") from err
+
+        self._record_tokens(response)
+        return parse_category_response(response.choices[0].message.content or "")
 
     async def describe_pages(self, images: Sequence[PageImage]) -> str:
         """Read rendered pages and return text standing in for the document's own.

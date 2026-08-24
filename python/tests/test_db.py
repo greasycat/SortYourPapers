@@ -326,3 +326,32 @@ def test_search_for_nothing_finds_nothing(tmp_path: Path) -> None:
 
         assert db.search("") == []
         assert db.search("   ") == []
+
+
+def test_a_retag_can_replace_the_keywords_in_the_same_breath(tmp_path: Path) -> None:
+    """Taking the model's category and leaving its keywords would describe the
+    document as two different things at once."""
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper())
+
+        db.set_tags(
+            "abc123abc123",
+            ["Cognitive Science", "Computation"],
+            "abc123abc123__Cognitive Science__Computation",
+            keywords=["successor representations", "predictive coding"],
+        )
+
+        loaded = db.get("abc123abc123")
+    assert loaded.tags == ["Cognitive Science", "Computation"]
+    assert sorted(loaded.keywords) == ["predictive coding", "successor representations"]
+    assert loaded.store_name.endswith("Computation")
+
+
+def test_a_retag_without_keywords_leaves_them_alone(tmp_path: Path) -> None:
+    """Re-tagging by hand says nothing about what the document is about."""
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper())
+
+        db.set_tags("abc123abc123", ["Systems"], "abc123abc123__Systems")
+
+        assert sorted(db.get("abc123abc123").keywords) == ["attention", "sequence"]

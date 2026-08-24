@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -8,8 +9,18 @@ from pypdf import PdfWriter
 
 from sypy.config import Settings
 from sypy.extract import PaperText
-from sypy.llm import KeywordPair, LlmError
+from sypy.llm import CategorySuggestion, KeywordPair, LlmError
 from sypy.render import PageImage
+
+
+@dataclass
+class SuggestionCall:
+    """One re-ask, recorded so a test can see what the model was told."""
+
+    text: str
+    current: str
+    existing_categories: list[str]
+    rejected: list[str]
 
 
 class FakeLlmClient:
@@ -30,6 +41,13 @@ class FakeLlmClient:
         self.batches: list[list[str]] = []
         self.seen_categories: list[list[str]] = []
         self.pages_read: list[int] = []
+        # What `suggest_category` offers, in order, skipping anything rejected.
+        self.categories = [
+            "Cognitive Science/Computational Modelling",
+            "Neuroscience/Learning",
+            "Psychology/Decision Making",
+        ]
+        self.suggestions: list[SuggestionCall] = []
 
     async def extract_keywords(
         self, batch: Sequence[PaperText], existing_categories: Sequence[str] = ()
@@ -53,6 +71,34 @@ class FakeLlmClient:
         self.pages_read.append(len(images))
         return "A Scanned Report\nJane Doe\n2024\nA report about scanned things."
 
+    async def suggest_category(
+        self,
+        paper: PaperText,
+        *,
+        current: str = "",
+        existing_categories: Sequence[str] = (),
+        rejected: Sequence[str] = (),
+    ) -> CategorySuggestion:
+        """Answer a re-ask, never repeating one that was turned down.
+
+        Standing in for the real thing's most load-bearing behaviour: a client
+        that returned the same category every time would make "give me another"
+        a loop with no way out.
+        """
+        self.suggestions.append(
+            SuggestionCall(
+                text=paper.text,
+                current=current,
+                existing_categories=list(existing_categories),
+                rejected=list(rejected),
+            )
+        )
+        offered = [c for c in self.categories if c not in set(rejected)]
+        category = offered[0] if offered else f"Fallback/Round {len(rejected)}"
+        return CategorySuggestion(
+            category=category, keywords=[f"keyword-{len(rejected)}", "shared"]
+        )
+
 
 class FailingLlmClient:
     """Fails every batch, to exercise the error path."""
@@ -68,6 +114,10 @@ class FailingLlmClient:
         raise LlmError(self.message)
 
     async def describe_pages(self, images: Sequence[PageImage]) -> str:
+        self.calls += 1
+        raise LlmError(self.message)
+
+    async def suggest_category(self, paper: PaperText, **_kwargs) -> CategorySuggestion:
         self.calls += 1
         raise LlmError(self.message)
 

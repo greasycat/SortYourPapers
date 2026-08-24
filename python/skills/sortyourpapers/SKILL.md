@@ -88,6 +88,12 @@ model is called. Look at `sypy list --json` first to see what categories the
 library already uses, so a re-tag joins an existing branch instead of opening a
 near-duplicate of one.
 
+**Always pass the category.** `sypy retag <id>` with no category asks the model
+where the document belongs and then waits at a prompt for a person to accept or
+reject it — a prompt you cannot answer, on a command that spends money each time
+round. Decide the category yourself and pass it, or tell the user to run the
+bare form themselves.
+
 ## What not to run
 
 - **`sypy ingest` and `sypy watch` file new documents, and both send every

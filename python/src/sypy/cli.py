@@ -13,6 +13,7 @@ import typer
 
 from .budget import Budget
 from .config import (
+    MAX_STEERING_CATEGORIES,
     DEFAULT_LABEL_CACHE_DAYS,
     DEFAULT_LLM_MAX_RETRIES,
     DEFAULT_LLM_TIMEOUT_SECONDS,
@@ -28,7 +29,8 @@ import os
 import subprocess
 
 from .library import FilingMode, Library, LibraryError
-from .llm import OpenAiClient
+from .llm import LlmError, OpenAiClient
+from . import recategorize
 from .naming import split_category
 from .registry import RegistryError, WatchEntry, load_registry, registry_path
 from .watch import watch as watch_loop
@@ -75,12 +77,25 @@ def _configure(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     else:
         handlers = [logging.StreamHandler()]
 
+    # Everything gets a handler, but only this package's own lines are turned
+    # up to INFO. The HTTP client underneath logs a line per request at INFO,
+    # which says nothing this tool does not already report and which lands in
+    # the middle of `sypy retag`'s prompt while it waits for an answer.
+    #
+    # Quieting the root and raising ours, rather than naming the loggers to
+    # silence: the OpenAI SDK vendors its HTTP client, so that logger is called
+    # `httpx2` today and whatever the next release vendors tomorrow. A rule
+    # about our own name cannot go stale that way. Third-party warnings and
+    # errors still come through, which is the half worth reading.
     logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
+        level=logging.DEBUG if verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=handlers,
         force=True,
+    )
+    logging.getLogger(__package__).setLevel(
+        logging.DEBUG if verbose else logging.INFO
     )
 
 
@@ -206,10 +221,22 @@ def tree(
 @app.command()
 def retag(
     file_id: str = typer.Argument(..., help="Document id, the part before the first __."),
-    category: str = typer.Argument(..., help="New category path, e.g. 'AI/Transformers'."),
+    category: str = typer.Argument(
+        None, help="New category path, e.g. 'AI/Transformers'. Omit to ask the model."
+    ),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    model: str = typer.Option(None, "--model", "-m"),
 ) -> None:
-    """Give a document new tags, renaming its file and moving its link."""
+    """Give a document new tags, renaming its folder and moving its link.
+
+    With a category, it is applied. Without one the model is asked where the
+    document belongs and nothing is written until you accept — which is the way
+    back from a label that steering got wrong.
+    """
+    if category is None:
+        _retag_by_asking(file_id, library_dir, model)
+        return
+
     settings = _settings(None, library_dir)
     tags = split_category(category)
     if not tags:
@@ -217,12 +244,112 @@ def retag(
         raise typer.Exit(code=2)
 
     with Library(settings.output_dir) as library:
+        _apply_retag(library, file_id, tags)
+
+
+def _apply_retag(
+    library: Library, file_id: str, tags: list[str], keywords: list[str] | None = None
+) -> None:
+    try:
+        paper = library.retag(file_id, tags, keywords)
+    except Exception as err:
+        typer.echo(f"error: {err}", err=True)
+        raise typer.Exit(code=1) from err
+    typer.echo(f"{paper.store_name}  [{' / '.join(paper.tags)}]")
+
+
+def _retag_by_asking(file_id: str, library_dir: Path | None, model: str | None) -> None:
+    """Ask the model where a document belongs, until the answer is accepted.
+
+    Every suggestion is one request, so the loop is deliberately hand-driven:
+    nothing is asked for, and nothing is spent, without someone saying so.
+
+    The database is let go before the first request. What follows waits on a
+    person and can go around any number of times, and holding the write lock
+    across that would stop the watcher, which waits 30 seconds and then fails.
+    """
+    settings, client = _build(None, library_dir, None, None, None, model)
+
+    with Library(settings.output_dir) as library:
+        paper = library.db.get(file_id)
+        if paper is None:
+            typer.echo(f"error: no document with id {file_id}", err=True)
+            raise typer.Exit(code=1)
+        store_path = library.store_path(paper)
+        steering = library.existing_categories(MAX_STEERING_CATEGORIES)
+        library.release()
+
+        label = paper.title or paper.original_name or paper.store_name
+        typer.echo(f"{paper.file_id}  {label}")
+        typer.echo(f"  now:        {' / '.join(paper.tags) or '-'}")
+
+        rejected: list[str] = []
+        while True:
+            try:
+                suggestion = asyncio.run(
+                    recategorize.suggest(
+                        client,
+                        paper,
+                        store_path,
+                        page_cutoff=settings.page_cutoff,
+                        existing_categories=steering,
+                        rejected=rejected,
+                    )
+                )
+            except LlmError as err:
+                typer.echo(f"error: {err}", err=True)
+                raise typer.Exit(code=1) from err
+
+            tags = split_category(suggestion.category)
+            if not tags:
+                typer.echo(
+                    f"  the model returned {suggestion.category!r}, which is not a "
+                    "usable path; asking again",
+                    err=True,
+                )
+                rejected.append(suggestion.category)
+                continue
+
+            typer.echo(
+                f"\nsuggestion {len(rejected) + 1}: {' / '.join(tags)}"
+            )
+            if suggestion.keywords:
+                typer.echo(f"  keywords:   {', '.join(suggestion.keywords)}")
+
+            choice = _ask_what_to_do()
+            if choice == "accept":
+                with Library(settings.output_dir) as writable:
+                    _apply_retag(writable, file_id, tags, suggestion.keywords or None)
+                return
+            if choice == "cancel":
+                typer.echo("nothing changed")
+                return
+            rejected.append(suggestion.category)
+
+
+def _ask_what_to_do() -> str:
+    """Accept, regenerate, or cancel.
+
+    An end of input is a cancel rather than a crash, so running this with no one
+    at the keyboard — from cron, or with stdin closed — stops cleanly instead of
+    failing with a traceback.
+    """
+    while True:
         try:
-            paper = library.retag(file_id, tags)
-        except Exception as err:
-            typer.echo(f"error: {err}", err=True)
-            raise typer.Exit(code=1) from err
-        typer.echo(f"{paper.store_name}  [{' / '.join(paper.tags)}]")
+            answer = typer.prompt("[a]ccept, [r]egenerate, [c]ancel", default="a")
+        except (typer.Abort, EOFError):
+            # Typer vendors click, so its re-export is the one public name for
+            # the exception a closed stdin raises.
+            typer.echo("\ncancelled; nothing changed")
+            raise typer.Exit(code=0) from None
+        first = answer.strip()[:1].lower()
+        if first == "a":
+            return "accept"
+        if first == "r":
+            return "regenerate"
+        if first == "c":
+            return "cancel"
+        typer.echo("  please answer a, r, or c", err=True)
 
 
 @app.command()

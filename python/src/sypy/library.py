@@ -198,12 +198,17 @@ class Library:
             file_id=paper.file_id, source=source, store_path=target, link_path=link
         )
 
-    def retag(self, file_id: str, tags: list[str]) -> Paper:
-        """Give a document new tags.
+    def retag(
+        self, file_id: str, tags: list[str], keywords: list[str] | None = None
+    ) -> Paper:
+        """Give a document new tags, and optionally new keywords.
 
         Renames its folder in the store, so notes and supplements kept beside it
         travel with it, and re-points the link. Nothing is copied and nothing in
         the folder is touched.
+
+        Keywords are only replaced when given, so re-tagging by hand leaves what
+        the library already knew about the document alone.
 
         Raises:
             LibraryError: if the document is unknown or its folder is missing.
@@ -224,7 +229,7 @@ class Library:
         self._unlink(paper)
         if new_dir != old_dir:
             os.replace(old_dir, new_dir)
-        self.db.set_tags(file_id, tags, new_name)
+        self.db.set_tags(file_id, tags, new_name, keywords)
 
         updated = self.db.get(file_id)
         assert updated is not None  # just written

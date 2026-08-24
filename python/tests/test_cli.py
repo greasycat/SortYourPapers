@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import FailingLlmClient, FakeLlmClient
 from sypy.cli import LOG_BACKUP_COUNT, LOG_MAX_BYTES, _configure
 
 
@@ -30,7 +31,7 @@ def test_every_line_carries_a_timestamp(monkeypatch, capsys) -> None:
     monkeypatch.delenv("SYPY_LOG_FILE", raising=False)
     _configure(verbose=False)
 
-    logging.getLogger("test").info("something happened")
+    logging.getLogger("sypy.test").info("something happened")
 
     line = capsys.readouterr().err.strip()
     assert line.endswith("INFO something happened")
@@ -222,3 +223,212 @@ def test_a_negative_limit_is_a_usage_error(library) -> None:
 
     assert result.exit_code == 2
     assert "--limit" in result.stderr
+
+
+# ---- re-asking for a category ----------------------------------------------
+
+
+def _misfiled(library, tags=("Psychology", "Research Methods")):
+    """A document filed where steering put it, with a real folder in the store."""
+    from sypy.db import Paper
+
+    paper = Paper(
+        file_id="78c64b3b8ef6",
+        content_hash="sha-kahn",
+        store_name="78c64b3b8ef6__" + "__".join(tags),
+        document_name="kahn_2025_successor-representations.pdf",
+        title="Trial-by-trial learning of successor representations",
+        authors=["Ari E. Kahn", "Nathaniel D. Daw"],
+        year=2025,
+        tags=list(tags),
+        keywords=["successor representations", "temporal difference learning"],
+    )
+    library.db.upsert(paper)
+    folder = library.document_dir(paper)
+    folder.mkdir(parents=True)
+    (folder / paper.document_name).write_bytes(b"%PDF-1.4 not a real pdf")
+    (folder / "notes.md").write_text("kept beside it", encoding="utf-8")
+    library.rebuild_tree()
+    root = library.root
+    library.close()
+    return root
+
+
+def _retag(root, fake, *args, **kwargs):
+    """Invoke `retag` with the fake client standing in for the real one."""
+    from typer.testing import CliRunner
+
+    from sypy import cli
+
+    original = cli._build
+    cli._build = lambda *a, **k: (original(*a, **k)[0], fake)
+    try:
+        return CliRunner().invoke(
+            cli.app, ["retag", *args, "--library", str(root)], **kwargs
+        )
+    finally:
+        cli._build = original
+
+
+def test_accepting_a_suggestion_moves_the_document(library, settings) -> None:
+    """Tags, folder, link, and keywords all move together."""
+    from sypy.library import Library
+
+    root = _misfiled(library)
+    fake = FakeLlmClient()
+
+    result = _retag(root, fake, "78c64b3b8ef6", input="a\n")
+
+    assert result.exit_code == 0, result.output
+    with Library(root) as after:
+        paper = after.db.get("78c64b3b8ef6")
+        assert paper.tags == ["Cognitive Science", "Computational Modelling"]
+        assert after.document_dir(paper).is_dir()
+        assert (after.document_dir(paper) / "notes.md").exists(), "notes travel"
+        assert "shared" in paper.keywords, "keywords were refreshed too"
+
+
+def test_regenerating_never_offers_the_same_category_twice(library) -> None:
+    """The whole point of asking again.
+
+    Each round must carry what came before, or the model has no reason to
+    answer differently and the loop cannot end except by cancelling.
+    """
+    root = _misfiled(library)
+    fake = FakeLlmClient()
+
+    result = _retag(root, fake, "78c64b3b8ef6", input="r\nr\na\n")
+
+    assert result.exit_code == 0, result.output
+    assert len(fake.suggestions) == 3
+    assert fake.suggestions[0].rejected == []
+    assert fake.suggestions[1].rejected == ["Cognitive Science/Computational Modelling"]
+    assert fake.suggestions[2].rejected == [
+        "Cognitive Science/Computational Modelling",
+        "Neuroscience/Learning",
+    ]
+
+
+def test_the_model_is_told_where_the_document_sits_now(library) -> None:
+    root = _misfiled(library)
+    fake = FakeLlmClient()
+
+    _retag(root, fake, "78c64b3b8ef6", input="c\n")
+
+    call = fake.suggestions[0]
+    assert call.current == "Psychology/Research Methods"
+    assert "successor representations" in call.text, "the library's own keywords"
+    assert "Ari E. Kahn" in call.text
+
+
+def test_cancelling_changes_nothing(library) -> None:
+    from sypy.library import Library
+
+    root = _misfiled(library)
+
+    result = _retag(root, FakeLlmClient(), "78c64b3b8ef6", input="c\n")
+
+    assert result.exit_code == 0, "cancelling is a decision, not an error"
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6").tags == ["Psychology", "Research Methods"]
+
+
+def test_no_one_at_the_keyboard_cancels_rather_than_crashing(library) -> None:
+    """From cron, or with stdin closed, this must stop cleanly."""
+    from sypy.library import Library
+
+    root = _misfiled(library)
+
+    result = _retag(root, FakeLlmClient(), "78c64b3b8ef6", input="")
+
+    assert result.exit_code == 0, result.output
+    assert "cancelled" in result.output
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6").tags == ["Psychology", "Research Methods"]
+
+
+def test_a_document_whose_file_is_gone_still_gets_a_suggestion(library) -> None:
+    """Its record is what the model reads from anyway."""
+    root = _misfiled(library)
+    from sypy.library import Library
+
+    with Library(root) as lib:
+        paper = lib.db.get("78c64b3b8ef6")
+        (lib.document_dir(paper) / paper.document_name).unlink()
+    fake = FakeLlmClient()
+
+    result = _retag(root, fake, "78c64b3b8ef6", input="c\n")
+
+    assert result.exit_code == 0, result.output
+    assert "successor representations" in fake.suggestions[0].text
+
+
+def test_an_unknown_id_is_reported_before_anything_is_asked(library) -> None:
+    root = _misfiled(library)
+    fake = FakeLlmClient()
+
+    result = _retag(root, fake, "nosuchdocument", input="a\n")
+
+    assert result.exit_code == 1
+    assert fake.suggestions == [], "no request is paid for"
+
+
+def test_a_failing_model_does_not_leave_the_document_half_moved(library) -> None:
+    from sypy.library import Library
+
+    root = _misfiled(library)
+
+    result = _retag(root, FailingLlmClient(), "78c64b3b8ef6", input="a\n")
+
+    assert result.exit_code == 1
+    with Library(root) as after:
+        assert after.db.get("78c64b3b8ef6").tags == ["Psychology", "Research Methods"]
+
+
+def test_retag_with_a_category_never_asks_the_model(library) -> None:
+    """The manual path is unchanged, and free."""
+    from sypy.library import Library
+
+    root = _misfiled(library)
+    fake = FakeLlmClient()
+
+    result = _retag(root, fake, "78c64b3b8ef6", "Cognitive Science/Computation")
+
+    assert result.exit_code == 0, result.output
+    assert fake.suggestions == []
+    with Library(root) as after:
+        paper = after.db.get("78c64b3b8ef6")
+        assert paper.tags == ["Cognitive Science", "Computation"]
+        assert paper.keywords == [
+            "successor representations",
+            "temporal difference learning",
+        ], "a hand re-tag leaves what the library knew alone"
+
+
+def test_only_our_own_lines_are_turned_up(monkeypatch, capsys) -> None:
+    """`sypy retag` waits at a prompt; a request log lands in the middle of it.
+
+    Named by what is ours rather than by what is noisy: the OpenAI SDK vendors
+    its HTTP client, so the logger doing the narrating is called `httpx2` today
+    and something else after the next release.
+    """
+    monkeypatch.delenv("SYPY_LOG_FILE", raising=False)
+    _configure(verbose=False)
+
+    logging.getLogger("httpx2._client").info("HTTP Request: POST ...")
+    logging.getLogger("sypy.ingest").info("filed 3 documents")
+    logging.getLogger("httpx2._client").warning("connection retried")
+
+    err = capsys.readouterr().err
+    assert "HTTP Request" not in err
+    assert "filed 3 documents" in err
+    assert "connection retried" in err, "warnings still come through"
+
+
+def test_verbose_brings_everything_back(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("SYPY_LOG_FILE", raising=False)
+    _configure(verbose=True)
+
+    logging.getLogger("httpx2._client").info("HTTP Request: POST ...")
+
+    assert "HTTP Request" in capsys.readouterr().err
