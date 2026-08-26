@@ -463,12 +463,24 @@ def _ask_what_to_do() -> str:
 @app.command()
 def note(
     file_id: str = typer.Argument(..., help="Document id, or words from its title, authors, or keywords."),
+    name: str = typer.Argument(
+        None,
+        help="Which note. A bare word is markdown, so `reading-log` means "
+        "`reading-log.md`. Left out: the document's only note, or `notes.md` "
+        "when it has none.",
+    ),
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
     path_only: bool = typer.Option(
         False, "--path", help="Print where the notes are instead of opening them."
     ),
 ) -> None:
-    """Open a document's notes, creating them if they do not exist yet.
+    """Open one of a document's notes, creating it if it does not exist yet.
+
+    A document may keep as many notes as its owner likes — any markdown or JSON
+    file in its folder is one — so a name says which. Without one, a document
+    with a single note opens that note whatever it is called, and a document
+    with none gets `notes.md`. A document with several is ambiguous, so they are
+    listed instead of one being picked.
 
     Notes live in the document's folder in the store, so they are backed up with
     it, follow it when it is re-tagged, and are reachable through the tree.
@@ -484,10 +496,33 @@ def note(
             typer.echo(f"error: {paper.store_name} is missing from the store", err=True)
             raise typer.Exit(code=1)
 
-        path = library.note_path(paper)
+        if name:
+            try:
+                path = library.note_path(paper, name)
+            except LibraryError as err:
+                typer.echo(f"error: {err}", err=True)
+                raise typer.Exit(code=1)
+        else:
+            existing = library.notes(paper)
+            if len(existing) > 1:
+                # Picking one would be a guess, and the wrong guess is written
+                # into by a caller that asked for "the" notes and got another.
+                typer.echo(
+                    f"error: {paper.file_id} has several notes. Name one:", err=True
+                )
+                for entry in existing:
+                    typer.echo(f"  {entry.name}", err=True)
+                raise typer.Exit(code=1)
+            path = existing[0] if existing else library.note_path(paper)
+
         if not path.exists():
-            title = paper.title or paper.original_name or paper.store_name
-            path.write_text(f"# {title}\n\n", encoding="utf-8")
+            # An empty JSON note has to parse, or it is broken for the only
+            # thing JSON is kept for.
+            if path.suffix.lower() == ".json":
+                path.write_text("{}\n", encoding="utf-8")
+            else:
+                title = paper.title or paper.original_name or paper.store_name
+                path.write_text(f"# {title}\n\n", encoding="utf-8")
 
     editor = None if path_only else (os.environ.get("VISUAL") or os.environ.get("EDITOR"))
     if editor:
@@ -1047,7 +1082,7 @@ def _describe(
         "keywords": paper.keywords,
         "document": str(library.store_path(paper).resolve()),
         "folder": str(library.document_dir(paper).resolve()),
-        "notes": str(library.note_path(paper).resolve()),
+        "notes": [str(entry.resolve()) for entry in library.notes(paper)],
         "original_name": paper.original_name,
         "from_page_images": paper.from_page_images,
         "filed_at": _timestamp(paper.created_at_ms),

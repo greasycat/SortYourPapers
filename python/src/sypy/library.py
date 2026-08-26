@@ -35,7 +35,8 @@ from .naming import disambiguate, link_name, parse_store_name, store_name
 log = logging.getLogger(__name__)
 
 STORE_DIR = "store"
-NOTE_FILE = "notes.md"
+NOTE_SUFFIXES = (".md", ".json")
+DEFAULT_NOTE = "notes.md"
 TREE_DIR = "tree"
 DB_FILE = "papers.duckdb"
 
@@ -378,9 +379,51 @@ class Library:
             bytes_copied=copied_bytes,
         )
 
-    def note_path(self, paper: Paper) -> Path:
-        """Where a document's notes live: in its folder, beside it."""
-        return self.document_dir(paper) / NOTE_FILE
+    def notes(self, paper: Paper) -> list[Path]:
+        """Every note kept beside a document, in the order they read.
+
+        A note is any markdown or JSON file in the document's folder. The name
+        is its owner's to choose — `notes.md` is only the one this tool makes
+        when asked for a note and told nothing else.
+
+        The document itself is never a note, even when it was filed as markdown
+        or JSON: it is the thing the notes are about.
+        """
+        folder = self.document_dir(paper)
+        if not folder.is_dir():
+            return []
+        return sorted(
+            entry
+            for entry in folder.iterdir()
+            if entry.is_file()
+            and entry.suffix.lower() in NOTE_SUFFIXES
+            and entry.name != paper.document_name
+        )
+
+    def note_path(self, paper: Paper, name: str = DEFAULT_NOTE) -> Path:
+        """Where a note of that name belongs, whether or not it exists yet.
+
+        A bare name is taken as markdown, so `reading-log` and `reading-log.md`
+        name the same file. A suffix that is neither markdown nor JSON is
+        refused rather than corrected: the caller meant a format this does not
+        keep, and renaming it for them would file it under a name they will not
+        look for.
+
+        Raises:
+            LibraryError: if the name is not a plain filename, does not name a
+                note format, or is the document's own file.
+        """
+        candidate = Path(name)
+        if candidate.name != name:
+            raise LibraryError(f"a note is named by a filename, not a path: {name!r}")
+        if not candidate.suffix:
+            candidate = candidate.with_suffix(".md")
+        if candidate.suffix.lower() not in NOTE_SUFFIXES:
+            kinds = " or ".join(NOTE_SUFFIXES)
+            raise LibraryError(f"a note is {kinds}, not {candidate.suffix}: {name!r}")
+        if candidate.name == paper.document_name:
+            raise LibraryError(f"{name!r} is the document itself, not a note about it")
+        return self.document_dir(paper) / candidate.name
 
     def migrate_store_layout(self) -> list[str]:
         """Move documents from the old flat store into a folder each.

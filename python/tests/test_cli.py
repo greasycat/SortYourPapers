@@ -102,13 +102,20 @@ def test_a_record_carries_the_path_to_the_document(library) -> None:
         tags=["AI", "Transformers"],
     )
 
+    folder = library.document_dir(paper)
+    folder.mkdir(parents=True)
+    (folder / "reading-log.md").write_text("what I made of it", encoding="utf-8")
+
     record = _describe(library, paper)
 
     assert Path(record["document"]).is_absolute()
     assert record["document"].endswith(
         "store/aaa111aaa111__AI__Transformers/vaswani_2017_attention.pdf"
     )
-    assert record["notes"].endswith("aaa111aaa111__AI__Transformers/notes.md")
+    assert Path(record["notes"][0]).is_absolute()
+    assert record["notes"] == [str(folder.resolve() / "reading-log.md")], (
+        "a note is found by being markdown beside the document, not by its name"
+    )
     assert record["category"] == "AI/Transformers"
 
 
@@ -134,7 +141,9 @@ def test_note_path_never_opens_an_editor(library, monkeypatch, capsys) -> None:
         cli.subprocess, "call", lambda *a, **k: pytest.fail("opened an editor")
     )
 
-    cli.note("aaa111aaa111", library.root, True)
+    # Called directly rather than through Typer, so the defaults it would have
+    # filled in are passed by hand.
+    cli.note("aaa111aaa111", name=None, library_dir=library.root, path_only=True)
 
     assert capsys.readouterr().out.strip().endswith("notes.md")
 
@@ -507,6 +516,63 @@ def test_what_a_word_resolved_to_is_reported_on_stderr(library) -> None:
     assert result.stdout.strip().endswith("notes.md")
     assert result.stdout.strip().count("\n") == 0, "only the path is on stdout"
     assert "78c64b3b8ef6" in result.stderr
+
+
+def test_a_named_note_is_created_under_that_name(library) -> None:
+    root = _two_papers(library)
+
+    result = _invoke(root, "note", "78c64b3b8ef6", "reading-log", "--path")
+
+    assert result.exit_code == 0, result.output
+    created = Path(result.stdout.strip())
+    assert created.name == "reading-log.md", "a bare word is markdown"
+    assert created.read_text().startswith("# "), "and is opened with a heading"
+
+
+def test_a_json_note_is_created_as_valid_json(library) -> None:
+    """A markdown heading in a `.json` note breaks the only thing it is for."""
+    import json
+
+    root = _two_papers(library)
+
+    result = _invoke(root, "note", "78c64b3b8ef6", "extracted.json", "--path")
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(Path(result.stdout.strip()).read_text()) == {}
+
+
+def test_the_only_note_is_opened_whatever_it_is_called(library) -> None:
+    root = _two_papers(library)
+    _invoke(root, "note", "78c64b3b8ef6", "reading-log", "--path")
+
+    result = _invoke(root, "note", "78c64b3b8ef6", "--path")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip().endswith("reading-log.md")
+
+
+def test_several_notes_are_listed_rather_than_one_being_guessed(library) -> None:
+    """The wrong guess is written into by a caller that asked for "the" notes."""
+    root = _two_papers(library)
+    _invoke(root, "note", "78c64b3b8ef6", "reading-log", "--path")
+    _invoke(root, "note", "78c64b3b8ef6", "extracted.json", "--path")
+
+    result = _invoke(root, "note", "78c64b3b8ef6", "--path")
+
+    assert result.exit_code == 1
+    assert "several notes" in result.stderr
+    assert "reading-log.md" in result.stderr and "extracted.json" in result.stderr
+    assert result.stdout.strip() == "", "nothing that reads stdout gets a path"
+
+
+def test_a_note_that_is_not_markdown_or_json_is_refused(library) -> None:
+    root = _two_papers(library)
+
+    result = _invoke(root, "note", "78c64b3b8ef6", "notes.txt", "--path")
+
+    assert result.exit_code == 1
+    assert "a note is" in result.stderr
+    assert list((Path(root) / "store").rglob("notes.*")) == [], "and nothing was made"
 
 
 def test_an_exact_id_is_never_searched_for(library) -> None:

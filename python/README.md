@@ -166,7 +166,8 @@ library/
     5112ee75ddcf__Machine Learning__Deep Learning__Transformers/
       vaswani_2017_attention-is-all-you-need.pdf
       notes.md              <- yours, and as durable as the document
-      figure-3.png          <- likewise
+      reading-log.md        <- likewise, and a note by any other name
+      figure-3.png          <- likewise, though not a note
   tree/
     Machine Learning/Deep Learning/Transformers/
       vaswani_2017_attention-is-all-you-need -> ../../../store/5112ee75ddcf__...
@@ -317,17 +318,27 @@ would stop the watcher.
 ## Notes
 
 ```bash
-sypy note <id>
+sypy note <id>              # the document's only note, or a new notes.md
+sypy note <id> reading-log  # a note by name; a bare word is markdown
+sypy note <id> extracted.json
 ```
 
-Opens `notes.md` in the document's folder, creating it with the title as a
-heading. With no `$EDITOR` set it prints the path instead, so
+A note is **any markdown or JSON file in the document's folder** — the name is
+yours, and `notes.md` is only what you get when you ask for a note and say
+nothing else. A markdown note is created with the title as a heading, a JSON one
+as `{}`; nothing else is a note, so `notes.txt` is refused rather than quietly
+renamed. With no `$EDITOR` set the command prints the path instead, so
 `$(sypy note <id>)` composes.
 
+Naming one is only needed once there is more than one. A document with a single
+note opens it whatever it is called, and a document with several lists them
+rather than picking, because the wrong pick is written into by a caller that
+asked for "the" notes.
+
 Notes are just files in the folder, so anything else you put there — figures,
-supplements, a scanned appendix — gets the same treatment. All of it is backed
-up with the document, follows it through a re-tag, and is deleted with it, which
-is why `sypy remove` asks first.
+supplements, a scanned appendix — gets the same treatment, minus being reported
+as a note. All of it is backed up with the document, follows it through a
+re-tag, and is deleted with it, which is why `sypy remove` asks first.
 
 ## Reading the library from a program
 
@@ -343,8 +354,9 @@ sypy find "vaswani attention" --json
 a cap that says nothing reads as the whole answer; `--limit 0` lifts it.
 
 `--json`, on `find` and on `list`, prints records instead of a table. Each
-carries the absolute path to the document, its folder, and its notes, because a
-result whose file the caller cannot open is only half an answer, along with when
+carries the absolute path to the document, its folder, and every note beside it,
+because a result whose file the caller cannot open is only half an answer, and a
+note it cannot find is one it will write a second copy of, along with when
 it was filed, how large it is, how many pages were read, and its attributes.
 
 `--sort` orders both: `id` (the default — a hash, so arbitrary but stable),
@@ -376,9 +388,11 @@ Opening `papers.duckdb` directly is not an alternative. DuckDB allows one
 process, and refuses a second connection even read-only, so it works only while
 no watcher is running.
 
-`sypy note <id> --path` prints where the notes live and stops, for a caller that
-means to write them itself. Without it the command opens `$EDITOR`, which a
-program that cannot drive one would be left holding open.
+`sypy note <id> [name] --path` prints where the note lives — creating it if it
+does not exist — and stops, for a caller that means to write it itself. Without
+`--path` the command opens `$EDITOR`, which a program that cannot drive one
+would be left holding open. A caller writing its own file should name it, since
+a bare `sypy note` refuses to choose once a document has several.
 
 `skills/sortyourpapers/` is an agent skill over all of it — what to run to find a document, how to read and annotate
 it, and which commands cost money or delete things and so are not to be run to
@@ -478,6 +492,7 @@ sypy retag <id> "Systems/Databases"    # re-tag: renames the folder, moves the l
 sypy retag <id>                        # ...or ask the model, and confirm
 sypy note kahn                         # id or words: any command taking a document
 sypy note <id>                         # open this document's notes ($EDITOR)
+sypy note <id> reading-log             # ...a note by name; .md unless you say .json
 sypy note <id> --path                  # ...or just say where they are
 sypy remove <id>                       # delete link, folder, and record (asks first)
 sypy scan                              # refresh hashes of files edited in place

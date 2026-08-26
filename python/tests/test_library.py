@@ -520,6 +520,95 @@ def test_a_note_lives_in_the_store_so_it_outlives_the_tree(
     assert (filing.link_path / "notes.md").is_file(), "and is reachable through the tree"
 
 
+def test_a_note_is_any_markdown_or_json_beside_the_document(
+    library: Library, tmp_path: Path
+) -> None:
+    """The name is the owner's to choose; the format is what makes it a note."""
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    paper = library.db.get(filing.file_id)
+    folder = library.document_dir(paper)
+    (folder / "reading-log.md").write_text("prose")
+    (folder / "extracted.json").write_text("{}")
+    (folder / "figure-1.png").write_bytes(b"not a note")
+    (folder / "scratch").mkdir()
+
+    assert [entry.name for entry in library.notes(paper)] == [
+        "extracted.json",
+        "reading-log.md",
+    ]
+
+
+def test_the_document_is_not_a_note_about_itself(
+    library: Library, tmp_path: Path
+) -> None:
+    """A markdown or JSON document sits in the same folder as its notes."""
+    paper = _paper(["AI"], document_name="the-contract.json")
+    filing = library.file_paper(paper, write_pdf(tmp_path / "src" / "raw.pdf", "text"))
+    filed = library.db.get(filing.file_id)
+    (library.document_dir(filed) / "notes.md").write_text("about the contract")
+
+    assert [entry.name for entry in library.notes(filed)] == ["notes.md"]
+    with pytest.raises(LibraryError, match="the document itself"):
+        library.note_path(filed, "the-contract.json")
+
+
+def test_a_bare_note_name_is_markdown(library: Library, tmp_path: Path) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    paper = library.db.get(filing.file_id)
+
+    assert library.note_path(paper, "reading-log").name == "reading-log.md"
+    assert library.note_path(paper, "reading-log.md").name == "reading-log.md"
+    assert library.note_path(paper, "extracted.json").name == "extracted.json"
+    assert library.note_path(paper).name == "notes.md", "the default is unchanged"
+
+
+@pytest.mark.parametrize("name", ["notes.txt", "notes.pdf", "v1.2"])
+def test_a_note_that_is_not_markdown_or_json_is_refused(
+    library: Library, tmp_path: Path, name: str
+) -> None:
+    """Renaming it would file it under a name its owner will not look for."""
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    paper = library.db.get(filing.file_id)
+
+    with pytest.raises(LibraryError, match="a note is"):
+        library.note_path(paper, name)
+
+
+@pytest.mark.parametrize("name", ["../escape.md", "sub/note.md", "..", "."])
+def test_a_note_name_cannot_lead_out_of_the_document_folder(
+    library: Library, tmp_path: Path, name: str
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    paper = library.db.get(filing.file_id)
+
+    with pytest.raises(LibraryError):
+        library.note_path(paper, name)
+
+
+def test_notes_of_any_name_travel_with_a_re_tagged_document(
+    library: Library, tmp_path: Path
+) -> None:
+    filing = library.file_paper(
+        _paper(["AI"]), write_pdf(tmp_path / "src" / "raw.pdf", "text")
+    )
+    paper = library.db.get(filing.file_id)
+    library.note_path(paper, "reading-log").write_text("why I saved this")
+
+    library.retag(filing.file_id, ["Machine Learning", "Attention"])
+
+    moved = library.db.get(filing.file_id)
+    assert [entry.name for entry in library.notes(moved)] == ["reading-log.md"]
+    assert library.note_path(moved, "reading-log").read_text() == "why I saved this"
+
+
 def test_a_file_left_in_the_tree_is_reported(library: Library, tmp_path: Path) -> None:
     # A real folder in the tree can be written into, and the tree is rebuilt and
     # not backed up — so anything found there is surfaced rather than kept

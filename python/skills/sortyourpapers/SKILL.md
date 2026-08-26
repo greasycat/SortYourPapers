@@ -42,7 +42,7 @@ Each record looks like this:
   "keywords": ["attention", "sequence modelling"],
   "document": "/…/store/5112ee75ddcf__…/vaswani_2017_attention-is-all-you-need.pdf",
   "folder": "/…/store/5112ee75ddcf__…",
-  "notes": "/…/store/5112ee75ddcf__…/notes.md",
+  "notes": ["/…/store/5112ee75ddcf__…/notes.md"],
   "original_name": "1706.03762v7.pdf",
   "from_page_images": false,
   "filed_at": "2026-08-24T23:06:38+00:00",
@@ -99,8 +99,8 @@ They live in the database beside the document's own labels, which means they
 **survive what everything else does not**: a re-tag, a rescan, a re-ingest of
 the same document, and a rebuilt tree all leave them untouched, and they are
 deleted only when the document is. That makes them the right place for a
-finding you want to still be there next session — a note in `notes.md` is prose
-for a person, an attribute is a field you can search on and read back exactly.
+finding you want to still be there next session — a note is prose for a person,
+an attribute is a field you can search on and read back exactly.
 
 They come back in every `find --json` and `list --json` record under
 `attributes`, so recording one costs nothing to read later.
@@ -112,11 +112,24 @@ not deleted when the document is.
 ## Take notes on it
 
 ```bash
-sypy note 5112ee75ddcf --path
+sypy note 5112ee75ddcf --path                # its only note, or a new notes.md
+sypy note 5112ee75ddcf reading-log --path    # a note by name
+sypy note 5112ee75ddcf extracted.json --path # JSON, for a note you read back
 ```
 
-Prints the path to the document's `notes.md`, creating it with a heading if it
-does not exist, and prints nothing else. Write or append to that file directly.
+Prints the path to that note, creating it if it does not exist — markdown with a
+heading, JSON as `{}` — and prints nothing else. Write or append to that file
+directly.
+
+A note is any markdown or JSON file in the document's folder, so the name is
+yours to choose; `notes.md` is only what a bare `sypy note` makes when the
+document has none. Every note that exists comes back in the record's `notes`
+list, so read that before writing rather than starting a second file about the
+same thing.
+
+**Name the note you mean.** A bare `sypy note <id>` opens the only note when
+there is exactly one, but exits 1 and lists them once there are several rather
+than guessing which you meant.
 
 Always pass `--path`. Without it the command opens `$EDITOR`, which will hang.
 
