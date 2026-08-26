@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Sequence
@@ -23,7 +24,7 @@ from .config import (
     resolve_api_key,
     resolve_settings,
 )
-from .db import Paper
+from .db import SORTS, Paper
 from .ingest import ingest_folder
 import os
 import shutil
@@ -787,17 +788,31 @@ def _claimed_folders(directory: Path) -> dict[Path, int]:
     return live_claims(directory)
 
 
+_SORT_HELP = f"Order of the results: {', '.join(SORTS)}."
+
+
 @app.command("list")
 def list_papers(
     library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    sort: str = typer.Option("id", "--sort", "-s", help=_SORT_HELP),
     as_json: bool = typer.Option(
         False, "--json", help="Print records instead of a table, for a program to read."
     ),
 ) -> None:
     """List what the library holds."""
     settings = _settings(None, library_dir)
+    _check_sort(sort)
     with Library(settings.output_dir) as library:
-        _report(library, library.db.all_papers(), as_json=as_json)
+        _report(library, library.db.all_papers(sort=sort), as_json=as_json)
+
+
+def _check_sort(sort: str) -> None:
+    """Refuse an unknown sort at the CLI, where the name was typed."""
+    if sort not in SORTS:
+        typer.echo(
+            f"error: unknown sort {sort!r}; one of {', '.join(SORTS)}", err=True
+        )
+        raise typer.Exit(code=2)
 
 
 @app.command()
@@ -809,6 +824,7 @@ def find(
     limit: int = typer.Option(
         20, "--limit", "-n", min=0, help="Most to show; 0 for all."
     ),
+    sort: str = typer.Option("id", "--sort", "-s", help=_SORT_HELP),
     as_json: bool = typer.Option(
         False, "--json", help="Print records instead of a table, for a program to read."
     ),
@@ -820,11 +836,14 @@ def find(
     reader gets from a search to the file itself.
     """
     settings = _settings(None, library_dir)
+    _check_sort(sort)
     with Library(settings.output_dir) as library:
         # One more than will be shown, which is how the cap is noticed. A
         # capped result that says nothing about it reads as the whole answer,
         # and the reader stops looking for the document that was cut off.
-        papers = library.db.search(query, limit=limit + 1 if limit else None)
+        papers = library.db.search(
+            query, limit=limit + 1 if limit else None, sort=sort
+        )
         capped = bool(limit) and len(papers) > limit
         _report(library, papers[:limit] if capped else papers, as_json=as_json)
         if capped:
@@ -835,11 +854,169 @@ def find(
             )
 
 
+@app.command()
+def categories(
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    as_json: bool = typer.Option(
+        False, "--json", help="Print records instead of a table, for a program to read."
+    ),
+) -> None:
+    """Show every category the library uses, and how many documents are under it.
+
+    What a re-tag should be decided from. The alternative was listing the whole
+    library and counting it by hand, which is a lot of reading to answer a
+    question the database can group.
+    """
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        counted = library.db.category_counts()
+    if as_json:
+        typer.echo(
+            json.dumps(
+                [{"category": path, "documents": count} for path, count in counted],
+                indent=2,
+            )
+        )
+        return
+    for path, count in counted:
+        typer.echo(f"{count:>5}  {path}")
+    typer.echo(f"\n{len(counted)} categor{'y' if len(counted) == 1 else 'ies'}")
+
+
+@app.command()
+def attr(
+    file_id: str = typer.Argument(..., help="Document id, or words from its title, authors, or keywords."),
+    key: str = typer.Argument(None, help="Attribute to read or write. Omit for all of them."),
+    value: str = typer.Argument(None, help="What to set it to. Omit to read it."),
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    unset: bool = typer.Option(False, "--unset", help="Forget the attribute instead."),
+    as_json: bool = typer.Option(
+        False, "--json", help="Print records instead of a table, for a program to read."
+    ),
+) -> None:
+    """Read and write a document's own fields: anything the library has no column for.
+
+    A DOI, a venue, a verdict, the day it was read — whatever the reader wants
+    kept about a document that the model was never asked for. They live in the
+    database beside the document's own labels, so they survive re-tagging and a
+    rebuilt tree, are deleted with the document, and are not touched by ingest:
+    a document re-read or re-hashed keeps everything written here.
+
+    Keys are the caller's to choose and are not interpreted. Storing a value
+    replaces what was there.
+    """
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        paper = _resolve(library, file_id)
+
+        if unset:
+            if key is None:
+                typer.echo("error: --unset needs the attribute to forget", err=True)
+                raise typer.Exit(code=2)
+            if not library.db.unset_attribute(paper.file_id, key):
+                typer.echo(f"error: {paper.file_id} has no {key!r}", err=True)
+                raise typer.Exit(code=1)
+            return
+
+        if value is not None:
+            library.db.set_attribute(paper.file_id, key, value)
+            return
+
+        held = library.db.attributes(paper.file_id)
+        if key is not None:
+            if key not in held:
+                typer.echo(f"error: {paper.file_id} has no {key!r}", err=True)
+                raise typer.Exit(code=1)
+            # Alone on stdout, so `$(sypy attr <id> doi)` yields just the value.
+            typer.echo(held[key] if held[key] is not None else "")
+            return
+
+    if as_json:
+        typer.echo(json.dumps(held, indent=2))
+        return
+    for name, held_value in held.items():
+        typer.echo(f"{name}\t{held_value if held_value is not None else ''}")
+
+
+@app.command()
+def sql(
+    statement: str = typer.Argument(..., help="One reading statement, e.g. \"SELECT title FROM papers\"."),
+    library_dir: Path = typer.Option(None, "--library", "-o", help="Library folder."),
+    limit: int = typer.Option(
+        200, "--limit", "-n", min=0, help="Most rows to show; 0 for all."
+    ),
+    as_json: bool = typer.Option(
+        False, "--json", help="Print records instead of a table, for a program to read."
+    ),
+) -> None:
+    """Query the library database directly, for what no other command reports.
+
+    The commands above answer the questions worth having a command for. This is
+    the rest of the database: when a document was filed, how large it is, how
+    many pages were read, and the page text banked in `model_answers`.
+
+    Only a single reading statement is accepted, which is a guard against a
+    query meant to count documents deleting them — not a sandbox. The tables
+    are `papers`, `paper_tags`, `paper_authors`, `paper_keywords`,
+    `paper_attributes`, and `model_answers`; `DESCRIBE <table>` shows the
+    columns of any of them.
+
+    Opening the file directly is not an alternative while a watcher is running:
+    DuckDB allows one process, and it refuses a second connection even to read.
+    """
+    settings = _settings(None, library_dir)
+    with Library(settings.output_dir) as library:
+        try:
+            # One more than will be shown, which is how the cap is noticed.
+            columns, rows = library.db.select(
+                statement, limit=limit + 1 if limit else None
+            )
+        except ValueError as err:
+            typer.echo(f"error: {err}", err=True)
+            raise typer.Exit(code=2) from err
+        except Exception as err:  # whatever DuckDB made of the statement
+            typer.echo(f"error: {err}", err=True)
+            raise typer.Exit(code=1) from err
+
+    capped = bool(limit) and len(rows) > limit
+    shown = rows[:limit] if capped else rows
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                [dict(zip(columns, row)) for row in shown],
+                indent=2,
+                default=str,
+            )
+        )
+    else:
+        typer.echo("\t".join(columns))
+        for row in shown:
+            typer.echo("\t".join("" if cell is None else str(cell) for cell in row))
+        typer.echo(f"\n{len(shown)} row(s)")
+    if capped:
+        typer.echo(
+            f"more than {limit} rows matched; add a LIMIT, "
+            "or pass --limit 0 for all of them",
+            err=True,
+        )
+
+
 def _report(library: Library, papers: Sequence[Paper], *, as_json: bool) -> None:
     """Show what was found, either to a person or to whatever called this."""
     if as_json:
+        # One query for the whole page rather than one per document: `list
+        # --json` describes the entire library, and each record already costs
+        # three queries to hydrate.
+        held = library.db.attributes_for([paper.file_id for paper in papers])
         typer.echo(
-            json.dumps([_describe(library, paper) for paper in papers], indent=2)
+            json.dumps(
+                [
+                    _describe(library, paper, held.get(paper.file_id, {}))
+                    for paper in papers
+                ],
+                indent=2,
+            )
         )
         return
     for paper in papers:
@@ -848,12 +1025,17 @@ def _report(library: Library, papers: Sequence[Paper], *, as_json: bool) -> None
     typer.echo(f"\n{len(papers)} document(s) in {library.root}")
 
 
-def _describe(library: Library, paper: Paper) -> dict:
+def _describe(
+    library: Library, paper: Paper, attributes: dict[str, str | None] | None = None
+) -> dict:
     """One document as a record, with the paths that lead to it.
 
     Paths are absolute because the caller is not standing anywhere in
     particular, and a record whose file cannot be opened from it is only half
     an answer.
+
+    `attributes` is passed in when the caller has already fetched them for a
+    whole page of results; left out, this fetches the one document's.
     """
     return {
         "id": paper.file_id,
@@ -868,7 +1050,22 @@ def _describe(library: Library, paper: Paper) -> dict:
         "notes": str(library.note_path(paper).resolve()),
         "original_name": paper.original_name,
         "from_page_images": paper.from_page_images,
+        "filed_at": _timestamp(paper.created_at_ms),
+        "updated_at": _timestamp(paper.updated_at_ms),
+        "size_bytes": paper.size_bytes,
+        "pages_read": paper.pages_read,
+        "attributes": (
+            library.db.attributes(paper.file_id) if attributes is None else attributes
+        ),
     }
+
+
+def _timestamp(milliseconds: int | None) -> str | None:
+    """A recorded time as UTC ISO 8601, which is the same everywhere it is read."""
+    if milliseconds is None:
+        return None
+    moment = datetime.fromtimestamp(milliseconds / 1000, tz=timezone.utc)
+    return moment.replace(microsecond=0).isoformat()
 
 
 def _watch_entry(name: str | None) -> WatchEntry | None:

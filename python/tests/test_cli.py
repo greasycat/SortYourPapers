@@ -628,3 +628,156 @@ def test_delete_by_word_shows_what_it_found_before_asking(library) -> None:
     with Library(root) as after:
         assert after.db.get("78c64b3b8ef6") is None
         assert after.db.get("aa11bb22cc33") is not None, "the other one is untouched"
+
+
+def _stocked(library):
+    """A small library with categories worth grouping and a year worth sorting."""
+    from sypy.db import Paper
+
+    library.db.upsert_many(
+        [
+            Paper(
+                file_id="aaaaaaaaaaaa",
+                content_hash="sha-a",
+                store_name="aaaaaaaaaaaa__AI__Transformers",
+                document_name="paper.pdf",
+                title="Attention Is All You Need",
+                year=2017,
+                size_bytes=900,
+                pages_read=2,
+                tags=["AI", "Transformers"],
+                authors=["Ashish Vaswani"],
+            ),
+            Paper(
+                file_id="bbbbbbbbbbbb",
+                content_hash="sha-b",
+                store_name="bbbbbbbbbbbb__Home__Utilities",
+                document_name="bill.pdf",
+                title="March Electricity Bill",
+                year=2026,
+                size_bytes=100,
+                tags=["Home", "Utilities"],
+            ),
+            Paper(
+                file_id="cccccccccccc",
+                content_hash="sha-c",
+                store_name="cccccccccccc__Home__Utilities",
+                document_name="bill.pdf",
+                title="April Electricity Bill",
+                year=2026,
+                size_bytes=200,
+                tags=["Home", "Utilities"],
+            ),
+        ]
+    )
+    root = library.root
+    library.close()
+    return root
+
+
+def test_categories_group_what_had_to_be_counted_by_hand(library) -> None:
+    """A re-tag is decided from this; before, it meant reading the whole library."""
+    root = _stocked(library)
+
+    result = _invoke(root, "categories")
+
+    assert "AI/Transformers" in result.output
+    assert "2  Home/Utilities" in result.output
+
+
+def test_a_record_carries_when_it_was_filed_and_how_large_it_is(library) -> None:
+    """Without these the library has no time dimension: no "what did I file today"."""
+    import json as _json
+
+    root = _stocked(library)
+
+    result = _invoke(root, "find", "attention", "--json")
+
+    record = _json.loads(result.output)[0]
+    assert record["size_bytes"] == 900
+    assert record["pages_read"] == 2
+    assert record["filed_at"].startswith("20") and record["filed_at"].endswith("+00:00")
+    assert record["attributes"] == {}
+
+
+def test_sorting_puts_the_answer_first_instead_of_a_hash_order(library) -> None:
+    root = _stocked(library)
+
+    result = _invoke(root, "list", "--sort", "size")
+
+    lines = [line for line in result.output.splitlines() if line.strip()]
+    assert lines[0].startswith("aaaaaaaaaaaa"), result.output
+
+
+def test_an_unknown_sort_is_refused_by_name(library) -> None:
+    root = _stocked(library)
+
+    result = _invoke(root, "list", "--sort", "sideways")
+
+    assert result.exit_code == 2
+    assert "unknown sort" in result.output
+
+
+def test_an_attribute_written_by_a_reader_survives_a_retag(library) -> None:
+    """The point of attributes: what a reader records outlives what a model said."""
+    import json as _json
+
+    root = _stocked(library)
+    _invoke(root, "attr", "aaaaaaaaaaaa", "verdict", "worth re-reading")
+
+    _invoke(root, "retag", "aaaaaaaaaaaa", "AI/Attention")
+    result = _invoke(root, "find", "attention", "--json")
+
+    assert _json.loads(result.output)[0]["attributes"] == {
+        "verdict": "worth re-reading"
+    }
+
+
+def test_one_attribute_prints_alone_so_it_can_be_captured(library) -> None:
+    # `$(sypy attr <id> doi)` has to yield the value and nothing else.
+    root = _stocked(library)
+    _invoke(root, "attr", "aaaaaaaaaaaa", "doi", "10.1000/xyz")
+
+    result = _invoke(root, "attr", "aaaaaaaaaaaa", "doi")
+
+    assert result.output.strip() == "10.1000/xyz"
+
+
+def test_forgetting_an_attribute_that_is_not_there_is_an_error(library) -> None:
+    root = _stocked(library)
+
+    result = _invoke(root, "attr", "aaaaaaaaaaaa", "doi", "--unset")
+
+    assert result.exit_code == 1
+    assert "no 'doi'" in result.output
+
+
+def test_sql_reaches_what_no_other_command_reports(library) -> None:
+    import json as _json
+
+    root = _stocked(library)
+
+    result = _invoke(
+        root, "sql", "SELECT title FROM papers ORDER BY size_bytes DESC", "--json"
+    )
+
+    assert _json.loads(result.output)[0]["title"] == "Attention Is All You Need"
+
+
+def test_sql_refuses_to_write_and_says_why(library) -> None:
+    root = _stocked(library)
+
+    result = _invoke(root, "sql", "DELETE FROM papers")
+
+    assert result.exit_code == 2
+    assert "single reading statement" in result.output
+    assert "3 document(s)" in _invoke(root, "list").output
+
+
+def test_sql_says_when_it_capped_the_rows(library) -> None:
+    # The same trap `find` has: a capped result that says nothing reads as all of it.
+    root = _stocked(library)
+
+    result = _invoke(root, "sql", "SELECT title FROM papers", "--limit", "1")
+
+    assert "more than 1 rows matched" in result.output

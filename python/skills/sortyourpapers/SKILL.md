@@ -44,7 +44,12 @@ Each record looks like this:
   "folder": "/…/store/5112ee75ddcf__…",
   "notes": "/…/store/5112ee75ddcf__…/notes.md",
   "original_name": "1706.03762v7.pdf",
-  "from_page_images": false
+  "from_page_images": false,
+  "filed_at": "2026-08-24T23:06:38+00:00",
+  "updated_at": "2026-08-24T23:06:38+00:00",
+  "size_bytes": 2215244,
+  "pages_read": 2,
+  "attributes": {"doi": "10.48550/arXiv.1706.03762"}
 }
 ```
 
@@ -58,9 +63,51 @@ them as approximate and say so if they matter.
 `sypy list --json` gives every document the same way. Prefer `find`: a large
 library is a lot to read, and the whole point of the labels is not having to.
 
+Both take `--sort`, which is how you answer a question about *which* document
+rather than which ones match: `id` (the default — a hash, so arbitrary but
+stable), `recent`, `updated`, `title`, `year`, `size`. "What did I file this
+week" is `sypy list --sort recent --json`; without a sort there is no order to
+read anything out of.
+
+```bash
+sypy categories
+```
+
+Every category path in use and how many documents are under it. Read this
+before re-filing anything, and before telling the user what their library
+covers — it is one query, where `list --json` is the whole library to count by
+hand.
+
 Both commands, and the ones below, take `--library <path>` when the user names a
 library. Without it `sypy` resolves the one this machine watches, which is
 usually right.
+
+## Record something about it
+
+```bash
+sypy attr 5112ee75ddcf                       # everything recorded
+sypy attr 5112ee75ddcf doi                   # one value, alone on stdout
+sypy attr 5112ee75ddcf doi 10.48550/arXiv.1706.03762   # set it
+sypy attr 5112ee75ddcf doi --unset           # forget it
+```
+
+Attributes are free key/value pairs on a document, for anything the library has
+no column for and the model was never asked: a DOI, a venue, a verdict, when it
+was read, what it was checked against. Keys are yours to choose.
+
+They live in the database beside the document's own labels, which means they
+**survive what everything else does not**: a re-tag, a rescan, a re-ingest of
+the same document, and a rebuilt tree all leave them untouched, and they are
+deleted only when the document is. That makes them the right place for a
+finding you want to still be there next session — a note in `notes.md` is prose
+for a person, an attribute is a field you can search on and read back exactly.
+
+They come back in every `find --json` and `list --json` record under
+`attributes`, so recording one costs nothing to read later.
+
+Use them rather than inventing a side-file. A file you write next to the
+library is not backed up with it, does not follow a re-tagged document, and is
+not deleted when the document is.
 
 ## Take notes on it
 
@@ -86,15 +133,42 @@ sypy retag 5112ee75ddcf "Medicine/Radiology"
 
 Only when the user asks, or when they agree a document is filed wrongly. It
 renames the document's folder and moves its link; nothing is copied and no
-model is called. Look at `sypy list --json` first to see what categories the
-library already uses, so a re-tag joins an existing branch instead of opening a
-near-duplicate of one.
+model is called. Run `sypy categories` first, so a re-tag joins an existing
+branch instead of opening a near-duplicate of one.
 
 **Always pass the category.** `sypy retag <id>` with no category asks the model
 where the document belongs and then waits at a prompt for a person to accept or
 reject it — a prompt you cannot answer, on a command that spends money each time
 round. Decide the category yourself and pass it, or tell the user to run the
 bare form themselves.
+
+## Ask the database anything else
+
+```bash
+sypy sql "SELECT title, year FROM papers ORDER BY created_at_ms DESC LIMIT 5" --json
+```
+
+The commands above cover the questions worth having a command for. This is the
+rest of the database, and it is a lot: `papers` (with `content_hash`,
+`size_bytes`, `pages_read`, `stored_mtime_ms`, `created_at_ms`,
+`updated_at_ms`), `paper_tags`, `paper_authors`, `paper_keywords`,
+`paper_attributes`, and `model_answers` — whose `page_text` column holds the
+text already extracted from each document's first pages. Reading that is free
+and already paid for; re-parsing the PDF to answer a question about its
+contents is not.
+
+`DESCRIBE papers` shows the columns of any of them. Join on `file_id`, except
+`model_answers`, which is keyed by `content_hash`.
+
+Only one reading statement is accepted — `SELECT`, `WITH`, `FROM`, `TABLE`,
+`VALUES`, `DESCRIBE`, `SUMMARIZE`, `SHOW` — and anything else is refused before
+it reaches the database. That is a guard against a query meant to count
+documents deleting them, not a permission boundary.
+
+Do not open `papers.duckdb` yourself with a DuckDB client. DuckDB allows one
+process at a time and refuses a second connection even to read, so it works
+only when no watcher is running — which is worse than not working, because it
+fails intermittently and for a reason that has nothing to do with the question.
 
 ## What not to run
 

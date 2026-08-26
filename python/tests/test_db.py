@@ -355,3 +355,98 @@ def test_a_retag_without_keywords_leaves_them_alone(tmp_path: Path) -> None:
         db.set_tags("abc123abc123", ["Systems"], "abc123abc123__Systems")
 
         assert sorted(db.get("abc123abc123").keywords) == ["attention", "sequence"]
+
+
+def test_a_rewrite_does_not_disturb_what_a_reader_recorded(tmp_path: Path) -> None:
+    """The property that makes attributes safe to build on.
+
+    A rescan, a re-tag, and a re-ingest all rewrite the paper row and its tags,
+    authors, and keywords. Anything a reader wrote about the document has to
+    outlive all three, or nothing can be trusted to it.
+    """
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper())
+        db.set_attribute("abc123abc123", "verdict", "worth re-reading")
+
+        db.upsert(_paper(title="A Paper, Revised", keywords=["different"]))
+
+        assert db.attributes("abc123abc123") == {"verdict": "worth re-reading"}
+
+
+def test_forgetting_an_attribute_says_whether_there_was_one(tmp_path: Path) -> None:
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper())
+        db.set_attribute("abc123abc123", "doi", "10.1000/xyz")
+
+        assert db.unset_attribute("abc123abc123", "doi") is True
+        assert db.unset_attribute("abc123abc123", "doi") is False
+        assert db.attributes("abc123abc123") == {}
+
+
+def test_attributes_for_answers_a_whole_page_in_one_query(tmp_path: Path) -> None:
+    # `list --json` describes every document, and asking per document would add
+    # a query per document to a path that already costs three.
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper(file_id="aaaaaaaaaaaa"))
+        db.upsert(_paper(file_id="bbbbbbbbbbbb"))
+        db.upsert(_paper(file_id="cccccccccccc"))
+        db.set_attribute("aaaaaaaaaaaa", "doi", "10.1000/a")
+        db.set_attribute("cccccccccccc", "venue", "NeurIPS")
+
+        held = db.attributes_for(["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"])
+
+    assert held == {
+        "aaaaaaaaaaaa": {"doi": "10.1000/a"},
+        "cccccccccccc": {"venue": "NeurIPS"},
+    }, "a document with none of them is absent, not an empty record"
+    assert db.attributes_for([]) == {}
+
+
+def test_when_a_document_was_filed_survives_a_retag(tmp_path: Path) -> None:
+    """Re-filing a document is not the same as filing it, and `recent` says so."""
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper())
+        filed = db.get("abc123abc123").created_at_ms
+
+        db.set_tags("abc123abc123", ["Systems"], "abc123abc123__Systems.pdf")
+        after = db.get("abc123abc123")
+
+    assert after.created_at_ms == filed
+    assert after.updated_at_ms >= filed
+
+
+def test_sorting_orders_by_what_was_asked_for(tmp_path: Path) -> None:
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper(file_id="cccccccccccc", title="Zebra", year=1999, size_bytes=10))
+        db.upsert(_paper(file_id="aaaaaaaaaaaa", title="Apple", year=2020, size_bytes=30))
+        db.upsert(_paper(file_id="bbbbbbbbbbbb", title="Mango", year=None, size_bytes=20))
+
+        def ids(sort):
+            return [paper.file_id for paper in db.all_papers(sort=sort)]
+
+        assert ids("id") == ["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"]
+        assert ids("title") == ["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"]
+        assert ids("size") == ["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"]
+        # A document with no year is not the oldest one; it goes last.
+        assert ids("year") == ["aaaaaaaaaaaa", "cccccccccccc", "bbbbbbbbbbbb"]
+
+
+def test_an_unknown_sort_is_refused_rather_than_reaching_the_sql(
+    tmp_path: Path,
+) -> None:
+    """The sort names a clause; it never supplies one."""
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        with pytest.raises(ValueError, match="unknown sort"):
+            db.all_papers(sort="file_id; DROP TABLE papers")
+
+
+def test_category_counts_group_what_was_being_counted_by_hand(tmp_path: Path) -> None:
+    with PaperDb(tmp_path / "papers.duckdb") as db:
+        db.upsert(_paper(file_id="aaaaaaaaaaaa", tags=["AI", "Transformers"]))
+        db.upsert(_paper(file_id="bbbbbbbbbbbb", tags=["Home", "Utilities"]))
+        db.upsert(_paper(file_id="cccccccccccc", tags=["Home", "Utilities"]))
+
+        assert db.category_counts() == [
+            ("AI/Transformers", 1),
+            ("Home/Utilities", 2),
+        ]

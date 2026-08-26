@@ -159,6 +159,12 @@ class Paper:
     tags: list[str] = field(default_factory=list)
     authors: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
+    # When the library first recorded this document and last changed it. Read
+    # from the database and never written back: `_write` keeps the original
+    # `created_at_ms` of a row it replaces, so a re-tag does not reset the day
+    # a document was filed.
+    created_at_ms: int | None = None
+    updated_at_ms: int | None = None
 
 
 def now_ms() -> int:
@@ -207,8 +213,24 @@ def _decode_labels(content_hash: str, payload: str | None) -> KeywordPair | None
 _PAPER_COLUMNS = (
     "file_id, content_hash, store_name, original_name, source_path, "
     "size_bytes, pages_read, title, year, stored_mtime_ms, "
-    "from_page_images, document_name"
+    "from_page_images, document_name, created_at_ms, updated_at_ms"
 )
+
+# What `sort=` may ask for, and the only place a sort reaches the SQL. The
+# caller names a key; it never supplies an ORDER BY.
+#
+# `id` is first because it is the stable one: a hash orders arbitrarily but
+# identically every time, which is what makes a capped result reproducible.
+# Everything else puts unknowns last, since a document with no year is not the
+# oldest one and a reader scanning from the top should not meet it first.
+SORTS = {
+    "id": "p.file_id",
+    "recent": "p.created_at_ms DESC NULLS LAST",
+    "updated": "p.updated_at_ms DESC NULLS LAST",
+    "title": "lower(coalesce(p.title, p.original_name, p.store_name))",
+    "year": "p.year DESC NULLS LAST",
+    "size": "p.size_bytes DESC NULLS LAST",
+}
 
 # What one search word is checked against. A paper is described in four columns
 # and three side tables, and a reader searching for "vaswani" does not know or
@@ -236,6 +258,71 @@ def _like(word: str) -> str:
     """
     escaped = word.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
     return f"%{escaped}%"
+
+
+def _order_by(sort: str) -> str:
+    """The ORDER BY for a named sort. Unknown names are refused, not guessed."""
+    try:
+        return SORTS[sort]
+    except KeyError:
+        raise ValueError(
+            f"unknown sort {sort!r}; one of {', '.join(SORTS)}"
+        ) from None
+
+
+# What a read-only statement may begin with. All of them read in DuckDB:
+# nothing here can insert, update, delete, attach, copy, or set a setting.
+_READ_ONLY_HEADS = frozenset(
+    {"select", "with", "from", "table", "values", "describe", "summarize", "show"}
+)
+
+
+def _skeleton(sql: str) -> str:
+    """`sql` with comments dropped and string bodies blanked.
+
+    Only ever inspected, never executed. Blanking the inside of a literal is
+    what stops `SELECT ';DROP'` from reading as two statements, and dropping
+    comments is what stops `--` from hiding one.
+    """
+    out: list[str] = []
+    index, end = 0, len(sql)
+    while index < end:
+        pair = sql[index : index + 2]
+        if pair == "--":
+            while index < end and sql[index] != "\n":
+                index += 1
+        elif pair == "/*":
+            index += 2
+            while index < end and sql[index : index + 2] != "*/":
+                index += 1
+            index += 2
+        elif sql[index] in "\'\"":
+            quote = sql[index]
+            out.append(" ")
+            index += 1
+            # A doubled quote closes and reopens, which lands here again.
+            while index < end and sql[index] != quote:
+                index += 1
+            index += 1
+        else:
+            out.append(sql[index])
+            index += 1
+    return "".join(out)
+
+
+def is_read_only(sql: str) -> bool:
+    """Whether `sql` is one statement that only reads.
+
+    A guard against a mistake, not a sandbox: it is what stops a query meant to
+    count documents from deleting them, and what stops a second statement
+    riding in behind the first. Anyone who can run this can already read the
+    database file.
+    """
+    skeleton = _skeleton(sql).strip().rstrip(";").strip()
+    words = skeleton.split()
+    if not words or ";" in skeleton:
+        return False
+    return words[0].lower() in _READ_ONLY_HEADS
 
 
 class PaperDb:
@@ -380,13 +467,15 @@ class PaperDb:
             return None
         return self._hydrate(row)
 
-    def all_papers(self) -> list[Paper]:
+    def all_papers(self, sort: str = "id") -> list[Paper]:
         rows = self._conn.execute(
-            f"SELECT {_PAPER_COLUMNS} FROM papers ORDER BY file_id"  # noqa: S608
+            f"SELECT {_PAPER_COLUMNS} FROM papers p ORDER BY {_order_by(sort)}"  # noqa: S608
         ).fetchall()
         return [self._hydrate(row) for row in rows]
 
-    def search(self, query: str, limit: int | None = None) -> list[Paper]:
+    def search(
+        self, query: str, limit: int | None = None, sort: str = "id"
+    ) -> list[Paper]:
         """Every paper matching all of `query`'s words, anywhere it is described.
 
         A word matches against the id, the title, the original filename, the
@@ -407,7 +496,7 @@ class PaperDb:
         ceiling = f" LIMIT {int(limit)}" if limit is not None else ""
         rows = self._conn.execute(
             f"SELECT {_PAPER_COLUMNS} FROM papers p "  # noqa: S608
-            f"WHERE {clauses} ORDER BY p.file_id{ceiling}",
+            f"WHERE {clauses} ORDER BY {_order_by(sort)}{ceiling}",
             params,
         ).fetchall()
         return [self._hydrate(row) for row in rows]
@@ -552,12 +641,70 @@ class PaperDb:
                     f"DELETE FROM {table} WHERE file_id = ?", [file_id]  # noqa: S608
                 )
 
+    def select(self, sql: str, limit: int | None = None) -> tuple[list[str], list[tuple]]:
+        """Run one read-only statement, returning its column names and rows.
+
+        The whole database is in reach here, including what no command reports:
+        when a document was filed, how large it is, and the page text banked in
+        `model_answers`.
+
+        Raises:
+            ValueError: if `sql` is not a single reading statement.
+        """
+        if not is_read_only(sql):
+            raise ValueError(
+                "only a single reading statement is allowed "
+                f"({', '.join(sorted(_READ_ONLY_HEADS))})"
+            )
+        cursor = self._conn.execute(sql)
+        columns = [column[0] for column in cursor.description or []]
+        rows = cursor.fetchall() if limit is None else cursor.fetchmany(limit)
+        return columns, rows
+
+    def category_counts(self) -> list[tuple[str, int]]:
+        """Every category path in use and how many documents are under it.
+
+        The question `list --json` was being dumped whole to answer: where a
+        new document could join instead of opening a branch beside one.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT path, count(*) AS documents FROM (
+                SELECT file_id, string_agg(tag, '/' ORDER BY position) AS path
+                FROM paper_tags
+                GROUP BY file_id
+            )
+            GROUP BY path
+            ORDER BY path
+            """
+        ).fetchall()
+        return [(path, count) for path, count in rows]
+
     def attributes(self, file_id: str) -> dict[str, str | None]:
         rows = self._conn.execute(
             "SELECT key, value FROM paper_attributes WHERE file_id = ? ORDER BY key",
             [file_id],
         ).fetchall()
         return {key: value for key, value in rows}
+
+    def attributes_for(self, file_ids: Sequence[str]) -> dict[str, dict[str, str | None]]:
+        """Every listed document's attributes, in one query.
+
+        `list --json` describes the whole library, and asking per document
+        would add a query per document to a path that already has three.
+        """
+        if not file_ids:
+            return {}
+        places = ", ".join("?" for _ in file_ids)
+        rows = self._conn.execute(
+            "SELECT file_id, key, value FROM paper_attributes "  # noqa: S608
+            f"WHERE file_id IN ({places}) ORDER BY file_id, key",
+            list(file_ids),
+        ).fetchall()
+        found: dict[str, dict[str, str | None]] = {}
+        for file_id, key, value in rows:
+            found.setdefault(file_id, {})[key] = value
+        return found
 
     def _hydrate(self, row: tuple) -> Paper:
         file_id = row[0]
@@ -574,6 +721,8 @@ class PaperDb:
             stored_mtime_ms=row[9],
             from_page_images=bool(row[10]),
             document_name=row[11] or "",
+            created_at_ms=row[12],
+            updated_at_ms=row[13],
             tags=self._ordered(file_id, "paper_tags", "tag"),
             authors=self._ordered(file_id, "paper_authors", "name"),
             keywords=[
@@ -753,6 +902,16 @@ class PaperDb:
             self._conn.execute(
                 "INSERT INTO paper_attributes VALUES (?, ?, ?)", [file_id, key, value]
             )
+
+    def unset_attribute(self, file_id: str, key: str) -> bool:
+        """Forget one attribute. False if the document did not have it."""
+        with self._transaction():
+            removed = self._conn.execute(
+                "DELETE FROM paper_attributes WHERE file_id = ? AND key = ? "
+                "RETURNING key",
+                [file_id, key],
+            ).fetchall()
+        return bool(removed)
 
     def _replace_ordered(
         self, file_id: str, table: str, column: str, values: list[str]

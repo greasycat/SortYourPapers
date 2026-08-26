@@ -32,6 +32,15 @@ coalesced, missed, or caused by its own writes. A folder must stop changing for
 three seconds before a pass starts, so a PDF still being copied in is never read
 half-written.
 
+Every pass says what it filed and where — `filed vaswani_2017_attention-is-all-you-need
+under AI/Transformers`, one line per document — and a pass that filed something
+also puts it on screen as a desktop notification, since a watcher running as a
+service is otherwise only visible in a log nobody is reading at the time. The
+category is the part that can be wrong, and this is what makes it noticeable
+while it is still one document rather than fifty. Notifications go through
+`osascript` on macOS and `notify-send` on Linux; a machine with neither, or a
+service that cannot reach a session bus, loses the notification and nothing else.
+
 ## What leaves your machine
 
 **Every document you file is sent to OpenAI.** There is no local model and no
@@ -335,15 +344,43 @@ a cap that says nothing reads as the whole answer; `--limit 0` lifts it.
 
 `--json`, on `find` and on `list`, prints records instead of a table. Each
 carries the absolute path to the document, its folder, and its notes, because a
-result whose file the caller cannot open is only half an answer. Nothing else
-takes `--json`: the maintenance commands are read by people.
+result whose file the caller cannot open is only half an answer, along with when
+it was filed, how large it is, how many pages were read, and its attributes.
+
+`--sort` orders both: `id` (the default — a hash, so arbitrary but stable),
+`recent`, `updated`, `title`, `year`, `size`. Without it there is no order to
+read an answer out of, so "the three most recent" is not a question the library
+could be asked.
+
+`sypy categories` lists every category path in use with a count under each. It
+is what a re-tag should be decided from, and the alternative was listing the
+whole library and grouping it by hand.
+
+`sypy attr <id> [key] [value]` reads and writes free key/value pairs on a
+document — a DOI, a venue, a verdict, the day it was read. They live in the
+database beside the document's own labels and are not part of what ingest
+writes, so a rescan, a re-tag, and a re-ingest of the same document all leave
+them alone; only removing the document removes them. `--unset` forgets one.
+They come back in every `--json` record under `attributes`.
+
+`sypy sql "<statement>"` is the rest of the database, for what no command
+reports: `stored_mtime_ms`, `content_hash`, and the `page_text` in
+`model_answers` — the text already extracted from each document, which a reader
+would otherwise re-parse the PDF to get. Only a single reading statement is
+accepted (`SELECT`, `WITH`, `FROM`, `TABLE`, `VALUES`, `DESCRIBE`, `SUMMARIZE`,
+`SHOW`); anything else is refused before it reaches the database. That is a
+guard against a query written to count documents deleting them, not a
+permission boundary — whoever can run it can already read the file.
+
+Opening `papers.duckdb` directly is not an alternative. DuckDB allows one
+process, and refuses a second connection even read-only, so it works only while
+no watcher is running.
 
 `sypy note <id> --path` prints where the notes live and stops, for a caller that
 means to write them itself. Without it the command opens `$EDITOR`, which a
 program that cannot drive one would be left holding open.
 
-Together those three are the whole read surface. `skills/sortyourpapers/` is an
-agent skill over them — what to run to find a document, how to read and annotate
+`skills/sortyourpapers/` is an agent skill over all of it — what to run to find a document, how to read and annotate
 it, and which commands cost money or delete things and so are not to be run to
 answer a question. `./install.sh` links it into `~/.claude/skills`, alongside
 putting `sypy` on PATH: a skill an agent cannot find is no more use than a
@@ -431,7 +468,12 @@ sypy watch  --input ./inbox --mode copy     # keep doing it as documents arrive
 
 sypy list                              # what the library holds
 sypy list --json                       # ...as records, for a program to read
+sypy list --sort recent                # id (default), recent, updated, title, year, size
 sypy find "attention 2017"             # by title, author, keyword, tag, year, or id
+sypy categories                        # every category in use, and how many are under it
+sypy attr <id>                         # free key/value pairs kept on a document
+sypy attr <id> doi 10.1000/xyz         # ...set one; --unset forgets it
+sypy sql "SELECT ..."                  # the database directly, reading only
 sypy retag <id> "Systems/Databases"    # re-tag: renames the folder, moves the link
 sypy retag <id>                        # ...or ask the model, and confirm
 sypy note kahn                         # id or words: any command taking a document
