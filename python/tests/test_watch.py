@@ -20,6 +20,16 @@ def _fast_watcher(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch_module, "IDLE_RESCAN_SECONDS", 0.05)
 
 
+@pytest.fixture(autouse=True)
+def notifications(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Catch what would be put on screen, so the suite does not put it there."""
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        watch_module, "notify", lambda title, body: sent.append((title, body)) or True
+    )
+    return sent
+
+
 async def test_ingests_what_is_already_waiting(settings: Settings, library: Library) -> None:
     write_pdf(settings.input_dir / "a.pdf", "attention")
     client = FakeLlmClient()
@@ -295,3 +305,58 @@ async def test_a_document_too_large_to_read_is_named_in_the_log(
     assert any(
         "huge.pdf" in record.getMessage() for record in caplog.records
     ), [record.getMessage() for record in caplog.records]
+
+
+async def test_where_a_document_landed_reaches_the_log(
+    settings: Settings, library: Library, caplog
+) -> None:
+    """A count says a pass happened; the category is the part that can be wrong.
+
+    It is also the only thing a person can act on without opening the library.
+    """
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+    caplog.set_level("INFO")
+
+    await asyncio.wait_for(
+        watch(settings, FakeLlmClient("AI/Transformers"), library, mode=FilingMode.MOVE, max_passes=1),
+        timeout=10,
+    )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "vaswani_2017_attention-is-all-you-need" in message
+        and "AI/Transformers" in message
+        for message in messages
+    ), messages
+
+
+async def test_a_pass_that_filed_something_says_so_on_screen(
+    settings: Settings, library: Library, notifications
+) -> None:
+    """The watcher runs as a service, and its log is read hours later if at all."""
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+
+    await asyncio.wait_for(
+        watch(settings, FakeLlmClient("AI/Transformers"), library, mode=FilingMode.MOVE, max_passes=1),
+        timeout=10,
+    )
+
+    assert len(notifications) == 1, notifications
+    title, body = notifications[0]
+    assert title == "Filed 1 document"
+    assert "vaswani_2017_attention-is-all-you-need" in body
+    assert "AI/Transformers" in body
+
+
+async def test_a_preview_pass_announces_nothing(
+    settings: Settings, library: Library, notifications
+) -> None:
+    # Nothing was filed, so there is nothing to tell anyone about.
+    write_pdf(settings.input_dir / "a.pdf", "attention")
+
+    await asyncio.wait_for(
+        watch(settings, FakeLlmClient(), library, mode=FilingMode.PREVIEW, max_passes=1),
+        timeout=10,
+    )
+
+    assert notifications == []

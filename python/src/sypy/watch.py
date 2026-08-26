@@ -17,8 +17,9 @@ from watchdog.observers import Observer
 from .config import Settings
 from .discovery import Snapshot, snapshot_input
 from .ingest import IngestReport, ingest_folder
-from .library import FilingMode, Library
+from .library import FilingMode, Library, PlannedFiling
 from .llm import LlmClient
+from .notify import notify
 from .watchlock import claim as claim_folders
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,11 @@ SETTLE_SECONDS = 3.0
 # Rescan interval when no event arrives, so a missed event delays a run rather
 # than stalling the watcher.
 IDLE_RESCAN_SECONDS = 60.0
+
+# How many documents a notification names before it summarises the rest. A
+# notification is read at a glance, and a pass over a folder of fifty is not
+# something a person reads off their screen.
+NOTIFY_LINES = 3
 
 
 class _WakeHandler(FileSystemEventHandler):
@@ -122,13 +128,29 @@ async def watch(
                     "%d document(s) missing from the store",
                     len(report.rescan.missing),
                 )
+            # What was filed and where, before the counts. A count says a pass
+            # happened; where a document landed is the part that can be wrong,
+            # and the only part worth reading a category off.
+            verb = "filed" if mode.writes else "would file"
+            for filing in report.filed or report.planned:
+                log.info(
+                    "%s %s under %s",
+                    verb,
+                    filing.link_path.name,
+                    _category(library, filing) or "no category",
+                )
             log.info(
                 "%s %d document(s), %d already known, %d failed",
-                "filed" if mode.writes else "would file",
+                verb,
                 report.processed,
                 report.skipped_already_known,
                 len(report.failed),
             )
+            if report.filed:
+                # Off the loop thread: a notifier that hangs holds its timeout,
+                # not the watcher. Preview files nothing, so it announces
+                # nothing.
+                await asyncio.to_thread(_announce, library, report.filed)
             # The counts above are all a service leaves behind, and a count is
             # not something anyone can act on: a disk that filled, a key that
             # expired, and a corrupt PDF all read as "1 failed". The reason is
@@ -147,6 +169,26 @@ async def watch(
         claim.release()
 
     return reports
+
+
+def _category(library: Library, filing: PlannedFiling) -> str:
+    """The tags a document was filed under, as the tree spells them."""
+    relative = filing.link_path.parent.relative_to(library.tree_dir)
+    return "" if str(relative) == "." else str(relative)
+
+
+def _announce(library: Library, filed: list[PlannedFiling]) -> None:
+    """Put a pass on screen, for a watcher nobody is watching."""
+    lines = [
+        f"{filing.link_path.name} \u2192 {_category(library, filing) or 'no category'}"
+        for filing in filed[:NOTIFY_LINES]
+    ]
+    if len(filed) > NOTIFY_LINES:
+        lines.append(f"+{len(filed) - NOTIFY_LINES} more")
+    notify(
+        f"Filed {len(filed)} document{'s' if len(filed) != 1 else ''}",
+        "\n".join(lines),
+    )
 
 
 def _start_observer(settings: Settings, wake: asyncio.Event) -> Observer:
