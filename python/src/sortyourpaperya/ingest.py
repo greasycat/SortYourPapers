@@ -2,7 +2,7 @@
 
 A pass runs in phases, and the split is deliberate: DuckDB allows one writing
 process, so any stretch where this holds the lock is a stretch where no other
-``sypy`` command can run. Everything slow is therefore done with no connection
+``sortyourpaperya`` command can run. Everything slow is therefore done with no connection
 open, and the database is visited in three short bursts between:
 
 1. hash every candidate                     no database
@@ -94,7 +94,7 @@ async def ingest_folder(
     files, parsing PDFs, calling the model, and copying files all happen with no
     connection held; the database is visited in three short bursts between them.
     DuckDB allows one writing process, so a pass that held its lock across the
-    file work would shut every other `sypy` command out for the length of it.
+    file work would shut every other `sortyourpaperya` command out for the length of it.
     """
     report = IngestReport()
     report.rescan = _reconcile_store(library, write=mode.writes)
@@ -234,7 +234,7 @@ async def ingest_folder(
         except LibraryError as err:
             # The document is in the library — placed and recorded — and only
             # its link could not be made, so this is not a failed filing. Say
-            # so and move on; `sypy tree` puts the link in once what is sitting
+            # so and move on; `sortyourpaperya tree` puts the link in once what is sitting
             # in its place has been moved.
             log.warning("%s", err)
             report.failed.append((source, str(err)))

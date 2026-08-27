@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from sypy.budget import (
+from sortyourpaperya.budget import (
     BUCKET_SECONDS,
     WINDOW_SECONDS,
     Budget,
@@ -16,9 +16,9 @@ from sypy.budget import (
     ledger_path,
     resolve_limits,
 )
-from sypy.extract import PaperText
-from sypy.llm import OpenAiClient
-from sypy.render import PageImage
+from sortyourpaperya.extract import PaperText
+from sortyourpaperya.llm import OpenAiClient
+from sortyourpaperya.render import PageImage
 
 
 @pytest.fixture
@@ -58,7 +58,7 @@ def test_the_refusal_says_which_knob_lifts_it(ledger: Budget) -> None:
 
 
 def test_spend_falls_out_of_the_window(ledger: Budget, monkeypatch) -> None:
-    import sypy.budget as budget_module
+    import sortyourpaperya.budget as budget_module
 
     now = 1_000_000.0
     monkeypatch.setattr(budget_module.time, "time", lambda: now)
@@ -132,9 +132,9 @@ def test_limits_come_from_the_environment(monkeypatch) -> None:
 
 def test_the_ledger_is_machine_wide_not_per_library(tmp_path: Path, monkeypatch) -> None:
     # Two libraries on one API key spend the same money.
-    monkeypatch.setenv("SYPY_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("SORTYOURPAPERYA_STATE_DIR", str(tmp_path / "state"))
 
-    assert ledger_path().parent == tmp_path / "state" / "sypy"
+    assert ledger_path().parent == tmp_path / "state" / "sortyourpaperya"
 
 
 # ---- the client -----------------------------------------------------------

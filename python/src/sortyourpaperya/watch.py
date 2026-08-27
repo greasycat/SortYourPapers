@@ -95,7 +95,7 @@ async def watch(
             pending = _pending(settings, library)
             if not pending or pending == last_run:
                 # Nothing to do, so hold no database lock while waiting or the
-                # other `sypy` commands could never run against this library.
+                # other `sortyourpaperya` commands could never run against this library.
                 library.release()
                 await _wait_for_change(wake)
                 continue

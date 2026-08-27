@@ -49,15 +49,15 @@ DEFAULT_LABEL_CACHE_DAYS = 7
 
 
 def state_dir() -> Path:
-    """Where this machine keeps what one `sypy` invocation leaves for the next.
+    """Where this machine keeps what one `sortyourpaperya` invocation leaves for the next.
 
     Watch claims and the spend ledger, neither of which belongs to any one
-    library. `SYPY_STATE_DIR` overrides it, which is how the tests keep out of
+    library. `SORTYOURPAPERYA_STATE_DIR` overrides it, which is how the tests keep out of
     the real user directories.
     """
-    state = os.environ.get("SYPY_STATE_DIR") or os.environ.get("XDG_STATE_HOME")
+    state = os.environ.get("SORTYOURPAPERYA_STATE_DIR") or os.environ.get("XDG_STATE_HOME")
     base = Path(state) if state else Path.home() / ".local" / "state"
-    return Path(base) / "sypy"
+    return Path(base) / "sortyourpaperya"
 
 
 class ConfigError(RuntimeError):

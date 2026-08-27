@@ -1,4 +1,4 @@
-"""Command line entry points for `sypy`."""
+"""Command line entry points for `sortyourpaperya`."""
 
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ from .watch import watch as watch_loop
 from .watchlock import WatchConflict
 
 app = typer.Typer(
-    help="SortYourPapers: LLM ingest and folder watcher.",
-    # A bare `sypy` is someone asking what this does, so answer that rather
+    help="sortyourpaperya: LLM ingest and folder watcher.",
+    # A bare `sortyourpaperya` is someone asking what this does, so answer that rather
     # than an error saying a command is missing without naming one.
     no_args_is_help=True,
 )
@@ -61,7 +61,7 @@ def _configure(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     that crashed an hour ago — which is exactly the question a restart loop
     raises.
 
-    With `SYPY_LOG_FILE` set — which is how the service runs — the log goes to
+    With `SORTYOURPAPERYA_LOG_FILE` set — which is how the service runs — the log goes to
     that file through a rotating handler instead of to stderr, so a watcher left
     running for months cannot fill the disk. Instead of, not as well as: under
     launchd stderr is itself redirected to a file that nothing rotates, and
@@ -72,7 +72,7 @@ def _configure(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     Only the service sets it. A rotating handler is safe for a single writer,
     and two processes rotating one file can lose each other's lines.
     """
-    log_file = (os.environ.get("SYPY_LOG_FILE") or "").strip()
+    log_file = (os.environ.get("SORTYOURPAPERYA_LOG_FILE") or "").strip()
     if log_file:
         path = Path(log_file).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +87,7 @@ def _configure(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     # Everything gets a handler, but only this package's own lines are turned
     # up to INFO. The HTTP client underneath logs a line per request at INFO,
     # which says nothing this tool does not already report and which lands in
-    # the middle of `sypy retag`'s prompt while it waits for an answer.
+    # the middle of `sortyourpaperya retag`'s prompt while it waits for an answer.
     #
     # Quieting the root and raising ours, rather than naming the loggers to
     # silence: the OpenAI SDK vendors its HTTP client, so that logger is called
@@ -220,7 +220,7 @@ def tree(
                 typer.echo(f"    {path.relative_to(library.tree_dir)}", err=True)
             typer.echo(
                 "  move them into the document's folder "
-                "(`sypy note <id>` opens one) to keep them.",
+                "(`sortyourpaperya note <id>` opens one) to keep them.",
                 err=True,
             )
 
@@ -228,8 +228,8 @@ def tree(
 def _resolve(library: Library, needle: str) -> Paper:
     """The document a command should act on, named by id or by words.
 
-    Nobody remembers `78c64b3b8ef6`. `sypy retag kahn` should be enough, and the
-    search behind `sypy find` already matches ids, titles, authors, keywords,
+    Nobody remembers `78c64b3b8ef6`. `sortyourpaperya retag kahn` should be enough, and the
+    search behind `sortyourpaperya find` already matches ids, titles, authors, keywords,
     tags, and years — so this is that search with a single answer required.
 
     An exact id wins outright and is never searched for, so a document can
@@ -246,7 +246,7 @@ def _resolve(library: Library, needle: str) -> Paper:
         raise typer.Exit(code=1)
     if len(matches) == 1:
         found = matches[0]
-        # To stderr: `sypy note <id> --path` is composed as `$(...)`, and a
+        # To stderr: `sortyourpaperya note <id> --path` is composed as `$(...)`, and a
         # second line on stdout would land in the path.
         typer.echo(f"{found.file_id}  {_label(found)}", err=True)
         return found
@@ -678,7 +678,7 @@ def backup(
 ) -> None:
     """Copy the store and the database somewhere safe, together.
 
-    They are only useful as a pair, and the tree is not copied because `sypy
+    They are only useful as a pair, and the tree is not copied because `sortyourpaperya
     tree` rebuilds it. Run it from cron or a launchd agent for a nightly copy.
     """
     settings = _settings(None, library_dir)
@@ -692,7 +692,7 @@ def backup(
     typer.echo(f"backed up {report.documents} document(s) to {report.destination}")
     typer.echo(f"  database  {report.database.name}")
     typer.echo(f"  store     {report.bytes_copied / 1e6:.1f} MB")
-    typer.echo("  the tree is not copied; `sypy tree` rebuilds it")
+    typer.echo("  the tree is not copied; `sortyourpaperya tree` rebuilds it")
 
 
 @app.command()
@@ -773,7 +773,7 @@ def watch_target(
     if entry is None:
         typer.echo(
             "no watch to install: declare one in "
-            f"{registry_path()} (see `sypy watches`), or pass the folders",
+            f"{registry_path()} (see `sortyourpaperya watches`), or pass the folders",
             err=True,
         )
         raise typer.Exit(code=2)
@@ -797,7 +797,7 @@ def watches() -> None:
         typer.echo("Declare one:\n")
         typer.echo('  [watch.downloads]')
         typer.echo('  input   = "~/Downloads"')
-        typer.echo('  library = "~/Documents/sypy-library"')
+        typer.echo('  library = "~/Documents/sortyourpaperya-library"')
         typer.echo('  mode    = "copy"')
         return
 
@@ -962,7 +962,7 @@ def attr(
             if key not in held:
                 typer.echo(f"error: {paper.file_id} has no {key!r}", err=True)
                 raise typer.Exit(code=1)
-            # Alone on stdout, so `$(sypy attr <id> doi)` yields just the value.
+            # Alone on stdout, so `$(sortyourpaperya attr <id> doi)` yields just the value.
             typer.echo(held[key] if held[key] is not None else "")
             return
 

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from sypy.library import FilingMode
-from sypy.registry import RegistryError, load_registry, registry_path
+from sortyourpaperya.library import FilingMode
+from sortyourpaperya.registry import RegistryError, load_registry, registry_path
 
 
 def _write(body: str) -> Path:

@@ -7,7 +7,7 @@
 #
 # Regenerate deliberately, never as a side effect of installing:
 #
-#     ./python/scripts/sypy-path relock
+#     ./python/scripts/sortyourpaperya-path relock
 #
 # Versions only, not hashes: this pins what is installed, and does not attempt
 # to prove the package index handed over the same bytes it did last time.

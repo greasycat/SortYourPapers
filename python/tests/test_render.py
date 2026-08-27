@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from conftest import write_scanned_pdf
 
-from sypy.render import (
+from sortyourpaperya.render import (
     RenderError,
     render_pages,
     renderer_available,

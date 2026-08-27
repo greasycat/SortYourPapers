@@ -4,7 +4,7 @@ Ingest labels a document once, steered towards the paths the library already
 uses so that two utility bills do not open two unrelated branches. That steering
 is also how a document ends up somewhere wrong: a computational cognitive
 science paper joins `Psychology/Research Methods` because the library holds two
-research-methods documents and nothing closer. `sypy retag` is the way back, and
+research-methods documents and nothing closer. `sortyourpaperya retag` is the way back, and
 this is what it asks.
 
 Nothing here touches the database or the library. What the model needs is read

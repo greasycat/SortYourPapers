@@ -3,13 +3,13 @@
 # Put this project's interfaces where the things that use them look, or take
 # them back off.
 #
-#   ./python/scripts/sypy-path wire
-#   ./python/scripts/sypy-path unwire
-#   ./python/scripts/sypy-path relock
+#   ./python/scripts/sortyourpaperya-path wire
+#   ./python/scripts/sortyourpaperya-path unwire
+#   ./python/scripts/sortyourpaperya-path relock
 #
 # `wire` builds a virtualenv beside the project, installs the package into it
 # in editable mode so edits take effect without reinstalling, and symlinks the
-# resulting `sypy` into a directory on PATH. Dependencies come from
+# resulting `sortyourpaperya` into a directory on PATH. Dependencies come from
 # requirements.lock, so two machines set up months apart get the same versions;
 # `relock` is how that file is deliberately moved forward.
 #
@@ -23,22 +23,22 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENV_DIR="${SYPY_VENV_DIR:-$PROJECT_DIR/.venv}"
-BIN_DIR="${SYPY_BIN_DIR:-$HOME/.local/bin}"
-LINK="$BIN_DIR/sypy"
+VENV_DIR="${SORTYOURPAPERYA_VENV_DIR:-$PROJECT_DIR/.venv}"
+BIN_DIR="${SORTYOURPAPERYA_BIN_DIR:-$HOME/.local/bin}"
+LINK="$BIN_DIR/sortyourpaperya"
 LOCK_FILE="$PROJECT_DIR/requirements.lock"
 
 # The agent skill, and where an agent looks for one. Claude Code reads
-# ~/.claude/skills; SYPY_SKILLS_DIR says so for anything else.
-SKILL_NAME="sortyourpapers"
+# ~/.claude/skills; SORTYOURPAPERYA_SKILLS_DIR says so for anything else.
+SKILL_NAME="sortyourpaperya"
 SKILL_SOURCE="$PROJECT_DIR/skills/$SKILL_NAME"
-SKILLS_DIR="${SYPY_SKILLS_DIR:-$HOME/.claude/skills}"
+SKILLS_DIR="${SORTYOURPAPERYA_SKILLS_DIR:-$HOME/.claude/skills}"
 SKILL_LINK="$SKILLS_DIR/$SKILL_NAME"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 note() { printf '%s\n' "$1"; }
 
-# Whether $LINK is a symlink this script created, rather than some other sypy
+# Whether $LINK is a symlink this script created, rather than some other sortyourpaperya
 # that happens to share the name. Everything destructive checks this first.
 links_into_venv() {
   [ -L "$LINK" ] || return 1
@@ -67,11 +67,11 @@ link_skill() {
 
   # Only into a skills directory whose parent already exists. An agent that is
   # not installed has no skills directory, and inventing its config folder
-  # leaves litter on a machine that will never read it. SYPY_SKILLS_DIR is how
+  # leaves litter on a machine that will never read it. SORTYOURPAPERYA_SKILLS_DIR is how
   # anything else says where to look, and is taken at its word.
-  if [ -z "${SYPY_SKILLS_DIR:-}" ] && [ ! -d "$HOME/.claude" ]; then
+  if [ -z "${SORTYOURPAPERYA_SKILLS_DIR:-}" ] && [ ! -d "$HOME/.claude" ]; then
     note "no $HOME/.claude, so the agent skill was not linked"
-    note "  set SYPY_SKILLS_DIR to where your agent looks for skills"
+    note "  set SORTYOURPAPERYA_SKILLS_DIR to where your agent looks for skills"
     return 0
   fi
 
@@ -101,7 +101,7 @@ unlink_skill() {
 wire() {
   # `install.sh` resolves the interpreter — it knows which candidates are new
   # enough — and passes it down. Called on its own, fall back to python3.
-  local python="${SYPY_PYTHON:-python3}"
+  local python="${SORTYOURPAPERYA_PYTHON:-python3}"
   command -v "$python" >/dev/null 2>&1 || die "$python not found"
   "$python" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 11) else 1)' \
     || die "$python is older than 3.11, which this package requires"
@@ -118,7 +118,7 @@ wire() {
   needs a separate package: sudo apt-get install python3-venv"
   fi
 
-  note "installing sypy (editable) into $VENV_DIR"
+  note "installing sortyourpaperya (editable) into $VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --quiet --upgrade pip
   if [ -f "$LOCK_FILE" ]; then
     # Pinned versions first, then the package itself with --no-deps, so pip has
@@ -133,21 +133,21 @@ wire() {
     "$VENV_DIR/bin/python" -m pip install --quiet --editable "$PROJECT_DIR"
   fi
 
-  [ -x "$VENV_DIR/bin/sypy" ] || die "install finished but $VENV_DIR/bin/sypy is missing"
+  [ -x "$VENV_DIR/bin/sortyourpaperya" ] || die "install finished but $VENV_DIR/bin/sortyourpaperya is missing"
 
   rm -f "$LINK"
   mkdir -p "$BIN_DIR"
-  ln -s "$VENV_DIR/bin/sypy" "$LINK"
-  note "wired $LINK -> $VENV_DIR/bin/sypy"
+  ln -s "$VENV_DIR/bin/sortyourpaperya" "$LINK"
+  note "wired $LINK -> $VENV_DIR/bin/sortyourpaperya"
 
   link_skill
 
   # `install.sh` says this itself, and says it better: it knows which shell you
   # run and which file that shell reads. Saying it twice is just noise.
-  if [ -n "${SYPY_FROM_INSTALLER:-}" ]; then
+  if [ -n "${SORTYOURPAPERYA_FROM_INSTALLER:-}" ]; then
     :
   elif on_path; then
-    note "run: sypy --help"
+    note "run: sortyourpaperya --help"
   else
     note ""
     note "$BIN_DIR is not on PATH. Add it:"
@@ -159,7 +159,7 @@ relock() {
   # Resolved in a throwaway virtualenv rather than from the working one, which
   # also holds the test dependencies and whatever a debugging session left in
   # it. The lock is meant to say what running the tool needs, and nothing else.
-  local python="${SYPY_PYTHON:-python3}"
+  local python="${SORTYOURPAPERYA_PYTHON:-python3}"
   command -v "$python" >/dev/null 2>&1 || die "$python not found"
   local scratch
   scratch="$(mktemp -d)"
@@ -173,7 +173,7 @@ relock() {
   {
     sed -n '/^#/p' "$LOCK_FILE" 2>/dev/null || true
     "$scratch/venv/bin/python" -m pip freeze --exclude-editable \
-      | grep -iv '^sypy' | sort -f
+      | grep -iv '^sortyourpaperya' | sort -f
   } > "$scratch/lock"
 
   if [ -f "$LOCK_FILE" ] && diff -q "$LOCK_FILE" "$scratch/lock" >/dev/null; then
@@ -210,7 +210,7 @@ case "${1:-}" in
     printf '          and link the agent skill into %s\n' "$SKILLS_DIR" >&2
     printf '  unwire  remove both links\n' >&2
     printf '  relock  re-resolve dependencies and rewrite requirements.lock\n' >&2
-    printf '\nOverride with SYPY_VENV_DIR / SYPY_BIN_DIR / SYPY_SKILLS_DIR.\n' >&2
+    printf '\nOverride with SORTYOURPAPERYA_VENV_DIR / SORTYOURPAPERYA_BIN_DIR / SORTYOURPAPERYA_SKILLS_DIR.\n' >&2
     exit 2
     ;;
 esac

@@ -19,8 +19,8 @@ import pytest
 
 PROJECT = Path(__file__).resolve().parents[2]
 INSTALL = PROJECT / "install.sh"
-SERVICE = PROJECT / "python" / "scripts" / "sypy-service"
-WIRE = PROJECT / "python" / "scripts" / "sypy-path"
+SERVICE = PROJECT / "python" / "scripts" / "sortyourpaperya-service"
+WIRE = PROJECT / "python" / "scripts" / "sortyourpaperya-path"
 
 
 def _stub(directory: Path, name: str, body: str = "exit 0") -> Path:
@@ -58,22 +58,22 @@ def watched(tmp_path: Path) -> tuple[Path, Path]:
 def _service_env(home: Path, tmp_path: Path, init: str, extra: dict | None = None) -> dict:
     """Point the script at a throwaway HOME with a stubbed supervisor."""
     stubs = tmp_path / "stubs"
-    _stub(stubs, "systemctl", 'echo "systemctl $*" >> "$SYPY_TEST_CALLS"')
-    _stub(stubs, "launchctl", 'echo "launchctl $*" >> "$SYPY_TEST_CALLS"; exit 1')
+    _stub(stubs, "systemctl", 'echo "systemctl $*" >> "$SORTYOURPAPERYA_TEST_CALLS"')
+    _stub(stubs, "launchctl", 'echo "launchctl $*" >> "$SORTYOURPAPERYA_TEST_CALLS"; exit 1')
     _stub(stubs, "loginctl")
     env = {
         "HOME": str(home),
-        "SYPY_INIT_SYSTEM": init,
-        "SYPY_UNIT_DIR": str(home / "units"),
-        "SYPY_LOG_DIR": str(home / "logs"),
-        "SYPY_VENV_DIR": str(tmp_path / "venv"),
-        "SYPY_TEST_CALLS": str(tmp_path / "calls.txt"),
+        "SORTYOURPAPERYA_INIT_SYSTEM": init,
+        "SORTYOURPAPERYA_UNIT_DIR": str(home / "units"),
+        "SORTYOURPAPERYA_LOG_DIR": str(home / "logs"),
+        "SORTYOURPAPERYA_VENV_DIR": str(tmp_path / "venv"),
+        "SORTYOURPAPERYA_TEST_CALLS": str(tmp_path / "calls.txt"),
         "PATH": f"{stubs}:{os.environ['PATH']}",
     }
     env.update(extra or {})
-    # A `sypy` for the script to find. It never runs: both folders are passed.
+    # A `sortyourpaperya` for the script to find. It never runs: both folders are passed.
     fake_venv_bin = tmp_path / "venv" / "bin"
-    _stub(fake_venv_bin, "sypy")
+    _stub(fake_venv_bin, "sortyourpaperya")
     return env
 
 
@@ -103,7 +103,7 @@ def test_the_systemd_unit_runs_the_watcher_on_the_named_folders(
     result = _run(SERVICE, "install", str(inbox), str(library), env=env)
 
     assert result.returncode == 0, result.stderr
-    unit = (home / "units" / "sypy.service").read_text()
+    unit = (home / "units" / "sortyourpaperya.service").read_text()
     assert f'--input "{inbox}"' in unit
     assert f'--library "{library}"' in unit
     assert "--mode copy" in unit
@@ -120,7 +120,7 @@ def test_the_systemd_unit_restarts_but_gives_up_on_a_crashloop(
     inbox, library = watched
     _run(SERVICE, "install", str(inbox), str(library), env=_service_env(home, tmp_path, "systemd"))
 
-    unit = (home / "units" / "sypy.service").read_text()
+    unit = (home / "units" / "sortyourpaperya.service").read_text()
     assert "Restart=always" in unit
     assert "RestartSec=" in unit
     assert "StartLimitBurst=" in unit
@@ -130,7 +130,7 @@ def test_the_systemd_unit_carries_poppler_and_the_rotating_log(
     home: Path, tmp_path: Path, watched: tuple[Path, Path]
 ) -> None:
     # A user service gets a bare PATH; without pdftoppm on it every scanned PDF
-    # fails under the service while working by hand. Without SYPY_LOG_FILE the
+    # fails under the service while working by hand. Without SORTYOURPAPERYA_LOG_FILE the
     # log lands in a capture file nothing trims.
     inbox, library = watched
     poppler = tmp_path / "poppler"
@@ -140,9 +140,9 @@ def test_the_systemd_unit_carries_poppler_and_the_rotating_log(
 
     _run(SERVICE, "install", str(inbox), str(library), env=env)
 
-    unit = (home / "units" / "sypy.service").read_text()
+    unit = (home / "units" / "sortyourpaperya.service").read_text()
     assert f"Environment=PATH={poppler}:" in unit
-    assert f"Environment=SYPY_LOG_FILE={home}/logs/sypy.log" in unit
+    assert f"Environment=SORTYOURPAPERYA_LOG_FILE={home}/logs/sortyourpaperya.log" in unit
 
 
 def test_installing_a_systemd_service_enables_it(
@@ -154,9 +154,9 @@ def test_installing_a_systemd_service_enables_it(
 
     _run(SERVICE, "install", str(inbox), str(library), env=env)
 
-    calls = Path(env["SYPY_TEST_CALLS"]).read_text()
+    calls = Path(env["SORTYOURPAPERYA_TEST_CALLS"]).read_text()
     assert "systemctl --user daemon-reload" in calls
-    assert "systemctl --user enable --now sypy.service" in calls
+    assert "systemctl --user enable --now sortyourpaperya.service" in calls
 
 
 def test_the_launchd_plist_runs_the_watcher_on_the_named_folders(
@@ -169,13 +169,13 @@ def test_the_launchd_plist_runs_the_watcher_on_the_named_folders(
 
     _run(SERVICE, "install", str(inbox), str(library), env=env)
 
-    plist = home / "Library" / "LaunchAgents" / "com.sortyourpapers.sypy.plist"
+    plist = home / "Library" / "LaunchAgents" / "com.sortyourpaperya.watcher.plist"
     payload = plistlib.loads(plist.read_bytes())
     args = payload["ProgramArguments"]
     assert args[args.index("--input") + 1] == str(inbox)
     assert args[args.index("--library") + 1] == str(library)
     assert payload["KeepAlive"] is True
-    assert payload["EnvironmentVariables"]["SYPY_LOG_FILE"].endswith("sypy.log")
+    assert payload["EnvironmentVariables"]["SORTYOURPAPERYA_LOG_FILE"].endswith("sortyourpaperya.log")
 
 
 def test_a_watched_folder_with_a_space_survives_the_unit(
@@ -192,7 +192,7 @@ def test_a_watched_folder_with_a_space_survives_the_unit(
     env = _service_env(home, tmp_path, "systemd")
 
     _run(SERVICE, "install", str(inbox), str(library), env=env)
-    unit = (home / "units" / "sypy.service").read_text()
+    unit = (home / "units" / "sortyourpaperya.service").read_text()
     assert f'--input "{inbox}"' in unit
 
     # And it reads back as one argument, which is what refuses a second folder.
@@ -217,7 +217,7 @@ def test_installing_over_a_different_folder_is_refused(
     env = _service_env(home, tmp_path, init)
     if init == "launchd":
         # `is_loaded` asks the supervisor; say yes so the guard is reached.
-        _stub(tmp_path / "stubs", "launchctl", 'echo "launchctl $*" >> "$SYPY_TEST_CALLS"')
+        _stub(tmp_path / "stubs", "launchctl", 'echo "launchctl $*" >> "$SORTYOURPAPERYA_TEST_CALLS"')
     _run(SERVICE, "install", str(inbox), str(library), env=env)
 
     result = _run(SERVICE, "install", str(other), str(library), env=env)
@@ -234,23 +234,23 @@ def test_reinstalling_the_same_folder_is_how_settings_are_picked_up(
     env = _service_env(home, tmp_path, "systemd")
     _run(SERVICE, "install", str(inbox), str(library), env=env)
 
-    result = _run(SERVICE, "install", str(inbox), str(library), env={**env, "SYPY_MODE": "move"})
+    result = _run(SERVICE, "install", str(inbox), str(library), env={**env, "SORTYOURPAPERYA_MODE": "move"})
 
     assert result.returncode == 0, result.stderr
-    assert "--mode move" in (home / "units" / "sypy.service").read_text()
+    assert "--mode move" in (home / "units" / "sortyourpaperya.service").read_text()
 
 
 def test_an_unknown_mode_is_refused_before_anything_is_written(
     home: Path, tmp_path: Path, watched: tuple[Path, Path]
 ) -> None:
     inbox, library = watched
-    env = _service_env(home, tmp_path, "systemd", {"SYPY_MODE": "delete-everything"})
+    env = _service_env(home, tmp_path, "systemd", {"SORTYOURPAPERYA_MODE": "delete-everything"})
 
     result = _run(SERVICE, "install", str(inbox), str(library), env=env)
 
     assert result.returncode != 0
-    assert "SYPY_MODE" in result.stderr
-    assert not (home / "units" / "sypy.service").exists()
+    assert "SORTYOURPAPERYA_MODE" in result.stderr
+    assert not (home / "units" / "sortyourpaperya.service").exists()
 
 
 def test_uninstalling_removes_the_unit(
@@ -259,12 +259,12 @@ def test_uninstalling_removes_the_unit(
     inbox, library = watched
     env = _service_env(home, tmp_path, "systemd")
     _run(SERVICE, "install", str(inbox), str(library), env=env)
-    assert (home / "units" / "sypy.service").exists()
+    assert (home / "units" / "sortyourpaperya.service").exists()
 
     result = _run(SERVICE, "uninstall", env=env)
 
     assert result.returncode == 0, result.stderr
-    assert not (home / "units" / "sypy.service").exists()
+    assert not (home / "units" / "sortyourpaperya.service").exists()
 
 
 # ---- the installer ---------------------------------------------------------
@@ -365,7 +365,7 @@ def test_the_installer_says_how_to_put_it_on_path(home: Path, tmp_path: Path) ->
         INSTALL, "--help", env={"HOME": str(home), "NO_COLOR": "1"}
     )
 
-    assert "SYPY_BIN_DIR" in result.stderr
+    assert "SORTYOURPAPERYA_BIN_DIR" in result.stderr
 
 
 # ---- the agent skill -------------------------------------------------------
@@ -375,13 +375,13 @@ def _wired(home: Path, tmp_path: Path, extra: dict | None = None) -> dict:
     """A wire that installs nothing: the venv is stubbed, so no pip, no network."""
     venv_bin = tmp_path / "venv" / "bin"
     _stub(venv_bin, "python")  # answers the version check and every pip call
-    _stub(venv_bin, "sypy")
+    _stub(venv_bin, "sortyourpaperya")
     env = {
         "HOME": str(home),
-        "SYPY_PYTHON": str(_stub(tmp_path / "stubs", "python3")),
-        "SYPY_VENV_DIR": str(tmp_path / "venv"),
-        "SYPY_BIN_DIR": str(home / "bin"),
-        "SYPY_FROM_INSTALLER": "1",
+        "SORTYOURPAPERYA_PYTHON": str(_stub(tmp_path / "stubs", "python3")),
+        "SORTYOURPAPERYA_VENV_DIR": str(tmp_path / "venv"),
+        "SORTYOURPAPERYA_BIN_DIR": str(home / "bin"),
+        "SORTYOURPAPERYA_FROM_INSTALLER": "1",
     }
     env.update(extra or {})
     return env
@@ -394,9 +394,9 @@ def test_wiring_links_the_skill_where_the_agent_looks(home: Path, tmp_path: Path
     result = _run(WIRE, "wire", env=_wired(home, tmp_path))
 
     assert result.returncode == 0, result.stderr
-    link = home / ".claude" / "skills" / "sortyourpapers"
+    link = home / ".claude" / "skills" / "sortyourpaperya"
     assert link.is_symlink()
-    assert link.resolve() == (PROJECT / "python" / "skills" / "sortyourpapers")
+    assert link.resolve() == (PROJECT / "python" / "skills" / "sortyourpaperya")
     assert (link / "SKILL.md").is_file()
 
 
@@ -412,7 +412,7 @@ def test_no_skills_directory_is_invented_for_an_agent_that_is_not_there(
 
     assert result.returncode == 0, result.stderr
     assert not (home / ".claude").exists()
-    assert "SYPY_SKILLS_DIR" in result.stdout
+    assert "SORTYOURPAPERYA_SKILLS_DIR" in result.stdout
 
 
 def test_skills_dir_is_taken_at_its_word(home: Path, tmp_path: Path) -> None:
@@ -420,18 +420,18 @@ def test_skills_dir_is_taken_at_its_word(home: Path, tmp_path: Path) -> None:
     elsewhere = tmp_path / "agent" / "skills"
 
     result = _run(
-        WIRE, "wire", env=_wired(home, tmp_path, {"SYPY_SKILLS_DIR": str(elsewhere)})
+        WIRE, "wire", env=_wired(home, tmp_path, {"SORTYOURPAPERYA_SKILLS_DIR": str(elsewhere)})
     )
 
     assert result.returncode == 0, result.stderr
-    assert (elsewhere / "sortyourpapers" / "SKILL.md").is_file()
+    assert (elsewhere / "sortyourpaperya" / "SKILL.md").is_file()
 
 
 def test_a_skill_of_the_same_name_someone_else_wrote_survives(
     home: Path, tmp_path: Path
 ) -> None:
     """Theirs to keep — and warned about, not silently replaced."""
-    mine = home / ".claude" / "skills" / "sortyourpapers"
+    mine = home / ".claude" / "skills" / "sortyourpaperya"
     mine.mkdir(parents=True)
     (mine / "SKILL.md").write_text("mine", encoding="utf-8")
 
@@ -447,7 +447,7 @@ def test_unwiring_takes_the_skill_back_off(home: Path, tmp_path: Path) -> None:
     (home / ".claude").mkdir()
     env = _wired(home, tmp_path)
     _run(WIRE, "wire", env=env)
-    link = home / ".claude" / "skills" / "sortyourpapers"
+    link = home / ".claude" / "skills" / "sortyourpaperya"
     assert link.is_symlink()
 
     result = _run(WIRE, "unwire", env=env)
@@ -459,16 +459,16 @@ def test_unwiring_takes_the_skill_back_off(home: Path, tmp_path: Path) -> None:
 def test_the_skill_comes_off_even_when_the_command_link_is_not_ours(
     home: Path, tmp_path: Path
 ) -> None:
-    """`unwire` refuses outright over a `sypy` it did not create.
+    """`unwire` refuses outright over a `sortyourpaperya` it did not create.
 
     Doing the skill first is what stops that refusal leaving the skill behind.
     """
     (home / ".claude").mkdir()
     env = _wired(home, tmp_path)
     _run(WIRE, "wire", env=env)
-    link = home / ".claude" / "skills" / "sortyourpapers"
-    (home / "bin" / "sypy").unlink()
-    _stub(home / "bin", "sypy")  # a real file now, not our symlink
+    link = home / ".claude" / "skills" / "sortyourpaperya"
+    (home / "bin" / "sortyourpaperya").unlink()
+    _stub(home / "bin", "sortyourpaperya")  # a real file now, not our symlink
 
     result = _run(WIRE, "unwire", env=env)
 
@@ -479,4 +479,4 @@ def test_the_skill_comes_off_even_when_the_command_link_is_not_ours(
 def test_the_installer_says_where_the_skill_goes(home: Path) -> None:
     result = _run(INSTALL, "--help", env={"HOME": str(home), "NO_COLOR": "1"})
 
-    assert "SYPY_SKILLS_DIR" in result.stderr
+    assert "SORTYOURPAPERYA_SKILLS_DIR" in result.stderr

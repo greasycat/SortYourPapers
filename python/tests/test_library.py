@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from conftest import write_pdf
 
-from sypy.db import Paper
-from sypy.library import FilingMode, Library, LibraryError
-from sypy.naming import link_name, new_paper_id, store_name
+from sortyourpaperya.db import Paper
+from sortyourpaperya.library import FilingMode, Library, LibraryError
+from sortyourpaperya.naming import link_name, new_paper_id, store_name
 
 
 def _paper(tags: list[str], **overrides) -> Paper:
@@ -907,7 +907,7 @@ def test_a_backed_up_database_can_be_opened_on_its_own(
 
     So the copy goes through DuckDB, and this is what says it did.
     """
-    from sypy.db import PaperDb
+    from sortyourpaperya.db import PaperDb
 
     paper = _paper(["AI"])
     library.file_paper(paper, write_pdf(tmp_path / "raw" / "a.pdf", "attention"))
@@ -934,7 +934,7 @@ def test_notes_kept_beside_a_document_are_backed_up(
 
 
 def test_the_tree_is_not_backed_up(library: Library, tmp_path: Path) -> None:
-    # It is nothing but links and `sypy tree` rebuilds it exactly.
+    # It is nothing but links and `sortyourpaperya tree` rebuilds it exactly.
     library.file_paper(_paper(["AI"]), write_pdf(tmp_path / "raw" / "a.pdf", "x"))
 
     report = library.backup(tmp_path / "backup")
@@ -953,7 +953,7 @@ def test_the_database_is_copied_before_the_store(
     """
     import shutil as shutil_module
 
-    import sypy.library as library_module
+    import sortyourpaperya.library as library_module
 
     library.file_paper(_paper(["AI"]), write_pdf(tmp_path / "raw" / "a.pdf", "first"))
     real_copytree = shutil_module.copytree

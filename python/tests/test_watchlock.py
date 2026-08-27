@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from sypy.watchlock import WatchConflict, claim, locks_dir
+from sortyourpaperya.watchlock import WatchConflict, claim, locks_dir
 
 # A real process holding a real claim. Death has to be real too: ownership is an
 # `flock`, and the kernel is the only thing that can drop one — no amount of
@@ -18,7 +18,7 @@ from sypy.watchlock import WatchConflict, claim, locks_dir
 _HOLDER = """
 import sys, time
 from pathlib import Path
-from sypy.watchlock import claim
+from sortyourpaperya.watchlock import claim
 claim(Path(sys.argv[1]), Path(sys.argv[2]))
 print("held", flush=True)
 time.sleep(300)
@@ -207,7 +207,7 @@ def test_a_claim_left_by_a_dead_watcher_does_not_read_as_running(folders) -> Non
     So anything reporting what is running has to check the owner is alive, not
     just that a claim exists.
     """
-    from sypy.cli import _claimed_folders
+    from sortyourpaperya.cli import _claimed_folders
 
     inbox, library = folders
     holder = holding(inbox, library)

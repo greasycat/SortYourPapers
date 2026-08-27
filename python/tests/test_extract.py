@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from conftest import write_pdf, write_scanned_pdf
 
-from sypy.extract import ExtractionError, extract_paper_text
+from sortyourpaperya.extract import ExtractionError, extract_paper_text
 
 
 def test_extracts_the_text_layer(tmp_path: Path) -> None:

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Install SortYourPapers on macOS or Linux.
+# Install sortyourpaperya on macOS or Linux.
 #
-#   ./install.sh                 install `sypy` and put it on PATH
+#   ./install.sh                 install `sortyourpaperya` and put it on PATH
 #   ./install.sh --service       ...and run the watcher in the background
 #   ./install.sh --check         check prerequisites and stop
 #   ./install.sh --uninstall     take it back off
@@ -15,8 +15,8 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$PROJECT_DIR/python"
-VENV_DIR="${SYPY_VENV_DIR:-$PACKAGE_DIR/.venv}"
-BIN_DIR="${SYPY_BIN_DIR:-$HOME/.local/bin}"
+VENV_DIR="${SORTYOURPAPERYA_VENV_DIR:-$PACKAGE_DIR/.venv}"
+BIN_DIR="${SORTYOURPAPERYA_BIN_DIR:-$HOME/.local/bin}"
 
 # 3.11 is the floor the package declares. Named interpreters are tried before
 # the bare one because a distribution's `python3` is often older than the
@@ -45,12 +45,12 @@ usage: ./install.sh [--service] [--check] [--uninstall]
 
   --service     also install the background watcher (launchd or systemd --user)
   --check       report what is missing and stop, changing nothing
-  --uninstall   remove the \`sypy\` and skill links, and the service if installed
+  --uninstall   remove the \`sortyourpaperya\` and skill links, and the service if installed
   -h, --help    this
 
-  SYPY_VENV_DIR    where the virtualenv goes    (default $PACKAGE_DIR/.venv)
-  SYPY_BIN_DIR     where \`sypy\` is linked       (default \$HOME/.local/bin)
-  SYPY_SKILLS_DIR  where the agent skill goes   (default \$HOME/.claude/skills)
+  SORTYOURPAPERYA_VENV_DIR    where the virtualenv goes    (default $PACKAGE_DIR/.venv)
+  SORTYOURPAPERYA_BIN_DIR     where \`sortyourpaperya\` is linked       (default \$HOME/.local/bin)
+  SORTYOURPAPERYA_SKILLS_DIR  where the agent skill goes   (default \$HOME/.claude/skills)
 USAGE
   exit 2
 }
@@ -158,7 +158,7 @@ check_prerequisites() {
     if command -v systemctl >/dev/null 2>&1; then
       ok "systemctl found, for the background service"
     else
-      printf '  %s✗%s --service needs systemd. Without it, run `sypy watch` under\n' "$RED" "$RESET"
+      printf '  %s✗%s --service needs systemd. Without it, run `sortyourpaperya watch` under\n' "$RED" "$RESET"
       printf '      whatever supervisor you use.\n'
       MISSING=1
     fi
@@ -198,10 +198,10 @@ on_path() {
 
 do_uninstall() {
   step "Removing the background service"
-  SYPY_VENV_DIR="$VENV_DIR" "$PACKAGE_DIR/scripts/sypy-service" uninstall 2>/dev/null \
+  SORTYOURPAPERYA_VENV_DIR="$VENV_DIR" "$PACKAGE_DIR/scripts/sortyourpaperya-service" uninstall 2>/dev/null \
     || note_no_service
   step "Removing the command and the agent skill"
-  SYPY_VENV_DIR="$VENV_DIR" SYPY_BIN_DIR="$BIN_DIR" "$PACKAGE_DIR/scripts/sypy-path" unwire
+  SORTYOURPAPERYA_VENV_DIR="$VENV_DIR" SORTYOURPAPERYA_BIN_DIR="$BIN_DIR" "$PACKAGE_DIR/scripts/sortyourpaperya-path" unwire
   printf '\nThe virtualenv at %s and your library are left in place.\n' "$VENV_DIR"
 }
 
@@ -218,22 +218,22 @@ if [ "$CHECK_ONLY" = 1 ]; then
   exit 0
 fi
 
-step "Installing sypy and the agent skill"
-SYPY_FROM_INSTALLER=1 SYPY_PYTHON="$PYTHON" SYPY_VENV_DIR="$VENV_DIR" \
-  SYPY_BIN_DIR="$BIN_DIR" "$PACKAGE_DIR/scripts/sypy-path" wire
+step "Installing sortyourpaperya and the agent skill"
+SORTYOURPAPERYA_FROM_INSTALLER=1 SORTYOURPAPERYA_PYTHON="$PYTHON" SORTYOURPAPERYA_VENV_DIR="$VENV_DIR" \
+  SORTYOURPAPERYA_BIN_DIR="$BIN_DIR" "$PACKAGE_DIR/scripts/sortyourpaperya-path" wire
 
 if [ "$WANT_SERVICE" = 1 ]; then
   step "Installing the background service"
-  SYPY_VENV_DIR="$VENV_DIR" "$PACKAGE_DIR/scripts/sypy-service" install
+  SORTYOURPAPERYA_VENV_DIR="$VENV_DIR" "$PACKAGE_DIR/scripts/sortyourpaperya-service" install
 fi
 
 step "Done"
 if on_path; then
-  printf '  Run: %ssypy --help%s\n' "$BOLD" "$RESET"
+  printf '  Run: %ssortyourpaperya --help%s\n' "$BOLD" "$RESET"
 else
   printf '  %s is not on your PATH. Add it:\n\n' "$BIN_DIR"
   printf "    echo '%s' >> %s\n\n" "$(path_line)" "$(shell_rc)"
-  printf '  Then open a new shell, or run %s%s/sypy --help%s now.\n' \
+  printf '  Then open a new shell, or run %s%s/sortyourpaperya --help%s now.\n' \
     "$BOLD" "$BIN_DIR" "$RESET"
 fi
 

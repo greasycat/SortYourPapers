@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from sypy.config import MAX_TEXT_CHARS_PER_FILE
-from sypy.extract import PaperText
-from sypy.llm import LlmError, build_prompt, parse_response
+from sortyourpaperya.config import MAX_TEXT_CHARS_PER_FILE
+from sortyourpaperya.extract import PaperText
+from sortyourpaperya.llm import LlmError, build_prompt, parse_response
 
 
 def _paper(file_id: str, text: str = "some text") -> PaperText:
@@ -94,7 +94,7 @@ def test_malformed_json_is_an_llm_error() -> None:
 
 
 def _text(body: str = "successor representations, temporal difference learning"):
-    from sypy.extract import PaperText
+    from sortyourpaperya.extract import PaperText
 
     return PaperText(file_id="abc", path=Path("a.pdf"), text=body, pages_read=1)
 
@@ -105,7 +105,7 @@ def test_the_re_ask_tells_the_model_what_was_already_turned_down() -> None:
     The inputs are otherwise identical, so "give me another" would never move
     off the first suggestion.
     """
-    from sypy.llm import build_category_prompt
+    from sortyourpaperya.llm import build_category_prompt
 
     prompt = build_category_prompt(
         _text(),
@@ -127,7 +127,7 @@ def test_the_re_ask_weighs_existing_paths_rather_than_preferring_them() -> None:
     re-tagging has seen that answer and said no, so the same rule must not
     decide it again.
     """
-    from sypy.llm import build_category_prompt, build_prompt
+    from sortyourpaperya.llm import build_category_prompt, build_prompt
 
     ingest = build_prompt([_text()], ["Psychology/Research Methods"])
     re_ask = build_category_prompt(_text(), "", ["Psychology/Research Methods"])
@@ -140,7 +140,7 @@ def test_the_re_ask_weighs_existing_paths_rather_than_preferring_them() -> None:
 
 def test_the_re_ask_does_not_ask_for_title_authors_or_year() -> None:
     """Those name the link and may have been fixed by hand; a re-tag keeps them."""
-    from sypy.llm import build_category_prompt
+    from sortyourpaperya.llm import build_category_prompt
 
     prompt = build_category_prompt(_text())
 
@@ -149,7 +149,7 @@ def test_the_re_ask_does_not_ask_for_title_authors_or_year() -> None:
 
 
 def test_a_category_response_is_read_and_trimmed() -> None:
-    from sypy.llm import parse_category_response
+    from sortyourpaperya.llm import parse_category_response
 
     suggestion = parse_category_response(
         '{"category":"  Cognitive Science/Computation  ","keywords":["a","  ","b"]}'
@@ -171,7 +171,7 @@ def test_a_category_response_is_read_and_trimmed() -> None:
     ],
 )
 def test_an_unusable_category_response_is_an_error(payload: str) -> None:
-    from sypy.llm import LlmError, parse_category_response
+    from sortyourpaperya.llm import LlmError, parse_category_response
 
     with pytest.raises(LlmError):
         parse_category_response(payload)

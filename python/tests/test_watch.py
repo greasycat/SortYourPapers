@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from conftest import FailingLlmClient, FakeLlmClient, write_pdf
 
-import sypy.watch as watch_module
-from sypy.config import Settings
-from sypy.library import FilingMode, Library
-from sypy.watch import watch
+import sortyourpaperya.watch as watch_module
+from sortyourpaperya.config import Settings
+from sortyourpaperya.library import FilingMode, Library
+from sortyourpaperya.watch import watch
 
 
 @pytest.fixture(autouse=True)
@@ -198,9 +198,9 @@ async def test_a_second_watcher_on_the_same_library_is_refused(
     Each decides what the library already holds before either writes, so the
     database lock does not catch it. The folders are claimed instead.
     """
-    from sypy.config import Settings as S
-    from sypy.library import Library as L
-    from sypy.watchlock import WatchConflict, locks_dir
+    from sortyourpaperya.config import Settings as S
+    from sortyourpaperya.library import Library as L
+    from sortyourpaperya.watchlock import WatchConflict, locks_dir
 
     write_pdf(settings.input_dir / "a.pdf", "attention")
     first = asyncio.create_task(

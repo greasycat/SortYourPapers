@@ -1,4 +1,4 @@
-# SortYourPapers
+# sortyourpaperya
 
 Use an LLM to sort documents into a folder tree you can browse.
 
@@ -13,10 +13,10 @@ are categorized on their own terms.
 ## Layout
 
 - **`python/`** — the tool. A Python ingest pipeline and folder watcher,
-  installable as `sypy`, with DuckDB as the source of truth. Start at
+  installable as `sortyourpaperya`, with DuckDB as the source of truth. Start at
   [`python/README.md`](python/README.md).
 - **`python/skills/`** — an agent skill for searching and reading a library
-  through `sypy find`, so an LLM can answer questions from what you have filed.
+  through `sortyourpaperya find`, so an LLM can answer questions from what you have filed.
   `./install.sh` links it into `~/.claude/skills`.
 - **`assets/testsets/`** — committed test-set manifests, kept as data. The
   tooling that built them is gone from `main`; it is in the history.
@@ -27,11 +27,11 @@ are categorized on their own terms.
 ## Quick start
 
 ```bash
-./install.sh                              # macOS or Linux; installs `sypy`
+./install.sh                              # macOS or Linux; installs `sortyourpaperya`
 
-sypy ingest --input ./inbox               # preview: nothing is written
-sypy ingest --input ./inbox --mode copy   # copy in, leave the source alone
-sypy watch  --input ./inbox --mode copy   # keep doing it as documents arrive
+sortyourpaperya ingest --input ./inbox               # preview: nothing is written
+sortyourpaperya ingest --input ./inbox --mode copy   # copy in, leave the source alone
+sortyourpaperya watch  --input ./inbox --mode copy   # keep doing it as documents arrive
 ```
 
 Everything else — the store layout, the registry of watched folders, running it

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from conftest import FailingLlmClient, FakeLlmClient
-from sypy.cli import LOG_BACKUP_COUNT, LOG_MAX_BYTES, _configure
+from sortyourpaperya.cli import LOG_BACKUP_COUNT, LOG_MAX_BYTES, _configure
 
 
 @pytest.fixture(autouse=True)
@@ -29,10 +29,10 @@ def test_every_line_carries_a_timestamp(monkeypatch, capsys) -> None:
     An untimed line cannot say whether it is from this run or the one that
     crashed — which is exactly the question a restart loop raises.
     """
-    monkeypatch.delenv("SYPY_LOG_FILE", raising=False)
+    monkeypatch.delenv("SORTYOURPAPERYA_LOG_FILE", raising=False)
     _configure(verbose=False)
 
-    logging.getLogger("sypy.test").info("something happened")
+    logging.getLogger("sortyourpaperya.test").info("something happened")
 
     line = capsys.readouterr().err.strip()
     assert line.endswith("INFO something happened")
@@ -41,8 +41,8 @@ def test_every_line_carries_a_timestamp(monkeypatch, capsys) -> None:
 
 def test_the_service_log_is_rotated(monkeypatch, tmp_path: Path) -> None:
     """A watcher left running for months must not be able to fill the disk."""
-    log_file = tmp_path / "logs" / "sypy.log"
-    monkeypatch.setenv("SYPY_LOG_FILE", str(log_file))
+    log_file = tmp_path / "logs" / "sortyourpaperya.log"
+    monkeypatch.setenv("SORTYOURPAPERYA_LOG_FILE", str(log_file))
 
     _configure(verbose=False)
 
@@ -62,7 +62,7 @@ def test_the_log_is_not_also_written_somewhere_nothing_trims(
     as it did before the rotation was added, so the rotating handler replaces
     the stream one rather than joining it.
     """
-    monkeypatch.setenv("SYPY_LOG_FILE", str(tmp_path / "sypy.log"))
+    monkeypatch.setenv("SORTYOURPAPERYA_LOG_FILE", str(tmp_path / "sortyourpaperya.log"))
 
     _configure(verbose=False)
 
@@ -77,8 +77,8 @@ def test_the_log_is_not_also_written_somewhere_nothing_trims(
 def test_the_log_file_is_written_where_it_was_asked_for(
     monkeypatch, tmp_path: Path
 ) -> None:
-    log_file = tmp_path / "nested" / "sypy.log"
-    monkeypatch.setenv("SYPY_LOG_FILE", str(log_file))
+    log_file = tmp_path / "nested" / "sortyourpaperya.log"
+    monkeypatch.setenv("SORTYOURPAPERYA_LOG_FILE", str(log_file))
     _configure(verbose=False)
 
     logging.getLogger("test").warning("into the file")
@@ -90,8 +90,8 @@ def test_the_log_file_is_written_where_it_was_asked_for(
 
 def test_a_record_carries_the_path_to_the_document(library) -> None:
     """A search result whose file cannot be opened is only half an answer."""
-    from sypy.cli import _describe
-    from sypy.db import Paper
+    from sortyourpaperya.cli import _describe
+    from sortyourpaperya.db import Paper
 
     paper = Paper(
         file_id="aaa111aaa111",
@@ -121,8 +121,8 @@ def test_a_record_carries_the_path_to_the_document(library) -> None:
 
 def test_note_path_never_opens_an_editor(library, monkeypatch, capsys) -> None:
     """A caller writing the notes itself would be stuck holding an editor open."""
-    from sypy import cli
-    from sypy.db import Paper
+    from sortyourpaperya import cli
+    from sortyourpaperya.db import Paper
 
     paper = Paper(
         file_id="aaa111aaa111",
@@ -150,7 +150,7 @@ def test_note_path_never_opens_an_editor(library, monkeypatch, capsys) -> None:
 
 def _crowded(library, count: int = 25):
     """A library with more documents than a default search will show."""
-    from sypy.db import Paper
+    from sortyourpaperya.db import Paper
 
     library.db.upsert_many(
         [
@@ -174,20 +174,20 @@ def _crowded(library, count: int = 25):
 def _invoke(root, *args, **kwargs):
     from typer.testing import CliRunner
 
-    from sypy.cli import app
+    from sortyourpaperya.cli import app
 
     return CliRunner().invoke(app, [*args, "--library", str(root)], **kwargs)
 
 
-def test_running_sypy_with_no_arguments_shows_the_help() -> None:
-    """A bare `sypy` is someone asking what this does.
+def test_running_sortyourpaperya_with_no_arguments_shows_the_help() -> None:
+    """A bare `sortyourpaperya` is someone asking what this does.
 
     Click's default answer is "Missing command", which names neither the
     commands there are nor the one that is missing.
     """
     from typer.testing import CliRunner
 
-    from sypy.cli import app
+    from sortyourpaperya.cli import app
 
     result = CliRunner().invoke(app, [])
 
@@ -256,7 +256,7 @@ def test_a_negative_limit_is_a_usage_error(library) -> None:
 
 def _misfiled(library, tags=("Psychology", "Research Methods")):
     """A document filed where steering put it, with a real folder in the store."""
-    from sypy.db import Paper
+    from sortyourpaperya.db import Paper
 
     paper = Paper(
         file_id="78c64b3b8ef6",
@@ -284,7 +284,7 @@ def _retag(root, fake, *args, **kwargs):
     """Invoke `retag` with the fake client standing in for the real one."""
     from typer.testing import CliRunner
 
-    from sypy import cli
+    from sortyourpaperya import cli
 
     original = cli._build
     cli._build = lambda *a, **k: (original(*a, **k)[0], fake)
@@ -298,7 +298,7 @@ def _retag(root, fake, *args, **kwargs):
 
 def test_accepting_a_suggestion_moves_the_document(library, settings) -> None:
     """Tags, folder, link, and keywords all move together."""
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _misfiled(library)
     fake = FakeLlmClient()
@@ -348,7 +348,7 @@ def test_the_model_is_told_where_the_document_sits_now(library) -> None:
 
 
 def test_cancelling_changes_nothing(library) -> None:
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _misfiled(library)
 
@@ -361,7 +361,7 @@ def test_cancelling_changes_nothing(library) -> None:
 
 def test_no_one_at_the_keyboard_cancels_rather_than_crashing(library) -> None:
     """From cron, or with stdin closed, this must stop cleanly."""
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _misfiled(library)
 
@@ -376,7 +376,7 @@ def test_no_one_at_the_keyboard_cancels_rather_than_crashing(library) -> None:
 def test_a_document_whose_file_is_gone_still_gets_a_suggestion(library) -> None:
     """Its record is what the model reads from anyway."""
     root = _misfiled(library)
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     with Library(root) as lib:
         paper = lib.db.get("78c64b3b8ef6")
@@ -400,7 +400,7 @@ def test_an_unknown_id_is_reported_before_anything_is_asked(library) -> None:
 
 
 def test_a_failing_model_does_not_leave_the_document_half_moved(library) -> None:
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _misfiled(library)
 
@@ -413,7 +413,7 @@ def test_a_failing_model_does_not_leave_the_document_half_moved(library) -> None
 
 def test_retag_with_a_category_never_asks_the_model(library) -> None:
     """The manual path is unchanged, and free."""
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _misfiled(library)
     fake = FakeLlmClient()
@@ -432,17 +432,17 @@ def test_retag_with_a_category_never_asks_the_model(library) -> None:
 
 
 def test_only_our_own_lines_are_turned_up(monkeypatch, capsys) -> None:
-    """`sypy retag` waits at a prompt; a request log lands in the middle of it.
+    """`sortyourpaperya retag` waits at a prompt; a request log lands in the middle of it.
 
     Named by what is ours rather than by what is noisy: the OpenAI SDK vendors
     its HTTP client, so the logger doing the narrating is called `httpx2` today
     and something else after the next release.
     """
-    monkeypatch.delenv("SYPY_LOG_FILE", raising=False)
+    monkeypatch.delenv("SORTYOURPAPERYA_LOG_FILE", raising=False)
     _configure(verbose=False)
 
     logging.getLogger("httpx2._client").info("HTTP Request: POST ...")
-    logging.getLogger("sypy.ingest").info("filed 3 documents")
+    logging.getLogger("sortyourpaperya.ingest").info("filed 3 documents")
     logging.getLogger("httpx2._client").warning("connection retried")
 
     err = capsys.readouterr().err
@@ -452,7 +452,7 @@ def test_only_our_own_lines_are_turned_up(monkeypatch, capsys) -> None:
 
 
 def test_verbose_brings_everything_back(monkeypatch, capsys) -> None:
-    monkeypatch.delenv("SYPY_LOG_FILE", raising=False)
+    monkeypatch.delenv("SORTYOURPAPERYA_LOG_FILE", raising=False)
     _configure(verbose=True)
 
     logging.getLogger("httpx2._client").info("HTTP Request: POST ...")
@@ -465,7 +465,7 @@ def test_verbose_brings_everything_back(monkeypatch, capsys) -> None:
 
 def _two_papers(library):
     """Two documents that share a word, so a bare word is ambiguous."""
-    from sypy.db import Paper
+    from sortyourpaperya.db import Paper
 
     for file_id, title, tags, keywords in (
         ("78c64b3b8ef6", "Successor representations in human behavior",
@@ -490,13 +490,13 @@ def _two_papers(library):
 @pytest.fixture(autouse=True)
 def _no_fzf(monkeypatch):
     """fzf is interactive and may be installed; never launch it by accident."""
-    from sypy import cli
+    from sortyourpaperya import cli
 
     monkeypatch.setattr(cli, "_fzf_available", lambda: False)
 
 
 def test_a_word_is_enough_to_name_a_document(library) -> None:
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _two_papers(library)
 
@@ -508,7 +508,7 @@ def test_a_word_is_enough_to_name_a_document(library) -> None:
 
 
 def test_what_a_word_resolved_to_is_reported_on_stderr(library) -> None:
-    """`sypy note <id> --path` is composed as `$(...)`; stdout stays the path."""
+    """`sortyourpaperya note <id> --path` is composed as `$(...)`; stdout stays the path."""
     root = _two_papers(library)
 
     result = _invoke(root, "note", "kahn", "--path")
@@ -581,8 +581,8 @@ def test_an_exact_id_is_never_searched_for(library) -> None:
     Here one document's id is also a word in another's keywords, which would
     make the id ambiguous if it went through the search.
     """
-    from sypy.db import Paper
-    from sypy.library import Library
+    from sortyourpaperya.db import Paper
+    from sortyourpaperya.library import Library
 
     root = _two_papers(library)
     with Library(root) as lib:
@@ -608,7 +608,7 @@ def test_a_word_matching_nothing_is_an_error(library) -> None:
 
 def test_an_ambiguous_word_lists_the_matches_and_changes_nothing(library) -> None:
     """With no picker available, printing them beats acting on a guess."""
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _two_papers(library)
 
@@ -622,8 +622,8 @@ def test_an_ambiguous_word_lists_the_matches_and_changes_nothing(library) -> Non
 
 
 def test_fzf_picks_among_the_matches(library, monkeypatch) -> None:
-    from sypy import cli
-    from sypy.library import Library
+    from sortyourpaperya import cli
+    from sortyourpaperya.library import Library
 
     root = _two_papers(library)
     monkeypatch.setattr(cli, "_fzf_available", lambda: True)
@@ -650,8 +650,8 @@ def test_fzf_picks_among_the_matches(library, monkeypatch) -> None:
 
 
 def test_backing_out_of_fzf_changes_nothing(library, monkeypatch) -> None:
-    from sypy import cli
-    from sypy.library import Library
+    from sortyourpaperya import cli
+    from sortyourpaperya.library import Library
 
     root = _two_papers(library)
     monkeypatch.setattr(cli, "_fzf_available", lambda: True)
@@ -670,7 +670,7 @@ def test_backing_out_of_fzf_changes_nothing(library, monkeypatch) -> None:
 
 def test_unattended_delete_will_not_act_on_a_word(library) -> None:
     """Which document a word matches changes as the library grows."""
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _two_papers(library)
 
@@ -683,7 +683,7 @@ def test_unattended_delete_will_not_act_on_a_word(library) -> None:
 
 
 def test_delete_by_word_shows_what_it_found_before_asking(library) -> None:
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     root = _two_papers(library)
 
@@ -698,7 +698,7 @@ def test_delete_by_word_shows_what_it_found_before_asking(library) -> None:
 
 def _stocked(library):
     """A small library with categories worth grouping and a year worth sorting."""
-    from sypy.db import Paper
+    from sortyourpaperya.db import Paper
 
     library.db.upsert_many(
         [
@@ -800,7 +800,7 @@ def test_an_attribute_written_by_a_reader_survives_a_retag(library) -> None:
 
 
 def test_one_attribute_prints_alone_so_it_can_be_captured(library) -> None:
-    # `$(sypy attr <id> doi)` has to yield the value and nothing else.
+    # `$(sortyourpaperya attr <id> doi)` has to yield the value and nothing else.
     root = _stocked(library)
     _invoke(root, "attr", "aaaaaaaaaaaa", "doi", "10.1000/xyz")
 

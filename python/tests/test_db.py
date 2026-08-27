@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from sypy.db import Paper, PaperDb
+from sortyourpaperya.db import Paper, PaperDb
 
 
 def _paper(**overrides) -> Paper:
@@ -188,8 +188,8 @@ def test_labels_written_later_do_not_erase_the_page_text(tmp_path: Path) -> None
     the more expensive half — leaving a later pass to render and read the
     document all over again.
     """
-    from sypy.db import ModelAnswer
-    from sypy.llm import KeywordPair
+    from sortyourpaperya.db import ModelAnswer
+    from sortyourpaperya.llm import KeywordPair
 
     with _answers(tmp_path) as db:
         db.remember_model_answers([ModelAnswer("sha-1", page_text="a scanned page")])
@@ -210,8 +210,8 @@ def test_labels_written_later_do_not_erase_the_page_text(tmp_path: Path) -> None
 
 
 def test_page_text_written_later_does_not_erase_the_labels(tmp_path: Path) -> None:
-    from sypy.db import ModelAnswer
-    from sypy.llm import KeywordPair
+    from sortyourpaperya.db import ModelAnswer
+    from sortyourpaperya.llm import KeywordPair
 
     with _answers(tmp_path) as db:
         db.remember_model_answers(
@@ -232,8 +232,8 @@ def test_page_text_written_later_does_not_erase_the_labels(tmp_path: Path) -> No
 
 
 def test_a_label_survives_the_round_trip_intact(tmp_path: Path) -> None:
-    from sypy.db import ModelAnswer
-    from sypy.llm import KeywordPair
+    from sortyourpaperya.db import ModelAnswer
+    from sortyourpaperya.llm import KeywordPair
 
     labels = KeywordPair(
         file_id="sha-1",
@@ -253,7 +253,7 @@ def test_expired_answers_are_pruned_when_the_bank_is_next_written(
     tmp_path: Path,
 ) -> None:
     # An unbounded cache of document text would outgrow the library it describes.
-    from sypy.db import ModelAnswer
+    from sortyourpaperya.db import ModelAnswer
 
     day = 24 * 60 * 60 * 1000
     with _answers(tmp_path) as db:
@@ -266,7 +266,7 @@ def test_expired_answers_are_pruned_when_the_bank_is_next_written(
 
 
 def test_forgetting_the_bank_says_how_much_was_thrown_away(tmp_path: Path) -> None:
-    from sypy.db import ModelAnswer
+    from sortyourpaperya.db import ModelAnswer
 
     with _answers(tmp_path) as db:
         db.remember_model_answers(

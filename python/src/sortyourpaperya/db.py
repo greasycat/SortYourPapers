@@ -338,7 +338,7 @@ class PaperDb:
         """The connection, opened on first use.
 
         DuckDB takes an exclusive lock on the file, so a long-running watcher
-        that held one open would block every other `sypy` command for as long as
+        that held one open would block every other `sortyourpaperya` command for as long as
         it ran. Connecting lazily lets an idle watcher drop the lock — see
         `release` — and pick it up again for the next pass.
         """
@@ -432,11 +432,11 @@ class PaperDb:
         # hand. Doubling the quote is what keeps a folder name containing one
         # from ending the string early.
         literal = str(destination).replace("'", "''")
-        self._conn.execute(f"ATTACH '{literal}' AS sypy_backup")
+        self._conn.execute(f"ATTACH '{literal}' AS sortyourpaperya_backup")
         try:
-            self._conn.execute(f'COPY FROM DATABASE "{source}" TO sypy_backup')
+            self._conn.execute(f'COPY FROM DATABASE "{source}" TO sortyourpaperya_backup')
         finally:
-            self._conn.execute("DETACH sypy_backup")
+            self._conn.execute("DETACH sortyourpaperya_backup")
         return destination
 
     @contextmanager

@@ -1,4 +1,4 @@
-# SortYourPapers Architecture
+# sortyourpaperya Architecture
 
 A repo-structure reference for the current codebase. It reflects the source
 tree as it exists now, not the original implementation plan.
@@ -14,13 +14,13 @@ and is preserved on the `old-rust` branch.
 - `docs/archive/`: historical planning material kept for reference.
 
 ## The Pipeline
-`python/src/sypy/` holds the whole of it. A pass runs in phases,
+`python/src/sortyourpaperya/` holds the whole of it. A pass runs in phases,
 and the split is deliberate: DuckDB allows one writing process, so everything
 slow happens with no connection open and the database is visited in short
 bursts between. `ingest.py`'s module docstring is the authority on that order
 and on why each boundary sits where it does.
 
-- `cli.py`: the `sypy` command surface, and logging setup.
+- `cli.py`: the `sortyourpaperya` command surface, and logging setup.
 - `config.py`: settings resolved CLI > environment > defaults, plus the
   machine-wide state directory.
 - `discovery.py`: finding candidate PDFs, and the content hash that identifies
@@ -35,7 +35,7 @@ and on why each boundary sits where it does.
   the folder scan is the source of truth.
 - `watchlock.py`: claims that stop two watchers sharing an input folder or a
   library, owned by an `flock` rather than by a pid.
-- `registry.py`: `~/.config/sypy/config.toml`, the one file saying what this
+- `registry.py`: `~/.config/sortyourpaperya/config.toml`, the one file saying what this
   machine watches.
 - `library.py`: the store, the symlink tree over it, and backups.
 - `db.py`: the DuckDB schema and every query, including the bank of model

@@ -7,10 +7,10 @@ from typing import Sequence
 import pytest
 from pypdf import PdfWriter
 
-from sypy.config import Settings
-from sypy.extract import PaperText
-from sypy.llm import CategorySuggestion, KeywordPair, LlmError
-from sypy.render import PageImage
+from sortyourpaperya.config import Settings
+from sortyourpaperya.extract import PaperText
+from sortyourpaperya.llm import CategorySuggestion, KeywordPair, LlmError
+from sortyourpaperya.render import PageImage
 
 
 @dataclass
@@ -170,9 +170,9 @@ def write_scanned_pdf(path: Path) -> Path:
 @pytest.fixture(autouse=True)
 def _isolated_watch_locks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep watcher claims and the registry out of the real user directories."""
-    monkeypatch.setenv("SYPY_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("SORTYOURPAPERYA_STATE_DIR", str(tmp_path / "state"))
     # And the registry, so a real one on this machine cannot steer a test.
-    monkeypatch.setenv("SYPY_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("SORTYOURPAPERYA_CONFIG_DIR", str(tmp_path / "config"))
 
 
 @pytest.fixture
@@ -188,7 +188,7 @@ def settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def library(settings: Settings):
-    from sypy.library import Library
+    from sortyourpaperya.library import Library
 
     lib = Library(settings.output_dir)
     try:

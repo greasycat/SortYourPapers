@@ -6,8 +6,8 @@ import subprocess
 
 import pytest
 
-from sypy import notify as notify_module
-from sypy.notify import notify
+from sortyourpaperya import notify as notify_module
+from sortyourpaperya.notify import notify
 
 
 def test_a_notifier_that_fails_is_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from conftest import write_pdf
 
-from sypy.discovery import discover_pdfs, file_id, snapshot_input
+from sortyourpaperya.discovery import discover_pdfs, file_id, snapshot_input
 
 
 def test_non_recursive_scan_skips_nested_pdfs(tmp_path: Path) -> None:

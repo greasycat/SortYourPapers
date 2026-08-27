@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from sypy.naming import (
+from sortyourpaperya.naming import (
     MAX_NAME_CHARS,
     disambiguate,
     link_name,

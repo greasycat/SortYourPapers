@@ -188,7 +188,7 @@ class Library:
         that exists but is not claimed, rather than a claim on nothing.
 
         Re-ingesting does not heal it: ids are minted fresh, so a second attempt
-        builds a second folder and the first is left behind. `sypy fsck` is what
+        builds a second folder and the first is left behind. `sortyourpaperya fsck` is what
         finds those folders and adopts them.
         """
         target = self.place_file(paper, source, mode)
@@ -265,7 +265,7 @@ class Library:
             # document. Dropping it here would leave the folder on disk with
             # nothing pointing at it and no command able to find it, so the
             # document stays in the library and the failure is reported. The
-            # link is restored by `sypy tree`.
+            # link is restored by `sortyourpaperya tree`.
             raise LibraryError(f"could not remove {directory}: {err}") from err
 
         self.db.delete(file_id)
@@ -332,13 +332,13 @@ class Library:
 
         **The database goes first.** Between the two copies a watcher may file
         another document, and which half is behind decides what the copy is
-        worth: a folder with no row is an orphan, which `sypy fsck --adopt`
+        worth: a folder with no row is an orphan, which `sortyourpaperya fsck --adopt`
         brings back, while a row with no folder is a document that no longer
         exists anywhere. Taking the database first makes the recoverable
         mistake the only one available.
 
         `tree/` is not copied. It holds nothing but links and is rebuilt from
-        the database by `sypy tree`.
+        the database by `sortyourpaperya tree`.
 
         Raises:
             LibraryError: if the destination is unusable, or lies inside the

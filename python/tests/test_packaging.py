@@ -45,7 +45,7 @@ def test_every_dependency_is_locked() -> None:
 
     assert not missing, (
         f"not in requirements.lock: {missing}. "
-        "Run ./python/scripts/sypy-path relock"
+        "Run ./python/scripts/sortyourpaperya-path relock"
     )
 
 

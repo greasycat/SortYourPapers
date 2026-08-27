@@ -10,7 +10,7 @@ Watches are declared by name here instead:
 
     [watch.downloads]
     input   = "~/Downloads"
-    library = "~/Documents/sypy-library"
+    library = "~/Documents/sortyourpaperya-library"
     mode    = "copy"
 
 Conflicts are refused when the file is read, so a mistake is a message about
@@ -78,9 +78,9 @@ class Registry:
 
 
 def registry_path() -> Path:
-    base = os.environ.get("SYPY_CONFIG_DIR") or os.environ.get("XDG_CONFIG_HOME")
+    base = os.environ.get("SORTYOURPAPERYA_CONFIG_DIR") or os.environ.get("XDG_CONFIG_HOME")
     root = Path(base) if base else Path.home() / ".config"
-    return Path(root) / "sypy" / CONFIG_FILE
+    return Path(root) / "sortyourpaperya" / CONFIG_FILE
 
 
 def load_registry() -> Registry:

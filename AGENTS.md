@@ -2,8 +2,8 @@
 
 ## Project Context
 
-- Project name: `SortYourPapers` (`syp`)
-- Primary language/runtime: Python 3.11+. The tool lives in `python/` and installs as `sypy`.
+- Project name: `sortyourpaperya` (`syp`)
+- Primary language/runtime: Python 3.11+. The tool lives in `python/` and installs as `sortyourpaperya`.
 - The Rust workspace this project began as is preserved on the `old-rust` branch and is not maintained.
 
 ## Working Rules
@@ -35,5 +35,5 @@
 
 ## Task-Specific Notes
 
-- Commands to know: `python/.venv/bin/python -m pytest` (run from `python/`), `./python/scripts/sypy-path wire`, `sypy --help`.
+- Commands to know: `python/.venv/bin/python -m pytest` (run from `python/`), `./python/scripts/sortyourpaperya-path wire`, `sortyourpaperya --help`.
 - Every test is capped at 60 seconds by `pytest-timeout` using the signal method, so a loop that stops awaiting cannot wedge the machine.

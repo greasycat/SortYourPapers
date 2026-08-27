@@ -1,4 +1,4 @@
-# sypy
+# sortyourpaperya
 
 Read a folder of PDFs, label each one with an LLM, file it into a library, and
 keep doing it as new documents arrive.
@@ -72,12 +72,12 @@ is not a defect at all; it is what happens when a watch is pointed somewhere
 surprising. That is what the ceiling is for:
 
 ```bash
-sypy budget           # what the last 24 hours cost, against the ceiling
-sypy budget --reset   # start the window over
+sortyourpaperya budget           # what the last 24 hours cost, against the ceiling
+sortyourpaperya budget --reset   # start the window over
 ```
 
 Requests and tokens are counted in a rolling 24-hour window, machine-wide rather
-than per-library, in `~/.local/state/sypy/spend.json`. A request that would start
+than per-library, in `~/.local/state/sortyourpaperya/spend.json`. A request that would start
 past the ceiling is refused before it is sent, because a limit checked afterwards
 has already been paid. Defaults are 500 requests and 1,000,000 tokens a day;
 raise them with `SYP_MAX_REQUESTS_PER_DAY` and `SYP_MAX_TOKENS_PER_DAY`, or set
@@ -108,8 +108,8 @@ So the model's answer is banked against the document's **contents** the moment
 it arrives, before a single file is touched:
 
 ```bash
-sypy cache            # how many answers this library has already paid for
-sypy cache --forget   # throw them away and ask again
+sortyourpaperya cache            # how many answers this library has already paid for
+sortyourpaperya cache --forget   # throw them away and ask again
 ```
 
 Keyed by content hash rather than document id, because the id is minted fresh on
@@ -136,12 +136,12 @@ with something else.
 ## Backups
 
 ```bash
-sypy backup ~/Backups/sypy-2026-08-22
+sortyourpaperya backup ~/Backups/sortyourpaperya-2026-08-22
 ```
 
 The store and the database are only useful together — the store alone is a
 folder of documents nothing can find, the database alone is a catalogue of files
-that are gone — so one command copies both. `tree/` is skipped; `sypy tree`
+that are gone — so one command copies both. `tree/` is skipped; `sortyourpaperya tree`
 rebuilds it.
 
 The database is copied first, and through DuckDB rather than as a file: a
@@ -149,7 +149,7 @@ database being written has changes in a log beside it, and a file copy taken at
 the wrong moment restores short of its most recent rows or will not open at all.
 The ordering matters for the same reason filing writes the file before the row.
 If the watcher files something between the two halves, the copy holds a folder
-with no row — an orphan, which `sypy fsck --adopt` brings back — rather than a
+with no row — an orphan, which `sortyourpaperya fsck --adopt` brings back — rather than a
 row pointing at a document that no longer exists anywhere.
 
 For a nightly copy, run it from cron or a launchd agent.
@@ -177,12 +177,12 @@ Every document has one home: a folder in the store holding the document and
 whatever you keep beside it. **That folder is the durable thing** — it is what
 gets backed up, what re-tagging renames, and what removal deletes.
 
-`tree/` is a view and nothing else: delete it and `sypy tree` rebuilds it
+`tree/` is a view and nothing else: delete it and `sortyourpaperya tree` rebuilds it
 exactly. Each document appears there as a single link to its store folder, so
 opening one from a category takes you straight to the document and its notes.
 
 Only the category folders are real, and the tree is neither backed up nor
-preserved across a rebuild-from-scratch. So `sypy tree` reports any file it
+preserved across a rebuild-from-scratch. So `sortyourpaperya tree` reports any file it
 finds living there and tells you to move it into the document's folder. It never
 deletes it — that is not this tool's call.
 
@@ -199,11 +199,11 @@ nothing. A long title is cut between words rather than inside one, so a name
 never trails off mid-word.
 
 Because those names are derived, changing how they are derived leaves existing
-files spelled the old way. `sypy migrate-store` renames them to match. They are relative, so
+files spelled the old way. `sortyourpaperya migrate-store` renames them to match. They are relative, so
 the whole library can be moved without breaking.
 
 **DuckDB is the source of truth.** Filenames and the links are projections of
-it, which is why `sypy tree` can discard the links and rebuild them exactly, and
+it, which is why `sortyourpaperya tree` can discard the links and rebuild them exactly, and
 why a tag list too long for a filename loses nothing. Papers are keyed by a hash of
 their contents, so re-running costs nothing and the same paper arriving twice
 under different names is recognised.
@@ -235,15 +235,15 @@ scans fail only under the service while working by hand — install warns if
 ## Naming a document
 
 Nobody remembers `78c64b3b8ef6`. Every command that takes a document — `retag`,
-`note`, `remove` — also takes words, matched against the same things `sypy find`
+`note`, `remove` — also takes words, matched against the same things `sortyourpaperya find`
 searches: ids, titles, original filenames, years, tags, authors, and keywords.
 
 ```bash
-sypy note kahn --path
-sypy retag "successor representations" "Cognitive Science/Computation"
+sortyourpaperya note kahn --path
+sortyourpaperya retag "successor representations" "Cognitive Science/Computation"
 ```
 
-What a word resolved to is printed **on stderr**, so `$(sypy note kahn --path)`
+What a word resolved to is printed **on stderr**, so `$(sortyourpaperya note kahn --path)`
 still yields nothing but the path.
 
 An exact id is never searched for, so a document can always be named
@@ -264,7 +264,7 @@ error: 'psychology' matches 3 documents:
 add a word to narrow it, or name one by its id.
 ```
 
-`sypy remove --yes` is the one exception: it wants an exact id and refuses a
+`sortyourpaperya remove --yes` is the one exception: it wants an exact id and refuses a
 word. The confirmation is what shows you which document a word found, and with
 `--yes` there is no confirmation — while which document a word matches changes
 as the library grows.
@@ -272,8 +272,8 @@ as the library grows.
 ## When a document is filed wrongly
 
 ```bash
-sypy retag <id> "Cognitive Science/Computational Modelling"   # you decide
-sypy retag <id>                                               # ask the model
+sortyourpaperya retag <id> "Cognitive Science/Computational Modelling"   # you decide
+sortyourpaperya retag <id>                                               # ask the model
 ```
 
 Steering is what makes a second utility bill join the first, and it is also how
@@ -318,9 +318,9 @@ would stop the watcher.
 ## Notes
 
 ```bash
-sypy note <id>              # the document's only note, or a new notes.md
-sypy note <id> reading-log  # a note by name; a bare word is markdown
-sypy note <id> extracted.json
+sortyourpaperya note <id>              # the document's only note, or a new notes.md
+sortyourpaperya note <id> reading-log  # a note by name; a bare word is markdown
+sortyourpaperya note <id> extracted.json
 ```
 
 A note is **any markdown or JSON file in the document's folder** — the name is
@@ -328,7 +328,7 @@ yours, and `notes.md` is only what you get when you ask for a note and say
 nothing else. A markdown note is created with the title as a heading, a JSON one
 as `{}`; nothing else is a note, so `notes.txt` is refused rather than quietly
 renamed. With no `$EDITOR` set the command prints the path instead, so
-`$(sypy note <id>)` composes.
+`$(sortyourpaperya note <id>)` composes.
 
 Naming one is only needed once there is more than one. A document with a single
 note opens it whatever it is called, and a document with several lists them
@@ -338,16 +338,16 @@ asked for "the" notes.
 Notes are just files in the folder, so anything else you put there — figures,
 supplements, a scanned appendix — gets the same treatment, minus being reported
 as a note. All of it is backed up with the document, follows it through a
-re-tag, and is deleted with it, which is why `sypy remove` asks first.
+re-tag, and is deleted with it, which is why `sortyourpaperya remove` asks first.
 
 ## Reading the library from a program
 
-`sypy find` searches everything a document is described by — its id, title,
+`sortyourpaperya find` searches everything a document is described by — its id, title,
 original filename, year, tags, authors, and keywords. Every word has to match
 somewhere, so a second word narrows rather than widens.
 
 ```bash
-sypy find "vaswani attention" --json
+sortyourpaperya find "vaswani attention" --json
 ```
 
 `find` shows 20 matches by default and says on stderr when more matched, since
@@ -364,18 +364,18 @@ it was filed, how large it is, how many pages were read, and its attributes.
 read an answer out of, so "the three most recent" is not a question the library
 could be asked.
 
-`sypy categories` lists every category path in use with a count under each. It
+`sortyourpaperya categories` lists every category path in use with a count under each. It
 is what a re-tag should be decided from, and the alternative was listing the
 whole library and grouping it by hand.
 
-`sypy attr <id> [key] [value]` reads and writes free key/value pairs on a
+`sortyourpaperya attr <id> [key] [value]` reads and writes free key/value pairs on a
 document — a DOI, a venue, a verdict, the day it was read. They live in the
 database beside the document's own labels and are not part of what ingest
 writes, so a rescan, a re-tag, and a re-ingest of the same document all leave
 them alone; only removing the document removes them. `--unset` forgets one.
 They come back in every `--json` record under `attributes`.
 
-`sypy sql "<statement>"` is the rest of the database, for what no command
+`sortyourpaperya sql "<statement>"` is the rest of the database, for what no command
 reports: `stored_mtime_ms`, `content_hash`, and the `page_text` in
 `model_answers` — the text already extracted from each document, which a reader
 would otherwise re-parse the PDF to get. Only a single reading statement is
@@ -388,30 +388,30 @@ Opening `papers.duckdb` directly is not an alternative. DuckDB allows one
 process, and refuses a second connection even read-only, so it works only while
 no watcher is running.
 
-`sypy note <id> [name] --path` prints where the note lives — creating it if it
+`sortyourpaperya note <id> [name] --path` prints where the note lives — creating it if it
 does not exist — and stops, for a caller that means to write it itself. Without
 `--path` the command opens `$EDITOR`, which a program that cannot drive one
 would be left holding open. A caller writing its own file should name it, since
-a bare `sypy note` refuses to choose once a document has several.
+a bare `sortyourpaperya note` refuses to choose once a document has several.
 
-`skills/sortyourpapers/` is an agent skill over all of it — what to run to find a document, how to read and annotate
+`skills/sortyourpaperya/` is an agent skill over all of it — what to run to find a document, how to read and annotate
 it, and which commands cost money or delete things and so are not to be run to
 answer a question. `./install.sh` links it into `~/.claude/skills`, alongside
-putting `sypy` on PATH: a skill an agent cannot find is no more use than a
+putting `sortyourpaperya` on PATH: a skill an agent cannot find is no more use than a
 command that is not on PATH. It is a symlink into the project, so editing it
 takes effect without reinstalling.
 
 The link is only made into a skills directory whose parent already exists.
 A machine with no `~/.claude` will never read a skill put there, and inventing
 another tool's config folder to hold one is litter — so the install says how to
-place it instead. `SYPY_SKILLS_DIR` names the directory for anything that is not
+place it instead. `SORTYOURPAPERYA_SKILLS_DIR` names the directory for anything that is not
 Claude Code, and is taken at its word.
 
 ## When the two halves disagree
 
 ```bash
-sypy fsck            # what is wrong
-sypy fsck --adopt    # bring orphaned folders back in
+sortyourpaperya fsck            # what is wrong
+sortyourpaperya fsck --adopt    # bring orphaned folders back in
 ```
 
 Filing puts a document's file down before writing its row, so that an
@@ -442,7 +442,7 @@ vanished is reported rather than silently dropped. A store that cannot be read i
 reported and stepped over, because failing to reconcile risks a duplicate while
 refusing to run files nothing at all.
 
-`sypy scan` runs the same reconciliation on its own, for checking a library
+`sortyourpaperya scan` runs the same reconciliation on its own, for checking a library
 without ingesting into it.
 
 ## Installing
@@ -457,7 +457,7 @@ without ingesting into it.
 It finds a Python 3.11 or newer — trying `python3.14` down to `python3`, since
 a distribution's `python3` is often older than the newest it also ships —
 builds a virtualenv inside the project, installs the pinned dependencies, and
-links `sypy` into `~/.local/bin`, and links the agent skill into
+links `sortyourpaperya` into `~/.local/bin`, and links the agent skill into
 `~/.claude/skills`. Nothing is written outside the project, those two
 directories, and (with `--service`) the supervisor's config — and the last two
 get a symlink each.
@@ -468,39 +468,39 @@ Debian and its derivatives ship `venv` as a separate package, so a working
 with no text layer, so a missing one is a warning naming the package to install
 rather than a refusal.
 
-Override where things go with `SYPY_VENV_DIR`, `SYPY_BIN_DIR`, and
-`SYPY_SKILLS_DIR`.
+Override where things go with `SORTYOURPAPERYA_VENV_DIR`, `SORTYOURPAPERYA_BIN_DIR`, and
+`SORTYOURPAPERYA_SKILLS_DIR`.
 
 ## Usage
 
 ```bash
 
-sypy ingest --input ./inbox                 # preview: nothing is written
-sypy ingest --input ./inbox --mode copy     # copy in, leave the source alone
-sypy ingest --input ./inbox --mode move     # move in, draining the source
-sypy watch  --input ./inbox --mode copy     # keep doing it as documents arrive
+sortyourpaperya ingest --input ./inbox                 # preview: nothing is written
+sortyourpaperya ingest --input ./inbox --mode copy     # copy in, leave the source alone
+sortyourpaperya ingest --input ./inbox --mode move     # move in, draining the source
+sortyourpaperya watch  --input ./inbox --mode copy     # keep doing it as documents arrive
 
-sypy list                              # what the library holds
-sypy list --json                       # ...as records, for a program to read
-sypy list --sort recent                # id (default), recent, updated, title, year, size
-sypy find "attention 2017"             # by title, author, keyword, tag, year, or id
-sypy categories                        # every category in use, and how many are under it
-sypy attr <id>                         # free key/value pairs kept on a document
-sypy attr <id> doi 10.1000/xyz         # ...set one; --unset forgets it
-sypy sql "SELECT ..."                  # the database directly, reading only
-sypy retag <id> "Systems/Databases"    # re-tag: renames the folder, moves the link
-sypy retag <id>                        # ...or ask the model, and confirm
-sypy note kahn                         # id or words: any command taking a document
-sypy note <id>                         # open this document's notes ($EDITOR)
-sypy note <id> reading-log             # ...a note by name; .md unless you say .json
-sypy note <id> --path                  # ...or just say where they are
-sypy remove <id>                       # delete link, folder, and record (asks first)
-sypy scan                              # refresh hashes of files edited in place
-sypy fsck [--adopt]                    # check the store and database agree
-sypy tree                              # rebuild the symlink tree from the database
-sypy backup <dir>                      # copy the store and the database, together
-sypy budget                            # what the last 24 hours cost at the API
-sypy cache [--forget]                  # model answers already paid for
+sortyourpaperya list                              # what the library holds
+sortyourpaperya list --json                       # ...as records, for a program to read
+sortyourpaperya list --sort recent                # id (default), recent, updated, title, year, size
+sortyourpaperya find "attention 2017"             # by title, author, keyword, tag, year, or id
+sortyourpaperya categories                        # every category in use, and how many are under it
+sortyourpaperya attr <id>                         # free key/value pairs kept on a document
+sortyourpaperya attr <id> doi 10.1000/xyz         # ...set one; --unset forgets it
+sortyourpaperya sql "SELECT ..."                  # the database directly, reading only
+sortyourpaperya retag <id> "Systems/Databases"    # re-tag: renames the folder, moves the link
+sortyourpaperya retag <id>                        # ...or ask the model, and confirm
+sortyourpaperya note kahn                         # id or words: any command taking a document
+sortyourpaperya note <id>                         # open this document's notes ($EDITOR)
+sortyourpaperya note <id> reading-log             # ...a note by name; .md unless you say .json
+sortyourpaperya note <id> --path                  # ...or just say where they are
+sortyourpaperya remove <id>                       # delete link, folder, and record (asks first)
+sortyourpaperya scan                              # refresh hashes of files edited in place
+sortyourpaperya fsck [--adopt]                    # check the store and database agree
+sortyourpaperya tree                              # rebuild the symlink tree from the database
+sortyourpaperya backup <dir>                      # copy the store and the database, together
+sortyourpaperya budget                            # what the last 24 hours cost at the API
+sortyourpaperya cache [--forget]                  # model answers already paid for
 
 ./install.sh --uninstall               # remove the link
 ```
@@ -512,21 +512,21 @@ after changing dependencies.
 ## The registry
 
 One file says what this machine watches, at
-`~/.config/sypy/config.toml`:
+`~/.config/sortyourpaperya/config.toml`:
 
 ```toml
 default = "downloads"
 
 [watch.downloads]
 input   = "~/Downloads"
-library = "~/Documents/sypy-library"
+library = "~/Documents/sortyourpaperya-library"
 mode    = "copy"
 ```
 
 ```bash
-sypy watches        # what is declared, and which are running
-sypy watch          # run the default watch
-sypy watch papers   # run a named one
+sortyourpaperya watches        # what is declared, and which are running
+sortyourpaperya watch          # run the default watch
+sortyourpaperya watch papers   # run a named one
 ```
 
 With a registry, the other commands stop needing `--library`: it resolves
@@ -547,17 +547,17 @@ A watcher claims its input folder and its library before it starts, and refuses
 if either is already claimed:
 
 ```
-error: ~/Documents/sypy-library is already being watched as the library of a
+error: ~/Documents/sortyourpaperya-library is already being watched as the library of a
        watcher running as pid 63643
 ```
 
 Two watchers sharing either folder would file the same document twice: each
 decides what the library already holds before either writes, and the database
-lock is not held across that gap. Claims are kept in `~/.local/state/sypy`, not
+lock is not held across that gap. Claims are kept in `~/.local/state/sortyourpaperya`, not
 in the folders themselves, so they work across libraries and leave no litter.
 
 A claim whose owner is gone is taken over rather than respected, so a crash does
-not lock a folder out. That is also what cleans up after `sypy-service
+not lock a folder out. That is also what cleans up after `sortyourpaperya-service
 uninstall`: stopping the agent sends `SIGTERM`, which does not run the release,
 so the claims are left behind until the next watcher takes them over.
 
@@ -569,7 +569,7 @@ stranger lives. The kernel drops an `flock` when the holder dies, however it
 dies. The pid is still recorded, because "already watched by pid 63643" is what
 makes the refusal actionable, but nothing is decided from it.
 
-`sypy ingest` is not covered by this. Running one by hand while a watcher is
+`sortyourpaperya ingest` is not covered by this. Running one by hand while a watcher is
 going can still file a document twice, because both check before either writes.
 
 ## Running it as a service
@@ -577,10 +577,10 @@ going can still file a document twice, because both check before either writes.
 ```bash
 ./install.sh --service                              # the registry's default watch
 
-./python/scripts/sypy-service install papers     # a named watch
-./python/scripts/sypy-service status
-./python/scripts/sypy-service logs
-./python/scripts/sypy-service uninstall
+./python/scripts/sortyourpaperya-service install papers     # a named watch
+./python/scripts/sortyourpaperya-service status
+./python/scripts/sortyourpaperya-service logs
+./python/scripts/sortyourpaperya-service uninstall
 ```
 
 **launchd** on macOS, **systemd --user** on Linux. The two are written the way
@@ -589,7 +589,7 @@ in where the unit lives, how it is loaded, what happens to its output, and
 whether it survives logout.
 
 It watches in copy mode, so the watched folder is indexed but never rearranged.
-`SYPY_MODE=move` overrides that. Both units carry poppler's directory on `PATH`
+`SORTYOURPAPERYA_MODE=move` overrides that. Both units carry poppler's directory on `PATH`
 explicitly — a service gets a bare one that includes neither Homebrew nor
 `/usr/local`, and without it every scanned document fails under the service
 while the same command works by hand.
@@ -605,15 +605,15 @@ running after logout, `loginctl enable-linger $USER`; the installer says so if
 linger is off.
 
 Logs go through a rotating handler — 2MB a file, three kept — so a service left
-running for months cannot fill the disk: `~/Library/Logs/sypy/sypy.log` on
-macOS, `~/.local/state/sypy/logs/sypy.log` on Linux. Every line carries a
+running for months cannot fill the disk: `~/Library/Logs/sortyourpaperya/sortyourpaperya.log` on
+macOS, `~/.local/state/sortyourpaperya/logs/sortyourpaperya.log` on Linux. Every line carries a
 timestamp, because the log is read hours later and often after a restart, and
 every document that failed is named along with why: a full disk, an expired key,
 and a corrupt PDF all read the same as "1 failed".
 
-The supervisor's own capture of the process goes to `sypy.crash.log` beside it
+The supervisor's own capture of the process goes to `sortyourpaperya.crash.log` beside it
 and holds only what logging never sees — a traceback from a crash.
-`sypy-service logs` shows the tail of both.
+`sortyourpaperya-service logs` shows the tail of both.
 
 There is one service, so installing for a different folder is refused rather
 than silently replacing the running one; `uninstall` first. Reinstalling the
@@ -633,7 +633,7 @@ proportional to the number of documents, not to the bytes being read. On twelve
 4MB documents the share of a pass with the lock unavailable is 3%, against 66%
 when the file work was done with the connection held.
 
-`install.sh` delegates the virtualenv to `python/scripts/sypy-path wire`,
+`install.sh` delegates the virtualenv to `python/scripts/sortyourpaperya-path wire`,
 which installs the dependencies from `requirements.lock` and then the package
 itself in editable mode, so source edits take effect without reinstalling.
 
@@ -642,23 +642,23 @@ which is what makes a break arriving with a dependency indistinguishable from
 one arriving with a commit. Move it forward deliberately:
 
 ```bash
-./python/scripts/sypy-path relock    # re-resolve, then review the diff
+./python/scripts/sortyourpaperya-path relock    # re-resolve, then review the diff
 ```
 
 It resolves in a throwaway virtualenv, so the test dependencies and whatever a
 debugging session left behind stay out of it. Versions are pinned, not hashes:
 it says what is installed, and does not try to prove the index handed over the
-same bytes as last time. It refuses to replace a `sypy` it did not create,
+same bytes as last time. It refuses to replace a `sortyourpaperya` it did not create,
 and `unwire` refuses to delete one, so an unrelated command of the same name
 survives both; a skill of the same name someone else wrote survives the same
 way, though as a warning rather than a refusal, since by then the command is
-already installed. Override the locations with `SYPY_VENV_DIR`,
-`SYPY_BIN_DIR`, and `SYPY_SKILLS_DIR`.
+already installed. Override the locations with `SORTYOURPAPERYA_VENV_DIR`,
+`SORTYOURPAPERYA_BIN_DIR`, and `SORTYOURPAPERYA_SKILLS_DIR`.
 
 Without wiring, run it through the project directly:
 
 ```bash
-uv run --project python sypy ingest --input ./inbox
+uv run --project python sortyourpaperya ingest --input ./inbox
 ```
 
 Running the tests needs the dev extras, which `wire` does not install:
@@ -689,8 +689,8 @@ What it may spend, and how hard it tries:
 `SYP_LLM_TIMEOUT_SECONDS`, `SYP_LABEL_CACHE_DAYS`.
 
 Where it keeps what one invocation leaves for the next — watch claims and the
-spend ledger — is `SYPY_STATE_DIR`, defaulting to `~/.local/state/sypy`. The
-registry is `SYPY_CONFIG_DIR`, and `SYPY_LOG_FILE` turns on the rotating log
+spend ledger — is `SORTYOURPAPERYA_STATE_DIR`, defaulting to `~/.local/state/sortyourpaperya`. The
+registry is `SORTYOURPAPERYA_CONFIG_DIR`, and `SORTYOURPAPERYA_LOG_FILE` turns on the rotating log
 (the service sets it; a second process rotating the same file can lose lines).
 
 The API key is read from `OPENAI_API_KEY`, `SYP_API_KEY`, or `OEPNAI_API_KEY`,
@@ -709,25 +709,25 @@ and the correct spelling wins when both are set.
   the same breath, with no file work in between — is not covered, because the
   page text is banked when the reading stage finishes rather than per document.
 - Banked answers hold the model's reading of a document's first page, so
-  clearing them (`sypy cache --forget`) is the way to stop that text sitting in
+  clearing them (`sortyourpaperya cache --forget`) is the way to stop that text sitting in
   the library.
 - `remove` deletes the stored file, which is the only copy when the document
   arrived by move. There is no unfile-but-keep option.
 - Category steering sends at most 200 existing paths; a larger library sends its
   alphabetically first.
-- Only watchers claim folders. A hand-run `sypy ingest` racing a watcher can
+- Only watchers claim folders. A hand-run `sortyourpaperya ingest` racing a watcher can
   still file the same document twice.
 - Steering can also mislead. A 1990 radiology paper joined an existing
   `Machine Learning/Explainable AI/Medical Imaging` branch because it was the
   nearest thing present, where an unsteered run put it under
-  `Medicine/Radiology`. `sypy retag` is the fix when it happens.
+  `Medicine/Radiology`. `sortyourpaperya retag` is the fix when it happens.
 - Moving a link by hand still does not re-tag anything: links are relative, so
   moving one to a different depth breaks it, and a rebuild puts it back. Use
-  `sypy retag`. Files you add to a document's folder are safe either way.
-- `sypy remove` deletes the document's whole store folder, including notes and
+  `sortyourpaperya retag`. Files you add to a document's folder are safe either way.
+- `sortyourpaperya remove` deletes the document's whole store folder, including notes and
   anything else kept in it. It confirms first.
 - A file written into the tree rather than the document's folder is reported by
-  `sypy tree`, not moved or deleted. It is not durable where it sits. If it is
+  `sortyourpaperya tree`, not moved or deleted. It is not durable where it sits. If it is
   sitting exactly where a document's link belongs, that document is linked under
   an id-decorated name beside it instead; the file is never replaced.
 - The spend ceiling counts requests and tokens, not money. It bounds the damage
@@ -736,6 +736,6 @@ and the correct spelling wins when both are set.
   ceiling is enforced at the request that crosses it — the tokens that request
   turns out to cost are recorded after, and can carry the day slightly past the
   token ceiling.
-- `sypy backup` copies; it does not rotate, prune, or verify old backups.
+- `sortyourpaperya backup` copies; it does not rotate, prune, or verify old backups.
 - The lock pins versions, not hashes.
-- A library made before documents had folders needs `sypy migrate-store` once.
+- A library made before documents had folders needs `sortyourpaperya migrate-store` once.

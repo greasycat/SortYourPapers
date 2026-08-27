@@ -8,8 +8,8 @@ import pytest
 
 from conftest import FailingLlmClient, FakeLlmClient, write_pdf, write_scanned_pdf
 
-from sypy.llm import LlmError
-from sypy.render import PageImage, RenderError
+from sortyourpaperya.llm import LlmError
+from sortyourpaperya.render import PageImage, RenderError
 
 
 def _fake_render(path, page_cutoff):
@@ -17,10 +17,10 @@ def _fake_render(path, page_cutoff):
     return [PageImage(data=b"\x89PNG fake")]
 
 
-from sypy.config import Settings
-import sypy.ingest as ingest_module
-from sypy.ingest import ingest_folder
-from sypy.library import FilingMode, Library
+from sortyourpaperya.config import Settings
+import sortyourpaperya.ingest as ingest_module
+from sortyourpaperya.ingest import ingest_folder
+from sortyourpaperya.library import FilingMode, Library
 
 
 async def test_ingests_every_pending_pdf(settings: Settings, library: Library) -> None:
@@ -302,7 +302,7 @@ async def test_move_mode_works_across_filesystems(
         calls.append(str(src))
         return real_move(src, dst, *args, **kwargs)
 
-    monkeypatch.setattr("sypy.library.shutil.move", tracking_move)
+    monkeypatch.setattr("sortyourpaperya.library.shutil.move", tracking_move)
     report = await ingest_folder(
         settings, FakeLlmClient(), library, mode=FilingMode.MOVE
     )
@@ -374,7 +374,7 @@ async def test_an_edited_document_is_recognised_without_a_manual_scan(
     settings: Settings, library: Library
 ) -> None:
     # The whole point of reconciling on the way in: nobody has to remember to
-    # run `sypy scan` for the library to recognise what it already holds.
+    # run `sortyourpaperya scan` for the library to recognise what it already holds.
     source = write_pdf(settings.input_dir / "a.pdf", "attention")
     await ingest_folder(settings, FakeLlmClient(), library, mode=FilingMode.COPY)
     source.unlink()
@@ -431,7 +431,7 @@ async def test_no_database_connection_is_held_during_the_model_calls(
     """The model calls are the slow part of a pass and need no database.
 
     DuckDB allows one writing process, so a connection left open across them
-    would shut every other `sypy` command out for the length of the pass.
+    would shut every other `sortyourpaperya` command out for the length of the pass.
     """
     observed: list[bool] = []
 

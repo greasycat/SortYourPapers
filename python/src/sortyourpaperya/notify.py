@@ -56,5 +56,5 @@ def _command(title: str, body: str) -> list[str] | None:
             "--", body, title,
         ]
     if shutil.which("notify-send"):
-        return ["notify-send", "--app-name=sypy", "--", title, body]
+        return ["notify-send", "--app-name=sortyourpaperya", "--", title, body]
     return None

@@ -1,4 +1,4 @@
-"""The read-only guard on `sypy sql`.
+"""The read-only guard on `sortyourpaperya sql`.
 
 A guard against a mistake, not a sandbox: whoever can run this can already read
 the database file. What it has to stop is a query written to count documents
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from sypy.db import PaperDb, is_read_only
+from sortyourpaperya.db import PaperDb, is_read_only
 
 
 @pytest.mark.parametrize(
@@ -55,7 +55,7 @@ def test_anything_that_could_write_is_refused(statement: str) -> None:
 
 
 def test_select_returns_columns_and_rows(tmp_path: Path) -> None:
-    from sypy.db import Paper
+    from sortyourpaperya.db import Paper
 
     with PaperDb(tmp_path / "papers.duckdb") as db:
         db.upsert(
@@ -75,7 +75,7 @@ def test_select_returns_columns_and_rows(tmp_path: Path) -> None:
 
 
 def test_a_writing_statement_never_reaches_duckdb(tmp_path: Path) -> None:
-    from sypy.db import Paper
+    from sortyourpaperya.db import Paper
 
     with PaperDb(tmp_path / "papers.duckdb") as db:
         db.upsert(Paper(file_id="abc123abc123", content_hash="s", store_name="s"))
